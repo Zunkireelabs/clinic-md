@@ -12,6 +12,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useBranch } from '../../contexts/BranchContext';
 import { fetchBookingById, fetchDentists, recordPayment, updateBookingStatus, assignDentist, fetchDueHolderNames, createTreatmentNote } from '../../services/api';
 import { transformBooking, toDbStatus } from '../../services/bookingTransformers';
+import { CONSULTATION_ENABLED } from '../../lib/featureFlags';
 
 const BookingDetailsAssignmentModal = () => {
   const navigate = useNavigate();
@@ -300,6 +301,11 @@ const BookingDetailsAssignmentModal = () => {
                               }}
                               onStatusUpdate={handleStatusUpdate}
                               onRecordPayment={() => setShowPaymentModal(true)}
+                              onStartConsultation={
+                                CONSULTATION_ENABLED && userRole !== 'admin_viewer'
+                                  ? () => navigate(`/${urlOrgSlug || profile?.organizations?.slug}/bookings/${bookingIdFromUrl}/consultation`)
+                                  : undefined
+                              }
                               isLoading={isLoading}
                             />
                           </div>

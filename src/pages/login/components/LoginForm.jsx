@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { safeNextPath } from '../../../utils/loginRedirect';
 import Icon from '../../../components/AppIcon';
 import { useAuth, getDashboardPath } from '../../../contexts/AuthContext';
 import { supabase } from '../../../lib/supabase';
@@ -25,6 +26,10 @@ function saveEmail(orgSlug, email) {
 
 const LoginForm = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const nextParam = new URLSearchParams(location.search).get('next');
+  // Where to go after login: the page they came from (same org only), else their dashboard.
+  const afterLoginPath = (role, orgSlug) => safeNextPath(nextParam, orgSlug) || getDashboardPath(role, orgSlug);
   const { orgSlug: urlOrgSlug } = useParams();
   const { signIn, user, profile } = useAuth();
   const [email, setEmail] = useState('');
@@ -46,7 +51,7 @@ const LoginForm = () => {
   useEffect(() => {
     if (user && profile) {
       const userOrgSlug = profile?.organizations?.slug;
-      navigate(getDashboardPath(profile.role, userOrgSlug), { replace: true });
+      navigate(afterLoginPath(profile.role, userOrgSlug), { replace: true });
     }
   }, [user, profile, navigate]);
 
@@ -181,7 +186,7 @@ const LoginForm = () => {
           return;
         }
 
-        navigate(getDashboardPath(result.profile.role, userOrgSlug), { replace: true });
+        navigate(afterLoginPath(result.profile.role, userOrgSlug), { replace: true });
         return;
       }
       setErrors({

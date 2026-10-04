@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import Button from './Button';
 import CustomSelect from './CustomSelect';
 import PaymentModal from './PaymentModal';
@@ -9,6 +10,7 @@ import MembershipWalletCard from './MembershipWalletCard';
 import { fetchRelatedUnpaidBookings, fetchBookingCreator, fetchDiscountApprovers, fetchDueHolderNames, getCustomerOutstandingBalance, fetchMembershipForBooking, fetchCustomerReferralForBooking, resolveCustomerReferralReward } from '../../services/api';
 import { excludeRelatedFromPreviousDue } from '../../services/bookingTransformers';
 import { useBranch } from '../../contexts/BranchContext';
+import { CONSULTATION_ENABLED } from '../../lib/featureFlags';
 import { getExtendOptions } from '../../utils/treatmentVariants';
 
 function getNepalNow() {
@@ -73,6 +75,8 @@ const BookingActionModal = ({
   userRole = 'staff'
 }) => {
   const { branchId } = useBranch();
+  const navigate = useNavigate();
+  const { orgSlug } = useParams();
   const [activeTab, setActiveTab] = useState('details');
   const [selectedDentists, setSelectedDentists] = useState([]);
   const [dentistSearch, setDentistSearch] = useState('');
@@ -811,9 +815,22 @@ const BookingActionModal = ({
                       {booking.status.replace('-', ' ')}
                     </span>
                   </div>
-                  {!isTerminal && !isLocked && nextStatuses.length > 0 && (
+                  {(CONSULTATION_ENABLED && booking.status === 'in-progress' && userRole !== 'admin_viewer' && orgSlug)
+                    || (!isTerminal && !isLocked && nextStatuses.length > 0) ? (
                     <div className="flex flex-wrap gap-2">
-                      {nextStatuses.map((status) => {
+                      {CONSULTATION_ENABLED && booking.status === 'in-progress' && userRole !== 'admin_viewer' && orgSlug && (
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          iconName="Mic"
+                          iconPosition="left"
+                          className="min-h-[40px] sm:min-h-0 sm:h-auto"
+                          onClick={() => navigate(`/${orgSlug}/bookings/${booking.bookingId}/consultation`)}
+                        >
+                          Start Consultation
+                        </Button>
+                      )}
+                      {!isTerminal && !isLocked && nextStatuses.map((status) => {
                         const needsConfirm = status === 'cancelled' || status === 'no show';
                         const noShowGated = status === 'no show' && !hasBookingStarted(booking);
                         return (
@@ -832,7 +849,7 @@ const BookingActionModal = ({
                         );
                       })}
                     </div>
-                  )}
+                  ) : null}
                 </div>
 
                 {/* Customer & Treatment Information - Responsive grid */}

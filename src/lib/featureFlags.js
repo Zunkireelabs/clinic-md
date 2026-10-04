@@ -29,3 +29,8 @@ export const OUTREACH_ENABLED = import.meta.env.VITE_ENABLE_OUTREACH === 'true';
 // configuration (migrations 113-117). Gate all platform-admin routes and
 // components behind this flag until schema is promoted to production.
 export const PLATFORM_ADMIN_ENABLED = import.meta.env.VITE_ENABLE_PLATFORM_ADMIN === 'true';
+
+// Doctor consultation (voice recording, AI summary, X-ray/photo analysis) on
+// In-Progress bookings. Needs the consultations table + consultation-* storage
+// buckets and Edge Functions; AI steps also need OPENAI_API_KEY/GEMINI_API_KEY.
+export const CONSULTATION_ENABLED = import.meta.env.VITE_ENABLE_CONSULTATION === 'true';

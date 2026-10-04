@@ -5345,3 +5345,140 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO postgres, se
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO anon, authenticated;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO postgres, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated;
+
+-- Doctor consultations: voice recording transcript, AI summaries, X-ray and
+-- clinical-photo analysis, and the doctor's own notes for one booking.
+CREATE TABLE public.consultations (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    org_id uuid NOT NULL REFERENCES public.organizations(id),
+    branch_id uuid REFERENCES public.branches(id),
+    booking_id uuid NOT NULL REFERENCES public.bookings(id) ON DELETE CASCADE,
+    customer_id uuid REFERENCES public.customers(id) ON DELETE SET NULL,
+    dentist_id uuid REFERENCES public.dentists(id) ON DELETE SET NULL,
+    created_by uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    patient_name text NOT NULL,
+    status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'completed')),
+    transcript text,
+    detected_language text,
+    recording_duration_seconds integer,
+    audio_paths text[] NOT NULL DEFAULT '{}',
+    preliminary_summary text,
+    xray_analysis text,
+    xray_image_paths text[] NOT NULL DEFAULT '{}',
+    photo_analysis text,
+    photo_image_paths text[] NOT NULL DEFAULT '{}',
+    additional_notes text,
+    doctor_notes text,
+    final_summary text,
+    session_date date NOT NULL DEFAULT CURRENT_DATE,
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    updated_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_consultations_booking ON public.consultations (booking_id);
+CREATE INDEX idx_consultations_customer ON public.consultations (customer_id);
+CREATE INDEX idx_consultations_org_date ON public.consultations (org_id, session_date DESC);
+
+CREATE TRIGGER consultations_updated_at BEFORE UPDATE ON public.consultations
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+-- Live sync: two devices (desktop + phone) can open the same booking's
+-- consultation at once, so there must be only one open draft per booking, and
+-- changes are pushed to the other device through Supabase Realtime.
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_consultations_open_draft
+    ON public.consultations (booking_id) WHERE status = 'draft';
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime')
+     AND NOT EXISTS (
+       SELECT 1 FROM pg_publication_tables
+       WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'consultations'
+     ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.consultations;
+  END IF;
+END $$;
+
+-- Web Push: one row per phone/browser that agreed to notifications. The
+-- consultation-push Edge Function sends "tap to record" notifications to the
+-- user's own subscriptions.
+CREATE TABLE public.push_subscriptions (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    org_id uuid NOT NULL REFERENCES public.organizations(id),
+    endpoint text NOT NULL UNIQUE,
+    p256dh text NOT NULL,
+    auth text NOT NULL,
+    user_agent text,
+    created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_push_subscriptions_user ON public.push_subscriptions (user_id);
+
+-- Phone pairing: the computer shows a QR code carrying a one-time code; the
+-- phone redeems it (via the phone-pair Edge Function) to be signed in as the
+-- same user. Only a hash of the code is stored. No policies: the table is only
+-- reachable through that function (service role).
+CREATE TABLE public.phone_pairings (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    code_hash text NOT NULL UNIQUE,
+    expires_at timestamp with time zone NOT NULL,
+    used_at timestamp with time zone,
+    created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.phone_pairings ENABLE ROW LEVEL SECURITY;
+
+-- Phone pairing by typed 6-digit code (for the Home Screen app, which cannot
+-- open the QR link). Same row as the QR code; wrong guesses are counted so a
+-- 6-digit code cannot be brute-forced.
+ALTER TABLE public.phone_pairings ADD COLUMN short_hash text;
+
+CREATE UNIQUE INDEX uniq_phone_pairings_open_short
+    ON public.phone_pairings (short_hash) WHERE used_at IS NULL AND short_hash IS NOT NULL;
+
+CREATE TABLE public.phone_pairing_failures (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    ip text,
+    created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_phone_pairing_failures_recent ON public.phone_pairing_failures (created_at);
+
+ALTER TABLE public.phone_pairing_failures ENABLE ROW LEVEL SECURITY;
+
+-- Who recorded a consultation, by name. Staff logins can only read their own
+-- profile, so colleagues' names are stored here when the consultation is created.
+ALTER TABLE public.consultations ADD COLUMN created_by_name text;
+
+UPDATE public.consultations c SET created_by_name = u.full_name FROM public.users u WHERE u.id = c.created_by AND c.created_by_name IS NULL;
+
+-- Which doctors attended a patient. Whoever creates or changes a consultation is added
+-- by name, so a doctor covering for a colleague shows up next to the original doctor.
+-- The database does this itself (from the logged-in user), so every device and screen
+-- gets it without extra code.
+ALTER TABLE public.consultations ADD COLUMN attended_by_names text[] NOT NULL DEFAULT '{}';
+
+UPDATE public.consultations SET attended_by_names = ARRAY[created_by_name] WHERE created_by_name IS NOT NULL AND attended_by_names = '{}';
+
+CREATE FUNCTION public.consultation_track_attendee() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_name text;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+  SELECT full_name INTO v_name FROM public.users WHERE id = auth.uid();
+  IF v_name IS NOT NULL AND NOT (v_name = ANY (NEW.attended_by_names)) THEN
+    NEW.attended_by_names := array_append(NEW.attended_by_names, v_name);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER consultations_track_attendee BEFORE INSERT OR UPDATE ON public.consultations
+    FOR EACH ROW EXECUTE FUNCTION public.consultation_track_attendee();

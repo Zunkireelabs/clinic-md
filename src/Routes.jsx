@@ -11,6 +11,11 @@ import BranchStaffDashboard from "pages/branch-staff-dashboard";
 import BookingDetailsAssignmentModal from "pages/booking-details-assignment-modal";
 import BranchManagerDashboard from "pages/branch-manager-dashboard";
 import AttendanceCalendarPage from "pages/attendance-calendar";
+import ConsultationPage from "pages/consultation";
+import PhoneEntry from "pages/consultation/PhoneEntry";
+import PhoneGate from "pages/consultation/PhoneGate";
+import PhonePair from "pages/consultation/PhonePair";
+import PhoneUnlockPrompt from "pages/consultation/components/PhoneUnlockPrompt";
 import OrgFinder from "pages/org-finder";
 import CustomerLoginAuthentication from "pages/customer-login";
 import CustomerSignup from "pages/customer-signup";
@@ -21,7 +26,7 @@ import ProtectedPlatformRoute from 'components/ProtectedPlatformRoute';
 import PlatformLogin from 'pages/platform/PlatformLogin';
 import PlatformDashboard from 'pages/platform/PlatformDashboard';
 import PlatformOrgDetail from 'pages/platform/PlatformOrgDetail';
-import { PLATFORM_ADMIN_ENABLED } from 'lib/featureFlags';
+import { PLATFORM_ADMIN_ENABLED, CONSULTATION_ENABLED } from 'lib/featureFlags';
 import logo from 'assets/logo.png';
 
 // Wrapper component that provides tenant context
@@ -82,6 +87,7 @@ const UnifiedDashboard = () => {
 const AppRoutes = () => {
   const location = useLocation();
   return (
+    <>
       <ErrorBoundary key={location.pathname}>
       <ScrollToTop />
       <RouterRoutes>
@@ -123,6 +129,29 @@ const AppRoutes = () => {
             </ProtectedRoute>
           </TenantWrapper>
         } />
+
+        {/* Doctor consultation for a booking (flag-gated). admin_viewer is read-only, so excluded. */}
+        {CONSULTATION_ENABLED && (
+          <>
+            <Route path="/:orgSlug/bookings/:bookingId/consultation" element={
+              <TenantWrapper>
+                <ProtectedRoute allowedRoles={['staff', 'manager', 'admin']}>
+                  <ConsultationPage />
+                </ProtectedRoute>
+              </TenantWrapper>
+            } />
+            {/* Short address used by the Doctor home-screen icon: forwards to the clinic's phone page. */}
+            <Route path="/phone" element={<PhoneEntry />} />
+            {/* QR landing page: signs the phone in with a one-time code (public route). */}
+            <Route path="/phone/pair" element={<PhonePair />} />
+            {/* Doctor phone: stays open on the phone and follows consultations started on the computer. */}
+            <Route path="/:orgSlug/phone" element={
+              <TenantWrapper>
+                <PhoneGate />
+              </TenantWrapper>
+            } />
+          </>
+        )}
 
         {/* ==================== PLATFORM ADMIN ROUTES (flag-gated) ==================== */}
         {PLATFORM_ADMIN_ENABLED && (
@@ -181,6 +210,9 @@ const AppRoutes = () => {
         <Route path="*" element={<NotFound />} />
       </RouterRoutes>
       </ErrorBoundary>
+      {/* Shows the doctor's phone-unlock code on whatever screen is open on the computer. */}
+      {CONSULTATION_ENABLED && <PhoneUnlockPrompt />}
+    </>
   );
 };
 

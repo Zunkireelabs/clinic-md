@@ -1,6 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+// A relative value (e.g. "/sb") is resolved against the page's own origin. The
+// dev server forwards that path to local Supabase, so a phone opening the app
+// over the network does not need to reach 127.0.0.1 itself.
+const rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseUrl = rawSupabaseUrl?.startsWith('/') ? `${window.location.origin}${rawSupabaseUrl}` : rawSupabaseUrl;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {

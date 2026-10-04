@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Icon from '../../../../components/AppIcon';
 import { fetchCustomerProfile } from '../../../../services/api';
+import VisitDetail from './VisitDetail';
 
 const LOYALTY_CONFIG = {
   VIP:        { color: 'bg-amber-100 text-amber-800', icon: 'Crown' },
@@ -25,6 +26,7 @@ function formatNPR(amount) {
 }
 
 const CustomerProfileModal = ({ customerId, onClose }) => {
+  const [selectedVisit, setSelectedVisit] = useState(null);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -97,7 +99,16 @@ const CustomerProfileModal = ({ customerId, onClose }) => {
             </div>
           )}
 
-          {data && !loading && (
+          {data && !loading && selectedVisit && (
+            <VisitDetail
+              visit={selectedVisit}
+              customerName={data.customer.fullName}
+              notes={(data.treatmentNotes || []).filter((n) => n.bookingId === selectedVisit.id)}
+              onBack={() => setSelectedVisit(null)}
+            />
+          )}
+
+          {data && !loading && !selectedVisit && (
             <div className="space-y-6">
               {/* Identity + Loyalty Badge */}
               <div className="flex items-start justify-between">
@@ -215,9 +226,11 @@ const CustomerProfileModal = ({ customerId, onClose }) => {
                 ) : (
                   <div className="space-y-2">
                     {data.history.map((b, i) => (
-                      <div
-                        key={i}
-                        className="bg-background rounded-spa p-3 flex items-center justify-between"
+                      <button
+                        type="button"
+                        key={b.id || i}
+                        onClick={() => b.id && setSelectedVisit(b)}
+                        className="w-full text-left bg-background rounded-spa p-3 flex items-center justify-between hover:bg-border/40 spa-transition-fast cursor-pointer"
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center space-x-2 mb-1">
@@ -248,7 +261,8 @@ const CustomerProfileModal = ({ customerId, onClose }) => {
                             {b.paymentStatus === 'paid' ? 'Paid' : 'Unpaid'}
                           </span>
                         </div>
-                      </div>
+                        <Icon name="ChevronRight" size={16} className="text-text-tertiary flex-shrink-0 ml-2" />
+                      </button>
                     ))}
                   </div>
                 )}

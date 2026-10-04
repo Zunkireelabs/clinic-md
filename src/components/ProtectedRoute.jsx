@@ -1,5 +1,6 @@
 import React from 'react';
-import { Navigate, useParams } from 'react-router-dom';
+import { Navigate, useParams, useLocation } from 'react-router-dom';
+import { loginPathWithNext } from '../utils/loginRedirect';
 import { useAuth } from '../contexts/AuthContext';
 import logo from 'assets/logo.png';
 
@@ -17,6 +18,7 @@ const LoadingScreen = () => (
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, profile, loading } = useAuth();
   const { orgSlug: urlOrgSlug } = useParams();
+  const location = useLocation();
 
   if (loading) {
     return <LoadingScreen />;
@@ -26,7 +28,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   if (!user) {
     // If we have an org slug in the URL, redirect to that org's login
     if (urlOrgSlug) {
-      return <Navigate to={`/${urlOrgSlug}/login`} replace />;
+      return <Navigate to={loginPathWithNext(urlOrgSlug, location.pathname, location.search)} replace />;
     }
     return <Navigate to="/login" replace />;
   }

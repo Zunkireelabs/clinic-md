@@ -75,7 +75,7 @@ async function getAuthenticatedUser() {
   }
   const { data: profile, error: profileError } = await supabase
     .from('users')
-    .select('id, role, branch_id, org_id')
+    .select('id, role, branch_id, org_id, full_name')
     .eq('id', user.id)
     .single();
 
@@ -1861,7 +1861,7 @@ export async function fetchTreatmentNotesForCustomer(customerId) {
   try {
     const { data, error } = await supabase
       .from('treatment_notes')
-      .select('id, note, created_at, dentist:dentists(id, name)')
+      .select('id, booking_id, note, created_at, dentist:dentists(id, name)')
       .eq('customer_id', customerId)
       .order('created_at', { ascending: false });
 
@@ -6189,7 +6189,7 @@ export async function fetchCustomerProfile(customerId) {
     const { data: bookings, error: bookingsError } = await supabase
       .from('bookings')
       .select(`
-        booking_number, date, status, payment_status,
+        id, booking_number, date, status, payment_status,
         final_amount, discount_amount,
         treatment_name_snapshot, dentist_name_snapshot,
         is_locked
@@ -6212,6 +6212,7 @@ export async function fetchCustomerProfile(customerId) {
 
     const treatmentNotes = (treatmentNoteRows || []).map(n => ({
       id: n.id,
+      bookingId: n.booking_id,
       note: n.note,
       createdAt: n.created_at,
       dentistName: n.dentist?.name || 'Unknown',
@@ -6290,6 +6291,7 @@ export async function fetchCustomerProfile(customerId) {
 
     // 5. Build history list
     const history = all.map(b => ({
+      id: b.id,
       bookingNumber: b.booking_number,
       date: b.date,
       treatmentName: b.treatment_name_snapshot || '—',
@@ -10711,6 +10713,388 @@ export async function sendCustomerMessage({ customerId, bookingId = null, channe
     return { data: { id: messageId }, error: null };
   } catch (error) {
     console.error('[API] sendCustomerMessage error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// ============================================================
+// Doctor consultations (voice recording, AI summary, X-ray/photo analysis)
+// ============================================================
+
+const CONSULTATION_BUCKETS = { audio: 'consultation-audio', image: 'consultation-images' };
+
+const CONSULTATION_UPLOAD_TYPES = {
+  audio: ['audio/webm', 'audio/mp4', 'audio/ogg', 'audio/mpeg', 'audio/wav', 'audio/x-m4a'],
+  image: ['image/jpeg', 'image/png', 'image/webp'],
+};
+const CONSULTATION_MAX_BYTES = { audio: 50 * 1024 * 1024, image: 10 * 1024 * 1024 };
+
+/**
+ * Upload a recording or X-ray/photo to the private consultation buckets under
+ * "<org_id>/<booking_id>/<file>" (the storage RLS matches the first segment
+ * against the caller's org). Returns { path, error }.
+ */
+export async function uploadConsultationFile(bookingId, file, kind) {
+  try {
+    const { profile, error: authError } = await getAuthenticatedUser();
+    if (authError) return { path: null, error: authError };
+    if (!['staff', 'manager', 'admin'].includes(profile.role)) {
+      return { path: null, error: { code: 'FORBIDDEN', message: 'You do not have permission to upload consultation files.' } };
+    }
+
+    const baseType = (file.type || '').split(';')[0];
+    if (!CONSULTATION_UPLOAD_TYPES[kind]?.includes(baseType)) {
+      return { path: null, error: { code: 'INVALID_FILE_TYPE', message: kind === 'audio' ? 'Unsupported audio format.' : 'Please upload a JPEG, PNG or WebP image.' } };
+    }
+    if (file.size > CONSULTATION_MAX_BYTES[kind]) {
+      return { path: null, error: { code: 'FILE_TOO_LARGE', message: `File is too large (max ${CONSULTATION_MAX_BYTES[kind] / 1024 / 1024}MB).` } };
+    }
+
+    const ext = (baseType.split('/')[1] || 'bin').replace('x-m4a', 'm4a').replace('mpeg', 'mp3');
+    const path = `${profile.org_id}/${bookingId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const { error } = await supabase.storage
+      .from(CONSULTATION_BUCKETS[kind])
+      .upload(path, file, { contentType: baseType, cacheControl: '3600', upsert: false });
+    if (error) throw error;
+    return { path, error: null };
+  } catch (error) {
+    console.error('[API] uploadConsultationFile error:', error.message);
+    return { path: null, error };
+  }
+}
+
+/** Short-lived signed URL for playing a recording or previewing an image. */
+export async function getConsultationFileUrl(kind, path) {
+  const { data, error } = await supabase.storage
+    .from(CONSULTATION_BUCKETS[kind])
+    .createSignedUrl(path, 3600);
+  return { url: data?.signedUrl || null, error };
+}
+
+// Calls a consultation Edge Function and turns its JSON error body into a
+// readable message. A missing provider key comes back as code AI_KEY_MISSING.
+async function invokeConsultationFunction(name, body) {
+  const { data, error } = await supabase.functions.invoke(name, { body });
+  if (!error) return { data, error: null };
+
+  let payload = null;
+  try { payload = await error.context?.json?.(); } catch { /* not JSON */ }
+  if (payload?.error === 'AI_KEY_MISSING') {
+    return { data: null, error: { code: 'AI_KEY_MISSING', message: 'AI is not set up yet. The API key has not been added, so this step is unavailable.' } };
+  }
+  return { data: null, error: { code: 'AI_FAILED', message: payload?.message || payload?.error || error.message || 'The AI request failed.' } };
+}
+
+export async function transcribeConsultationAudio(audioPath) {
+  const { data, error } = await invokeConsultationFunction('consultation-transcribe', { audioPath });
+  return { text: data?.text ?? '', language: data?.language ?? null, error };
+}
+
+/** mode 'preliminary' (from transcript) or 'final' (combines everything). */
+export async function summarizeConsultation(payload) {
+  const { data, error } = await invokeConsultationFunction('consultation-summarize', payload);
+  return { summary: data?.summary ?? '', error };
+}
+
+/** kind: 'xray' | 'photo'; imagePaths from uploadConsultationFile. */
+export async function analyzeConsultationImages(kind, imagePaths) {
+  const { data, error } = await invokeConsultationFunction('consultation-analyze-image', { kind, imagePaths });
+  return { analysis: data?.analysis ?? '', error };
+}
+
+/** Most recent consultation for a booking (to resume a saved draft). */
+export async function fetchConsultationForBooking(bookingId) {
+  try {
+    const { data, error } = await supabase
+      .from('consultations')
+      .select('*')
+      .eq('booking_id', bookingId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return { data, error: null };
+  } catch (error) {
+    console.error('[API] fetchConsultationForBooking error:', error.message);
+    return { data: null, error };
+  }
+}
+
+/**
+ * Create or update the consultation for a booking. `fields` uses the DB column
+ * names. On the first completed save a short summary is also added to the
+ * booking's treatment notes (only the first time, not on re-saves) so it
+ * shows with the patient's other notes.
+ */
+export async function saveConsultation({ booking, consultationId, fields, status, previousStatus }) {
+  try {
+    const { user, profile, error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+    if (!['staff', 'manager', 'admin'].includes(profile.role)) {
+      return { data: null, error: { code: 'FORBIDDEN', message: 'You do not have permission to save consultations.' } };
+    }
+
+    const row = { ...fields, status };
+    let saved;
+    if (consultationId) {
+      const { data, error } = await supabase
+        .from('consultations')
+        .update(row)
+        .eq('id', consultationId)
+        .select('*')
+        .single();
+      if (error) throw error;
+      saved = data;
+    } else {
+      const { data, error } = await supabase
+        .from('consultations')
+        .insert({
+          ...row,
+          org_id: profile.org_id,
+          branch_id: booking.branch_id,
+          booking_id: booking.id,
+          customer_id: booking.customer_id || null,
+          dentist_id: booking.dentist_id || null,
+          created_by: user.id,
+          patient_name: booking.customer_name,
+        })
+        .select('*')
+        .single();
+      if (error) throw error;
+      saved = data;
+    }
+
+    let noteError = null;
+    if (status === 'completed' && previousStatus !== 'completed') {
+      const noteText = (fields.final_summary || fields.preliminary_summary || fields.doctor_notes || '').trim();
+      if (noteText) {
+        const note = await createTreatmentNote({
+          bookingId: booking.id,
+          customerId: booking.customer_id,
+          dentistId: booking.dentist_id,
+          note: `Consultation ${fields.session_date || ''}\n\n${noteText}`.trim(),
+        });
+        noteError = note.error;
+      }
+    }
+    capture('consultation_saved', { status, has_transcript: !!fields.transcript });
+    return { data: saved, error: null, noteError };
+  } catch (error) {
+    console.error('[API] saveConsultation error:', error.message);
+    return { data: null, error };
+  }
+}
+
+/**
+ * Get the booking's open consultation, creating an empty draft the first time.
+ * Two devices opening the same booking at once is safe: the unique open-draft
+ * index makes the second insert fail, and we simply read the winner's row.
+ */
+export async function getOrCreateConsultation(booking) {
+  const existing = await fetchConsultationForBooking(booking.id);
+  if (existing.error || existing.data) return existing;
+
+  const { user, profile, error: authError } = await getAuthenticatedUser();
+  if (authError) return { data: null, error: authError };
+  if (!['staff', 'manager', 'admin'].includes(profile.role)) {
+    return { data: null, error: { code: 'FORBIDDEN', message: 'You do not have permission to start a consultation.' } };
+  }
+
+  const { error } = await supabase.from('consultations').insert({
+    org_id: profile.org_id,
+    branch_id: booking.branch_id,
+    booking_id: booking.id,
+    customer_id: booking.customer_id || null,
+    dentist_id: booking.dentist_id || null,
+    created_by: user.id,
+    created_by_name: profile.full_name || null,
+    patient_name: booking.customer_name,
+    status: 'draft',
+  });
+  // 23505 = the other device created the draft first; just read it.
+  if (error && error.code !== '23505') {
+    console.error('[API] getOrCreateConsultation error:', error.message);
+    return { data: null, error };
+  }
+  return fetchConsultationForBooking(booking.id);
+}
+
+/** Push only the changed columns of a consultation (used by live sync). */
+export async function updateConsultationColumns(consultationId, columns) {
+  if (!columns || Object.keys(columns).length === 0) return { data: null, error: null };
+  const { data, error } = await supabase
+    .from('consultations')
+    .update(columns)
+    .eq('id', consultationId)
+    .select('*')
+    .single();
+  if (error) console.error('[API] updateConsultationColumns error:', error.message);
+  return { data, error };
+}
+
+/** Call onRow with each updated row of this consultation. Returns an unsubscribe fn. */
+export function subscribeToConsultation(consultationId, onRow) {
+  const channel = supabase
+    .channel(`consultation-${consultationId}`)
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'consultations', filter: `id=eq.${consultationId}` },
+      (payload) => onRow(payload.new),
+    )
+    .subscribe();
+  return () => { supabase.removeChannel(channel); };
+}
+
+/** Always start a fresh draft (used by Clear & New after a saved consultation). */
+export async function createConsultationDraft(booking) {
+  const { user, profile, error: authError } = await getAuthenticatedUser();
+  if (authError) return { data: null, error: authError };
+  if (!['staff', 'manager', 'admin'].includes(profile.role)) {
+    return { data: null, error: { code: 'FORBIDDEN', message: 'You do not have permission to start a consultation.' } };
+  }
+  const { data, error } = await supabase
+    .from('consultations')
+    .insert({
+      org_id: profile.org_id,
+      branch_id: booking.branch_id,
+      booking_id: booking.id,
+      customer_id: booking.customer_id || null,
+      dentist_id: booking.dentist_id || null,
+      created_by: user.id,
+      created_by_name: profile.full_name || null,
+      patient_name: booking.customer_name,
+      status: 'draft',
+    })
+    .select('*')
+    .single();
+  if (error) console.error('[API] createConsultationDraft error:', error.message);
+  return { data, error };
+}
+
+/**
+ * Bookings that are In-Progress right now for this user's branch (all branches
+ * for admins). The Doctor phone uses this to find the patient to record.
+ */
+export async function fetchInProgressBookings() {
+  try {
+    const { profile, error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: [], error: authError };
+
+    let query = supabase
+      .from('bookings')
+      .select('id, booking_number, customer_name, treatment_name_snapshot, dentist_name_snapshot, start_time, date, branch_id')
+      .eq('status', 'In-Progress')
+      .order('start_datetime', { ascending: true })
+      .limit(20);
+    if (profile.branch_id && profile.role !== 'admin') query = query.eq('branch_id', profile.branch_id);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return { data: data || [], error: null };
+  } catch (error) {
+    console.error('[API] fetchInProgressBookings error:', error.message);
+    return { data: [], error };
+  }
+}
+
+/**
+ * Ask the server to send the user's phone(s) a "tap to record" notification.
+ * Also returns a one-time 6-digit code to show on the computer: the phone asks for
+ * it after the notification is tapped.
+ */
+export async function notifyDoctorPhone(bookingId) {
+  const { data, error } = await supabase.functions.invoke('consultation-push', { body: { bookingId } });
+  if (error) {
+    let payload = null;
+    try { payload = await error.context?.json?.(); } catch { /* not JSON */ }
+    return { sent: 0, shortCode: null, expiresAt: null, error: { code: payload?.error || 'PUSH_FAILED', message: payload?.message || error.message } };
+  }
+  return { sent: data?.sent ?? 0, shortCode: data?.shortCode ?? null, expiresAt: data?.expiresAt ?? null, error: null };
+}
+
+/** Phone (already signed in): check the code shown on the computer before opening a patient. */
+export async function verifyPhoneCode(shortCode) {
+  const { error } = await supabase.functions.invoke('phone-pair', { body: { action: 'verify', shortCode } });
+  if (!error) return { ok: true, error: null };
+  let payload = null;
+  try { payload = await error.context?.json?.(); } catch { /* not JSON */ }
+  return { ok: false, error: { message: payload?.error || 'That code could not be checked.' } };
+}
+
+/** Computer: get one-time codes (valid 3 minutes): a long one for the QR link and 6 digits to type. */
+export async function createPhonePairing() {
+  const { data, error } = await supabase.functions.invoke('phone-pair', { body: { action: 'create' } });
+  if (error) return { code: null, shortCode: null, expiresAt: null, error: { message: 'Could not create a pairing code.' } };
+  return { code: data.code, shortCode: data.shortCode, expiresAt: data.expiresAt, error: null };
+}
+
+/**
+ * Phone: sign this phone in with a pairing code. Pass { code } (from the QR
+ * link) or { shortCode } (the 6 digits typed in the Doctor app).
+ */
+export async function redeemPhonePairing({ code, shortCode }) {
+  const { data, error } = await supabase.functions.invoke('phone-pair', { body: { action: 'redeem', code, shortCode } });
+  if (error) {
+    let payload = null;
+    try { payload = await error.context?.json?.(); } catch { /* not JSON */ }
+    return { error: { message: payload?.error || 'This code could not be used.' } };
+  }
+  const { error: verifyError } = await supabase.auth.verifyOtp({ token_hash: data.tokenHash, type: 'magiclink' });
+  if (verifyError) return { error: { message: 'Could not sign this phone in. Show a new code on the computer.' } };
+  return { error: null };
+}
+
+/** Recent consultations (newest activity first) with the booking details, for the history list. */
+export async function fetchRecentConsultations(limit = 60, { mine = true, customerId = null } = {}) {
+  try {
+    // mine = only consultations this login recorded; mine: false = every doctor's (a colleague covering for someone on leave).
+    const { user, error: authError } = await getAuthenticatedUser();
+    if (authError) throw authError;
+
+    let query = supabase
+      .from('consultations')
+      .select(`
+        id, booking_id, customer_id, created_by, created_by_name, attended_by_names, patient_name, status, session_date, created_at, updated_at,
+        transcript, detected_language, recording_duration_seconds, audio_paths,
+        preliminary_summary, xray_analysis, xray_image_paths, photo_analysis, photo_image_paths,
+        additional_notes, doctor_notes, final_summary,
+        bookings(booking_number, status, treatment_name_snapshot, dentist_name_snapshot)
+      `)
+      .order('updated_at', { ascending: false })
+      .limit(limit);
+    if (mine) query = query.eq('created_by', user.id);
+    if (customerId) query = query.eq('customer_id', customerId);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return { data: data || [], error: null };
+  } catch (error) {
+    console.error('[API] fetchRecentConsultations error:', error.message);
+    return { data: [], error };
+  }
+}
+
+/**
+ * The patient's last visit before this one: their most recent Completed booking
+ * (any doctor), excluding the booking being looked at. null = first visit.
+ */
+export async function fetchLastVisit(customerId, excludeBookingId) {
+  if (!customerId) return { data: null, error: null };
+  try {
+    let query = supabase
+      .from('bookings')
+      .select('id, date, treatment_name_snapshot')
+      .eq('customer_id', customerId)
+      .eq('status', 'Completed')
+      .order('date', { ascending: false })
+      .order('start_time', { ascending: false })
+      .limit(1);
+    if (excludeBookingId) query = query.neq('id', excludeBookingId);
+    const { data, error } = await query.maybeSingle();
+    if (error) throw error;
+    return { data: data || null, error: null };
+  } catch (error) {
+    console.error('[API] fetchLastVisit error:', error.message);
     return { data: null, error };
   }
 }
