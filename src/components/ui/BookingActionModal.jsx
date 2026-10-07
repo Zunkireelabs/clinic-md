@@ -515,6 +515,10 @@ const BookingActionModal = ({
       }
       setPendingStatus(null);
       onClose();
+      // Starting the visit drops the doctor straight into the consultation.
+      if (newStatus === 'in-progress' && CONSULTATION_ENABLED && userRole !== 'admin_viewer' && orgSlug) {
+        navigate(`/${orgSlug}/bookings/${booking.bookingId}/consultation`);
+      }
     } catch (error) {
       setActionError(error?.message || 'Status update failed. Please try again.');
     } finally {

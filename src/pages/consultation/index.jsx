@@ -4,6 +4,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import StaffSidebar from '../../components/ui/StaffSidebar';
+import StaffTopBar from '../../components/ui/StaffTopBar';
+import { AIAssistantPanel } from '../../components/ui/AIAssistant';
 import ImageAnalysisCard from './components/ImageAnalysisCard';
 import PhoneHandoff from './components/PhoneHandoff';
 import PhoneCodeBanner from './components/PhoneCodeBanner';
@@ -43,7 +45,7 @@ const hasContent = (f) =>
 const formatTimer = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
 const Card = ({ title, icon, children, action }) => (
-  <div className="bg-white rounded-lg border border-gray-200 p-5">
+  <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
     <div className="flex items-center justify-between mb-4">
       <div className="flex items-center gap-2">
         <Icon name={icon} size={18} className="text-primary" />
@@ -496,7 +498,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
 
   if (phoneView) {
     return (
-      <div className="h-[100dvh] flex flex-col bg-background overflow-hidden">
+      <div className="h-[100dvh] flex flex-col bg-gradient-to-b from-primary/15 via-background to-background overflow-hidden">
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-6">
         {loading && (
           <div className="p-12 text-center">
@@ -512,33 +514,48 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
         )}
         {!loading && !loadError && booking && (
           <div className="max-w-md mx-auto p-4 space-y-4">
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <p className="text-xs text-text-tertiary pt-1.5">Consultation · {longDate}</p>
-                <div className="shrink-0 flex items-center gap-2">
-                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusChip.cls}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full bg-current ${statusChip.pulse ? 'animate-pulse' : ''}`} />
-                    {statusChip.label}
-                  </span>
-                  {onDone && (
-                    <button type="button" onClick={closePhoneView} aria-label="Close" className="p-1.5 rounded-full hover:bg-gray-100">
-                      <Icon name="X" size={20} className="text-text-secondary" />
-                    </button>
-                  )}
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center text-lg font-heading font-heading-semibold shrink-0">
+                  {(booking.customer_name || '?').trim().charAt(0).toUpperCase()}
                 </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-heading font-heading-semibold text-lg text-text-primary leading-tight truncate">{booking.customer_name}</p>
+                  <p className="text-xs text-text-tertiary truncate">{booking.booking_number} · {longDate}</p>
+                </div>
+                {onDone && (
+                  <button type="button" onClick={closePhoneView} aria-label="Close" className="p-2 -mr-1 rounded-full hover:bg-gray-100 shrink-0">
+                    <Icon name="X" size={20} className="text-text-secondary" />
+                  </button>
+                )}
               </div>
-              <PatientDetailsGrid
-                patient={booking.customer_name}
-                booking={booking.booking_number}
-                treatment={booking.treatment?.name || booking.treatment_name_snapshot}
-                dentist={booking.dentist?.name || booking.dentist_name_snapshot}
-                attendedBy={attendedBy.join(', ')}
-                visitDate={formatVisitDate(sessionDate)}
-                lastVisit={lastVisit}
-              />
-              <p className="mt-4 pt-3 border-t border-gray-100 text-xs text-text-tertiary flex items-center gap-1">
+              <div className="flex flex-wrap gap-1.5 mt-3">
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusChip.cls}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full bg-current ${statusChip.pulse ? 'animate-pulse' : ''}`} />
+                  {statusChip.label}
+                </span>
+                <span className="px-2.5 py-1 rounded-full text-xs bg-gray-100 text-text-secondary">{booking.treatment?.name || booking.treatment_name_snapshot || 'Treatment'}</span>
+                <span className="px-2.5 py-1 rounded-full text-xs bg-gray-100 text-text-secondary">{booking.dentist?.name || booking.dentist_name_snapshot || 'Unassigned'}</span>
+              </div>
+              <details className="mt-3 group">
+                <summary className="text-xs text-primary font-medium cursor-pointer list-none flex items-center gap-1">
+                  <Icon name="ChevronDown" size={14} className="group-open:rotate-180 transition-transform" /> Patient details
+                </summary>
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  <PatientDetailsGrid
+                    patient={booking.customer_name}
+                    booking={booking.booking_number}
+                    treatment={booking.treatment?.name || booking.treatment_name_snapshot}
+                    dentist={booking.dentist?.name || booking.dentist_name_snapshot}
+                    attendedBy={attendedBy.join(', ')}
+                    visitDate={formatVisitDate(sessionDate)}
+                    lastVisit={lastVisit}
+                  />
+                </div>
+              </details>
+              <p className="mt-3 text-[11px] text-text-tertiary flex items-center gap-1">
                 {syncState === 'saving' && <><span className="animate-spin w-3 h-3 border border-primary border-t-transparent rounded-full" /> Sending to the computer…</>}
-                {syncState === 'synced' && <><Icon name="Cloud" size={12} /> Connected — everything you capture appears on the computer</>}
+                {syncState === 'synced' && <><span className="w-1.5 h-1.5 rounded-full bg-success" /> Connected to the computer</>}
                 {syncState === 'error' && <span className="text-error flex items-center gap-1"><Icon name="CloudOff" size={12} /> Connection problem — will retry</span>}
               </p>
             </div>
@@ -567,9 +584,13 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
               )}
 
               {!recorder.isRecording ? (
-                <Button variant="primary" size="xl" fullWidth iconName="Mic" iconPosition="left" disabled={processing !== null} onClick={handleStart}>
-                  {form.audioPaths.length ? 'Record more' : 'Start recording'}
-                </Button>
+                <div className="flex flex-col items-center gap-2 py-2">
+                  <button type="button" disabled={processing !== null} onClick={handleStart} aria-label="Start recording"
+                          className="w-24 h-24 rounded-full bg-primary text-white flex items-center justify-center shadow-lg shadow-primary/30 active:scale-95 transition disabled:opacity-50">
+                    <Icon name="Mic" size={40} />
+                  </button>
+                  <p className="text-sm text-text-secondary">{form.audioPaths.length ? 'Tap to record more' : 'Tap to start recording'}</p>
+                </div>
               ) : (
                 <div className="space-y-4">
                   <div className="text-center">
@@ -706,17 +727,11 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
                 )}
               </div>
 
-              {/* Leave actions: a slim, separate bar */}
-              <div className="pointer-events-auto w-full bg-white/95 backdrop-blur rounded-2xl border border-gray-200 shadow-md grid grid-cols-2 divide-x divide-gray-200">
-                <button type="button" disabled={recorder.isRecording || processing !== null} onClick={onSwitch}
-                        className="flex items-center justify-center gap-1.5 py-2.5 text-sm text-text-secondary active:bg-gray-50 disabled:opacity-40">
-                  <Icon name="Users" size={15} /> Switch patient
-                </button>
-                <button type="button" onClick={closePhoneView}
-                        className="flex items-center justify-center gap-1.5 py-2.5 text-sm text-text-secondary active:bg-gray-50">
-                  <Icon name="X" size={15} /> Close
-                </button>
-              </div>
+              {/* Leave: back to the patient list (this also covers switching patient) */}
+              <button type="button" onClick={closePhoneView}
+                      className="pointer-events-auto w-full flex items-center justify-center gap-1.5 py-2.5 rounded-2xl bg-white/95 border border-gray-200 shadow-sm text-sm text-text-secondary active:bg-gray-50">
+                <Icon name="X" size={15} /> Close
+              </button>
             </div>
           </div>
         )}
@@ -725,10 +740,16 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-surface-sidebar">
       <StaffSidebar userRole={userRole} onCollapseChange={setSidebarCollapsed} />
 
-      <div className={`${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'} mb-16 lg:mb-0 spa-transition-slow`}>
+      <div className={`${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-60'} pb-20 lg:pb-0 transition-all duration-200`}>
+        <StaffTopBar orgSlug={orgSlug} />
+        <div className="relative z-0 flex gap-2 sm:gap-3 min-h-[calc(100vh-52px)]">
+        <main
+          className="flex-1 min-w-0 bg-surface-dim"
+          style={{ borderRadius: '16px 0 0 0', borderLeft: '1px solid #e5e7eb', borderTop: '1px solid #e5e7eb' }}
+        >
         {loading && (
           <div className="p-12 text-center">
             <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
@@ -745,21 +766,21 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
         )}
 
         {!loading && !loadError && booking && (
-          <div className="max-w-4xl mx-auto p-4 lg:p-6 space-y-4">
+          <div className="max-w-5xl mx-auto p-4 lg:p-6 space-y-4">
             {/* Header */}
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <button onClick={goBack} aria-label="Go back" className="mt-1 p-2 rounded-md hover:bg-white border border-transparent hover:border-gray-200">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <button onClick={goBack} aria-label="Go back" className="p-2 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 shrink-0">
                   <Icon name="ArrowLeft" size={18} className="text-text-secondary" />
                 </button>
-                <div>
-                  <h1 className="font-heading font-heading-semibold text-xl text-text-primary">Consultation</h1>
-                  <p className="font-caption text-sm text-text-secondary flex items-center gap-1.5">
+                <div className="min-w-0">
+                  <h1 className="font-heading font-heading-semibold text-xl text-text-primary leading-tight">Consultation</h1>
+                  <p className="font-caption text-sm text-text-secondary flex items-center gap-1.5 truncate">
                     <Icon name="Calendar" size={14} /> {longDate}
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-text-tertiary flex items-center gap-1">
                   {syncState === 'saving' && <><span className="animate-spin w-3 h-3 border border-primary border-t-transparent rounded-full" /> Syncing…</>}
                   {syncState === 'synced' && <><Icon name="Cloud" size={12} /> Synced</>}
@@ -773,6 +794,23 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
                   {statusChip.label}
                 </span>
               </div>
+            </div>
+
+            {/* Steps */}
+            <div className="flex items-center gap-2 text-sm">
+              {[{ key: 'active', label: 'Capture', n: 1 }, { key: 'review', label: 'Review & finish', n: 2 }].map((st, idx) => {
+                const current = phase === st.key;
+                return (
+                  <React.Fragment key={st.key}>
+                    {idx > 0 && <span className="h-px w-8 bg-gray-300" />}
+                    <button type="button" disabled={busy || current} onClick={() => setPhase(st.key)}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition ${current ? 'bg-primary text-white border-primary' : 'bg-white text-text-secondary border-gray-200 hover:bg-gray-50'}`}>
+                      <span className={`w-5 h-5 rounded-full text-xs flex items-center justify-center ${current ? 'bg-white/20' : 'bg-gray-100'}`}>{st.n}</span>
+                      {st.label}
+                    </button>
+                  </React.Fragment>
+                );
+              })}
             </div>
 
             {phoneCode && !link.phones.some((p) => p.bookingId === bookingId) && (
@@ -810,15 +848,31 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
 
             {/* Patient (prefilled from the booking) */}
             <Card title="Patient Details" icon="User">
-              <dl className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-                <div><dt className="text-text-tertiary text-xs mb-0.5">Patient</dt><dd className="font-medium text-text-primary">{booking.customer_name}</dd></div>
-                <div><dt className="text-text-tertiary text-xs mb-0.5">Booking</dt><dd className="text-text-primary">{booking.booking_number || '—'}</dd></div>
-                <div><dt className="text-text-tertiary text-xs mb-0.5">Treatment</dt><dd className="text-text-primary">{booking.treatment?.name || booking.treatment_name_snapshot || '—'}</dd></div>
-                <div><dt className="text-text-tertiary text-xs mb-0.5">Dentist</dt><dd className="text-text-primary">{booking.dentist?.name || booking.dentist_name_snapshot || 'Unassigned'}</dd></div>
-                <div><dt className="text-text-tertiary text-xs mb-0.5">Visit date</dt><dd className="text-text-primary">{formatVisitDate(sessionDate)}</dd></div>
-                <div><dt className="text-text-tertiary text-xs mb-0.5">Last visit</dt><dd className="text-text-primary">{lastVisit || '…'}</dd></div>
-                <div className="col-span-2"><dt className="text-text-tertiary text-xs mb-0.5">Attended by</dt><dd className="text-text-primary">{attendedBy.length ? attendedBy.join(', ') : 'No one yet'}</dd></div>
-              </dl>
+              <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-8">
+                <div className="flex items-center gap-3 lg:min-w-[220px]">
+                  <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center font-heading font-heading-semibold text-lg shrink-0">
+                    {(booking.customer_name || '?').trim().charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-heading font-heading-semibold text-text-primary truncate">{booking.customer_name}</p>
+                    <p className="text-xs text-text-tertiary">{booking.booking_number || '—'}</p>
+                  </div>
+                </div>
+                <dl className="flex-1 grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+                  {[
+                    ['Treatment', booking.treatment?.name || booking.treatment_name_snapshot || '—'],
+                    ['Dentist', booking.dentist?.name || booking.dentist_name_snapshot || 'Unassigned'],
+                    ['Visit date', formatVisitDate(sessionDate)],
+                    ['Last visit', lastVisit || '…'],
+                    ['Attended by', attendedBy.length ? attendedBy.join(', ') : 'No one yet'],
+                  ].map(([k, v]) => (
+                    <div key={k} className="rounded-lg bg-surface-dim/60 border border-gray-100 px-3 py-2 min-w-0">
+                      <dt className="text-text-tertiary text-xs mb-0.5">{k}</dt>
+                      <dd className="font-medium text-text-primary truncate" title={String(v)}>{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
             </Card>
 
             {error && (
@@ -896,8 +950,8 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
                     {processing === 'summarizing' && <span className="text-sm text-text-secondary flex items-center gap-2"><span className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full" />Generating summary…</span>}
                   </div>
                   {phones.length === 0 && !remote && (
-                    <p className="mt-3 text-xs text-text-tertiary">
-                      To use a phone's microphone, tap <strong>Continue on phone</strong> above and scan the code. Once the phone has this page open, a <strong>Record on phone</strong> button appears here.
+                    <p className="mt-3 text-xs text-text-tertiary flex items-center gap-1.5">
+                      <Icon name="Smartphone" size={12} /> Prefer your phone's mic? Tap <strong>Continue on phone</strong> at the top.
                     </p>
                   )}
                   {recorder.error && <p className="mt-3 text-sm text-error">{recorder.error}</p>}
@@ -981,31 +1035,36 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
             )}
 
             {/* Actions */}
-            <div className="sticky bottom-16 lg:bottom-0 z-10 -mx-4 lg:mx-0 px-4 lg:px-0 py-3 bg-background/95 backdrop-blur border-t lg:border-t-0 border-gray-200">
-              <div className="flex flex-wrap gap-3">
+            <div className="sticky bottom-16 lg:bottom-0 z-10 -mx-4 lg:mx-0 px-4 lg:px-4 py-3 bg-white/95 backdrop-blur border-t lg:border border-gray-200 lg:rounded-xl lg:shadow-sm">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button variant={isSavedClean ? 'success' : 'primary'} iconName={isSavedClean ? 'Check' : 'Save'} iconPosition="left" loading={saving} disabled={busy || !hasContent(form)} onClick={handleSave}>
                   {isSavedClean ? 'Saved' : (dbStatus === 'completed' ? 'Save changes' : 'Save Consultation')}
                 </Button>
                 {saveBlockedReason && (
-                  <span className="self-center text-xs text-text-tertiary">{saveBlockedReason}</span>
+                  <span className="text-xs text-text-tertiary">{saveBlockedReason}</span>
                 )}
-                <Button variant="outline" iconName="FileText" iconPosition="left" disabled={!canReport}
-                        className="border-purple-200 text-purple-600 hover:bg-purple-50 hover:text-purple-700"
-                        onClick={() => generateConsultationPdf(reportData, profile?.organizations?.name)}>
-                  Generate PDF Report
-                </Button>
-                <Button variant="outline" iconName="RotateCcw" iconPosition="left" disabled={busy} onClick={handleClear}>
-                  Clear &amp; New
-                </Button>
-                <Button variant="outline" iconName="Download" iconPosition="left" disabled={!canReport}
-                        className="border-sky-200 text-sky-700 hover:bg-sky-50 hover:text-sky-800"
-                        onClick={() => exportConsultationJson(reportData)}>
-                  Export Data
-                </Button>
+                <div className="flex flex-wrap items-center gap-2 ml-auto">
+                  <Button variant="outline" size="sm" iconName="FileText" iconPosition="left" disabled={!canReport}
+                          className="border-purple-200 text-purple-600 hover:bg-purple-50 hover:text-purple-700"
+                          onClick={() => generateConsultationPdf(reportData, profile?.organizations?.name)}>
+                    PDF Report
+                  </Button>
+                  <Button variant="outline" size="sm" iconName="Download" iconPosition="left" disabled={!canReport}
+                          className="border-sky-200 text-sky-700 hover:bg-sky-50 hover:text-sky-800"
+                          onClick={() => exportConsultationJson(reportData)}>
+                    Export
+                  </Button>
+                  <Button variant="ghost" size="sm" iconName="RotateCcw" iconPosition="left" disabled={busy} onClick={handleClear}>
+                    Clear &amp; New
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
         )}
+        </main>
+        <AIAssistantPanel />
+        </div>
       </div>
 
       {notice && (

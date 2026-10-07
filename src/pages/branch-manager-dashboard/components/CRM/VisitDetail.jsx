@@ -76,9 +76,11 @@ const VisitDetail = ({ visit, customerName, notes, onBack }) => {
 
   return (
     <div className="space-y-4">
-      <button type="button" onClick={onBack} className="flex items-center gap-1 font-body font-body-medium text-sm text-primary">
-        <Icon name="ArrowLeft" size={16} /> Back to profile
-      </button>
+      {onBack && (
+        <button type="button" onClick={onBack} className="flex items-center gap-1 font-body font-body-medium text-sm text-primary">
+          <Icon name="ArrowLeft" size={16} /> Back to profile
+        </button>
+      )}
 
       <div className="bg-background rounded-spa p-4">
         <p className="font-heading font-heading-semibold text-base text-text-primary">{visit.treatmentName}</p>

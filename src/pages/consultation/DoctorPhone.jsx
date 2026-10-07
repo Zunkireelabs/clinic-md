@@ -8,8 +8,10 @@ import useDoctorPhoneLink from '../../hooks/useDoctorPhoneLink';
 import useWakeLock from '../../hooks/useWakeLock';
 import usePushNotifications from '../../hooks/usePushNotifications';
 import VerifyCode from './components/VerifyCode';
+import DoctorHero, { ToothArt } from './components/DoctorHero';
 import LockedHome from './components/LockedHome';
 import usePhoneLock from '../../hooks/usePhoneLock';
+import { isPhoneUnlocked } from '../../utils/phoneSession';
 import { parseOpenTarget } from '../../utils/openTarget';
 import useInstallPrompt from '../../hooks/useInstallPrompt';
 import { useAuth } from '../../contexts/AuthContext';
@@ -31,6 +33,7 @@ const DoctorPhone = () => {
   const push = usePushNotifications(profile);
   const installApp = useInstallPrompt();
   const phoneLock = usePhoneLock();
+  const [installOs, setInstallOs] = useState(null); // 'ios' | 'android' tab in the Add to Home Screen card
   const [askingCode, setAskingCode] = useState(false); // the doctor chose to ask the computer for a code
   const activeShownRef = useRef(false); // a patient screen is open (and must stay mounted if the phone locks mid-recording)
 
@@ -44,9 +47,9 @@ const DoctorPhone = () => {
   // A notification link also carries &verify=1: the phone then asks for the code
   // shown on the computer before opening the patient.
   const initialTarget = useRef(parseOpenTarget(searchParams)).current;
-  const [pendingVerify, setPendingVerify] = useState(initialTarget?.verify ? initialTarget : null);
+  const [pendingVerify, setPendingVerify] = useState(initialTarget?.verify && !isPhoneUnlocked() ? initialTarget : null);
   const [active, setActive] = useState(() => (
-    initialTarget && !initialTarget.verify
+    initialTarget && (!initialTarget.verify || isPhoneUnlocked())
       ? { bookingId: initialTarget.bookingId, nonce: 0 }
       : null
   ));
@@ -69,7 +72,7 @@ const DoctorPhone = () => {
       setClosed(false); // a notification tap reopens the app
       setTab('now');
       setDetail(null);
-      if (data.verify) {
+      if (data.verify && !isPhoneUnlocked()) {
         // Come from a notification: ask for the computer's code before opening anything.
         setActive(null);
         setPendingVerify({ bookingId: data.bookingId});
@@ -121,8 +124,15 @@ const DoctorPhone = () => {
     kind: 'doctor-phone',
     label: deviceLabel(),
     bookingId: active?.bookingId || null,
-    // Work started on the computer: ask for the code it is showing before opening the patient.
-    onOpen: (p) => { suppressAutoRef.current = true; setClosed(false); setActive(null); setPendingVerify({ bookingId: p.bookingId }); },
+    // Work started on the computer: open the patient (asking for the code only if the phone is locked).
+    onOpen: (p) => {
+      suppressAutoRef.current = true;
+      setClosed(false);
+      // Already signed in by QR (or code) and not away for long: go straight in, no code.
+      if (isPhoneUnlocked()) { setPendingVerify(null); setActive({ bookingId: p.bookingId, nonce: Date.now() }); return; }
+      setActive(null);
+      setPendingVerify({ bookingId: p.bookingId });
+    },
     onClose: (p) => setActive((a) => (a?.bookingId === p.bookingId ? null : a)),
   });
   const computers = devices.filter((d) => d.kind === 'computer');
@@ -211,18 +221,24 @@ const DoctorPhone = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background p-6 pb-28">
-      <div className="w-full max-w-sm mx-auto text-center space-y-5">
+    <div className="min-h-screen bg-background pb-28">
+      <DoctorHero
+        name={profile?.full_name}
+        clinic={profile?.organizations?.name}
+        computerConnected={computers.length > 0}
+        screenOn={wake.active}
+      />
+      <div className="w-full max-w-sm mx-auto text-center space-y-5 px-5 -mt-6 relative">
         {flash && (
           <div className="p-3 bg-success/10 border border-success/30 rounded-md text-sm text-text-primary flex items-center justify-between gap-2 text-left">
             <span className="flex items-center gap-2"><Icon name="CheckCircle" size={16} className="text-success shrink-0" /> {flash}</span>
             <button type="button" onClick={() => setFlash(null)} aria-label="Dismiss"><Icon name="X" size={14} className="text-text-tertiary" /></button>
           </div>
         )}
-        <div className="grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-lg">
+        <div className="grid grid-cols-2 gap-1 p-1 bg-white rounded-2xl shadow-md border border-gray-100">
           {[['now', 'Record'], ['history', 'History']].map(([id, label]) => (
             <button key={id} type="button" onClick={() => { setTab(id); setDetail(null); }}
-                    className={`py-2 rounded-md text-sm font-medium ${tab === id ? 'bg-white text-text-primary shadow-sm' : 'text-text-secondary'}`}>
+                    className={`py-2.5 rounded-xl text-sm font-medium transition ${tab === id ? 'bg-primary text-white shadow-sm' : 'text-text-secondary'}`}>
               {label}
             </button>
           ))}
@@ -241,95 +257,16 @@ const DoctorPhone = () => {
           )
         ) : (
         <>
-        <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-          <Icon name="Smartphone" size={28} className="text-primary" />
-        </div>
-        <div>
-          <h1 className="font-heading font-heading-semibold text-xl text-text-primary">Doctor phone</h1>
-          <p className="text-sm text-text-secondary mt-1">
-            Signed in as {profile?.full_name || 'staff'}{orgSlug ? ` · ${orgSlug}` : ''}
-          </p>
-        </div>
-
-        <div className="bg-white rounded-lg border border-gray-200 p-4 text-left space-y-3 text-sm">
-          <p className="flex items-center gap-2 text-text-primary">
-            <span className="w-2 h-2 rounded-full bg-success animate-pulse" /> Ready — waiting for a consultation
-          </p>
-          <p className="flex items-center gap-2 text-text-secondary">
-            <Icon name={computers.length ? 'Monitor' : 'MonitorOff'} size={14} />
-            {computers.length ? 'Computer connected' : 'Computer not connected yet'}
-          </p>
-          <p className="flex items-center gap-2 text-text-secondary">
-            <Icon name={wake.active ? 'Sun' : 'Moon'} size={14} />
-            {wake.active ? 'Screen will stay on' : (wake.supported ? 'Screen may lock — keep it awake' : 'Keep the screen on and this page open')}
-          </p>
-        </div>
-
-        {!installApp.standalone && (
-          <div className="bg-white rounded-lg border border-gray-200 p-4 text-left space-y-3">
-            <p className="text-sm font-medium text-text-primary flex items-center gap-2">
-              <Icon name="SquarePlus" size={16} className="text-primary" /> Add to Home Screen
-            </p>
-            {installApp.canPrompt ? (
-              <>
-                <p className="text-xs text-text-secondary">Put the Doctor app on your Home Screen so one tap starts recording.</p>
-                <button type="button" onClick={installApp.install}
-                        className="w-full py-2 rounded-md bg-primary text-white text-sm font-medium">
-                  Install Doctor app
-                </button>
-              </>
-            ) : installApp.isIos ? (
-              <>
-                <p className="text-xs text-text-secondary">iPhone doesn't allow a button for this, so do it from Safari's menu:</p>
-                <ol className="text-xs text-text-secondary space-y-2">
-                  <li className="flex items-start gap-2"><span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-[11px] font-medium flex items-center justify-center shrink-0">1</span><span>Tap the <strong>Share</strong> icon <Icon name="Share" size={13} className="inline -mt-0.5" /> at the bottom of Safari (or the <strong>···</strong> menu, then Share).</span></li>
-                  <li className="flex items-start gap-2"><span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-[11px] font-medium flex items-center justify-center shrink-0">2</span><span>Scroll down and tap <strong>Add to Home Screen</strong> <Icon name="SquarePlus" size={13} className="inline -mt-0.5" />.</span></li>
-                  <li className="flex items-start gap-2"><span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-[11px] font-medium flex items-center justify-center shrink-0">3</span><span>Tap <strong>Add</strong>. The Doctor icon appears on your Home Screen.</span></li>
-                </ol>
-                <p className="text-[11px] text-text-tertiary">Must be Safari, not a different browser or Private mode. If you don't see the option, scroll the share sheet to the bottom.</p>
-              </>
-            ) : (
-              <p className="text-xs text-text-secondary">Open your browser's menu and choose <strong>Add to Home screen</strong> (or <strong>Install app</strong>).</p>
-            )}
-          </div>
-        )}
-
-        <div className="bg-white rounded-lg border border-gray-200 p-4 text-left space-y-2">
-          <p className="text-sm font-medium text-text-primary flex items-center gap-2">
-            <Icon name="Bell" size={16} className="text-primary" /> Notifications
-          </p>
-          {push.status === 'needs-install' && (
-            <p className="text-xs text-text-secondary">
-              On iPhone, notifications only work from the Home Screen icon. Add it using the card above, open it from the icon, then turn notifications on.
-            </p>
-          )}
-          {push.status === 'unsupported' && <p className="text-xs text-text-secondary">This browser can't show notifications.</p>}
-          {push.status === 'denied' && <p className="text-xs text-text-secondary">Notifications are blocked. Allow them for this site in your browser settings.</p>}
-          {(push.status === 'default' || push.status === 'granted') && (
-            push.subscribed ? (
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs text-text-secondary flex items-center gap-1"><Icon name="Check" size={12} className="text-success" /> On — you'll get a notification when a consultation starts.</p>
-                <button type="button" onClick={push.disable} disabled={push.busy} className="text-xs text-primary font-medium shrink-0">Turn off</button>
-              </div>
-            ) : (
-              <>
-                <p className="text-xs text-text-secondary">Get a notification on this phone when you start a consultation on the computer. Tap it to open and record.</p>
-                <button type="button" onClick={push.enable} disabled={push.busy || !push.configured}
-                        className="w-full py-2 rounded-md bg-primary text-white text-sm font-medium disabled:opacity-60">
-                  {push.busy ? 'Turning on…' : 'Turn on notifications'}
-                </button>
-              </>
-            )
-          )}
-          {push.error && <p className="text-xs text-error">{push.error}</p>}
-        </div>
-
         <div className="text-left">
-          <p className="text-xs uppercase tracking-wider text-text-tertiary mb-2">In progress now</p>
+          <p className="text-xs uppercase tracking-wider text-text-tertiary mb-2">Patients in progress</p>
           {listLoading ? (
             <p className="text-sm text-text-tertiary">Looking for patients…</p>
           ) : inProgress.length === 0 ? (
-            <p className="text-sm text-text-tertiary">No patient is in progress. Start a booking on the computer and it will appear here.</p>
+            <div className="bg-white rounded-2xl border border-dashed border-gray-300 p-6 text-center">
+              <ToothArt className="w-16 h-20 mx-auto text-primary" />
+              <p className="mt-2 text-sm font-medium text-text-primary">No patient in progress</p>
+              <p className="text-xs text-text-tertiary mt-1">Start a booking on the computer and the patient appears here.</p>
+            </div>
           ) : (
             <div className="space-y-2">
               {inProgress.map((b) => (
@@ -337,11 +274,11 @@ const DoctorPhone = () => {
                   key={b.id}
                   type="button"
                   onClick={() => { suppressAutoRef.current = true; setActive({ bookingId: b.id, nonce: Date.now() }); }}
-                  className="w-full text-left bg-white rounded-lg border border-gray-200 hover:border-primary p-3 flex items-center gap-3"
+                  className="w-full text-left bg-white rounded-2xl border border-gray-200 shadow-sm active:scale-[0.99] hover:border-primary p-4 flex items-center gap-3"
                 >
-                  <Icon name="Mic" size={18} className="text-primary shrink-0" />
+                  <span className="w-11 h-11 rounded-full bg-primary text-white flex items-center justify-center shrink-0"><Icon name="Mic" size={20} /></span>
                   <span className="min-w-0">
-                    <span className="block text-sm font-medium text-text-primary truncate">{b.customer_name}</span>
+                    <span className="block text-base font-medium text-text-primary truncate">{b.customer_name}</span>
                     <span className="block text-xs text-text-tertiary truncate">{b.treatment_name_snapshot || 'Treatment'} · tap to record</span>
                   </span>
                 </button>
@@ -350,20 +287,140 @@ const DoctorPhone = () => {
           )}
         </div>
 
-        <p className="text-xs text-text-tertiary px-2">
-          You don't have to keep this page open: tap the ClinicMD Doctor icon any time and it joins the patient in progress and starts recording. If this page is already open, a consultation started on the computer opens here by itself. Your phone may ask once to allow the microphone.
-        </p>
+        <details className="text-left group">
+          <summary className="flex items-center gap-3 cursor-pointer list-none bg-white rounded-2xl border border-gray-200 shadow-sm px-4 py-3.5 active:bg-gray-50">
+            <span className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0"><Icon name="Settings" size={20} /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium text-text-primary">Phone setup</span>
+              <span className="block text-xs text-text-tertiary">Home Screen icon · Notifications</span>
+            </span>
+            {push.subscribed && <span className="px-2 py-0.5 rounded-full bg-success/10 text-success text-[11px] font-medium">Notifications on</span>}
+            <Icon name="ChevronDown" size={18} className="text-text-tertiary group-open:rotate-180 transition-transform shrink-0" />
+          </summary>
+          <div className="mt-3 space-y-3">
+            {/* 1. Home Screen icon */}
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden text-left">
+              <div className="flex items-center gap-3 p-4">
+                <span className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary to-[#0a4d63] text-white flex items-center justify-center shrink-0"><Icon name="SquarePlus" size={22} /></span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-text-primary">Add to Home Screen</p>
+                  <p className="text-xs text-text-tertiary">One tap from your Home Screen starts recording</p>
+                </div>
+                {installApp.standalone && <span className="px-2 py-0.5 rounded-full bg-success/10 text-success text-[11px] font-medium flex items-center gap-1"><Icon name="Check" size={11} /> Added</span>}
+              </div>
+              {!installApp.standalone && (
+                <div className="px-4 pb-4 pt-3 border-t border-gray-100 space-y-3">
+                  {(() => {
+                    const os = installOs || (installApp.isIos ? 'ios' : 'android');
+                    const steps = os === 'ios'
+                      ? [
+                        ['Share', 'Open this page in Safari, then tap the Share button at the bottom', 'Share'],
+                        ['Add', 'Scroll down and tap “Add to Home Screen”', 'SquarePlus'],
+                        ['Done', 'Tap “Add” — the Doctor icon appears on your Home Screen', 'Check'],
+                      ]
+                      : [
+                        ['Menu', 'Open this page in Chrome, then tap the ⋮ menu (top right)', 'MoreVertical'],
+                        ['Add', 'Tap “Install app” or “Add to Home screen”', 'SquarePlus'],
+                        ['Done', 'Tap “Install” — the Doctor icon appears on your Home Screen', 'Check'],
+                      ];
+                    return (
+                      <>
+                        <div className="grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-xl">
+                          {[['ios', 'iPhone'], ['android', 'Android']].map(([id, label]) => (
+                            <button key={id} type="button" onClick={() => setInstallOs(id)}
+                                    className={`py-1.5 rounded-lg text-xs font-medium transition ${os === id ? 'bg-white text-primary shadow-sm' : 'text-text-secondary'}`}>
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        {os === 'android' && installApp.canPrompt && (
+                          <button type="button" onClick={installApp.install}
+                                  className="w-full h-11 rounded-xl bg-primary text-white text-sm font-medium shadow-sm shadow-primary/30 active:scale-[0.98] transition">
+                            Install Doctor app
+                          </button>
+                        )}
+                        <ol className="space-y-2.5">
+                          {steps.map(([t, d, icon], i) => (
+                            <li key={t} className="flex items-center gap-3">
+                              <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0 relative">
+                                <Icon name={icon} size={17} />
+                                <span className="absolute -top-1.5 -left-1.5 w-4 h-4 rounded-full bg-primary text-white text-[10px] font-semibold flex items-center justify-center">{i + 1}</span>
+                              </span>
+                              <span className="text-xs text-text-secondary leading-snug">{d}</span>
+                            </li>
+                          ))}
+                        </ol>
+                        <p className="text-[11px] text-text-tertiary bg-gray-50 rounded-lg px-3 py-2">
+                          {os === 'ios'
+                            ? "iPhone doesn't allow an install button, so use Safari's menu (not Private mode). If you don't see the option, scroll to the bottom of the share sheet."
+                            : (installApp.canPrompt ? 'Tap the button above, or use the menu steps if nothing happens.' : 'If you don\'t see “Install app”, make sure you opened this page in Chrome, not inside another app.')}
+                        </p>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+
+            {/* 2. Notifications */}
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden text-left">
+              <div className="flex items-center gap-3 p-4">
+                <span className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${push.subscribed ? 'bg-success/10 text-success' : 'bg-gradient-to-br from-primary to-[#0a4d63] text-white'}`}>
+                  <Icon name={push.subscribed ? 'BellRing' : 'Bell'} size={22} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-text-primary">Notifications</p>
+                  <p className="text-xs text-text-tertiary">Get alerted when a consultation starts</p>
+                </div>
+                {push.subscribed && <span className="px-2 py-0.5 rounded-full bg-success/10 text-success text-[11px] font-medium flex items-center gap-1"><Icon name="Check" size={11} /> On</span>}
+              </div>
+              <div className="px-4 pb-4 pt-3 border-t border-gray-100 space-y-3">
+                {push.status === 'needs-install' && (
+                  <p className="text-xs text-text-secondary bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    On iPhone, notifications only work from the Home Screen icon. Add it above, open it from the icon, then turn notifications on.
+                  </p>
+                )}
+                {push.status === 'unsupported' && <p className="text-xs text-text-secondary">This browser can't show notifications.</p>}
+                {push.status === 'denied' && <p className="text-xs text-text-secondary">Notifications are blocked. Allow them for this site in your browser settings.</p>}
+                {(push.status === 'default' || push.status === 'granted') && (
+                  push.subscribed ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-text-secondary">You'll get a notification when a consultation starts. Tap it to open and record.</p>
+                      <button type="button" onClick={push.disable} disabled={push.busy} className="text-xs text-primary font-medium shrink-0 px-3 py-1.5 rounded-lg border border-primary/30">Turn off</button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={push.enable} disabled={push.busy || !push.configured}
+                            className="w-full h-11 rounded-xl bg-primary text-white text-sm font-medium shadow-sm shadow-primary/30 active:scale-[0.98] transition disabled:opacity-60">
+                      {push.busy ? 'Turning on…' : 'Turn on notifications'}
+                    </button>
+                  )
+                )}
+                {push.error && <p className="text-xs text-error">{push.error}</p>}
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <div className="text-left rounded-2xl bg-primary/5 border border-primary/15 p-4">
+          <p className="text-sm font-medium text-text-primary flex items-center gap-2"><Icon name="Lightbulb" size={16} className="text-primary" /> How it works</p>
+          <ul className="mt-2 space-y-1.5 text-xs text-text-secondary">
+            <li className="flex gap-2"><Icon name="Mic" size={13} className="text-primary mt-0.5 shrink-0" /> Tap the Doctor icon any time to join the patient in progress.</li>
+            <li className="flex gap-2"><Icon name="Monitor" size={13} className="text-primary mt-0.5 shrink-0" /> Start a consultation on the computer and it opens here by itself.</li>
+            <li className="flex gap-2"><Icon name="ShieldCheck" size={13} className="text-primary mt-0.5 shrink-0" /> Your phone may ask once to allow the microphone.</li>
+          </ul>
+        </div>
         </>
         )}
       </div>
 
       {/* Always visible while on the Doctor home (not while reading a past consultation, which has its own Close). */}
       {!(tab === 'history' && detail) && (
-        <div className="fixed bottom-0 inset-x-0 z-10 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-background/95 backdrop-blur border-t border-gray-200">
-          <div className="max-w-sm mx-auto">
+        <div className="fixed bottom-0 inset-x-0 z-10 px-5 pt-6 pb-[max(1rem,env(safe-area-inset-bottom))] bg-gradient-to-t from-background via-background/95 to-transparent pointer-events-none">
+          <div className="max-w-sm mx-auto pointer-events-auto">
             <button type="button" onClick={closeApp}
-                    className="w-full py-3 rounded-lg border border-gray-300 bg-white text-text-primary text-sm font-medium flex items-center justify-center gap-2">
-              <Icon name="Power" size={16} /> Close app
+                    className="w-full h-12 rounded-2xl bg-white border border-gray-200 shadow-md text-sm font-medium text-text-primary flex items-center justify-center gap-2.5 active:scale-[0.98] transition">
+              <span className="w-7 h-7 rounded-full bg-error/10 text-error flex items-center justify-center"><Icon name="Power" size={15} /></span>
+              Close app
             </button>
           </div>
         </div>

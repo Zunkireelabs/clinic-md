@@ -1,14 +1,16 @@
 import React from 'react';
 import Icon from '../../../components/AppIcon';
+import { ToothArt } from './DoctorHero';
 
 // What the Doctor app shows when it is opened with no work started: nothing about any
 // patient. When a consultation starts on the computer, the phone is told, and the code
 // is asked for then. The doctor can also ask for a code on purpose with the button.
 const LockedHome = ({ onAsk }) => (
-  <div className="min-h-screen bg-background flex items-center justify-center p-6">
+  <div className="min-h-screen bg-gradient-to-b from-primary/10 via-background to-background flex items-center justify-center p-6">
     <div className="w-full max-w-sm text-center space-y-5">
-      <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-        <Icon name="Smartphone" size={28} className="text-primary" />
+      <div className="mx-auto w-28 h-28 rounded-full bg-white shadow-lg flex items-center justify-center relative">
+        <ToothArt className="w-16 h-20 text-primary" />
+        <span className="absolute -bottom-1 -right-1 w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center shadow-md"><Icon name="Lock" size={16} /></span>
       </div>
       <div>
         <h1 className="font-heading font-heading-semibold text-xl text-text-primary">Doctor app</h1>

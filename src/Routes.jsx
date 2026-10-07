@@ -12,6 +12,7 @@ import BookingDetailsAssignmentModal from "pages/booking-details-assignment-moda
 import BranchManagerDashboard from "pages/branch-manager-dashboard";
 import AttendanceCalendarPage from "pages/attendance-calendar";
 import ConsultationPage from "pages/consultation";
+import PatientChart from "pages/patient-chart";
 import PhoneEntry from "pages/consultation/PhoneEntry";
 import PhoneGate from "pages/consultation/PhoneGate";
 import PhonePair from "pages/consultation/PhonePair";
@@ -126,6 +127,15 @@ const AppRoutes = () => {
           <TenantWrapper>
             <ProtectedRoute allowedRoles={['staff', 'manager', 'admin', 'admin_viewer']}>
               <BookingDetailsAssignmentModal />
+            </ProtectedRoute>
+          </TenantWrapper>
+        } />
+
+        {/* Patient chart: full record (visits, treatments, notes, billing) for one patient. */}
+        <Route path="/:orgSlug/patients/:customerId" element={
+          <TenantWrapper>
+            <ProtectedRoute allowedRoles={['staff', 'manager', 'admin', 'admin_viewer']}>
+              <PatientChart />
             </ProtectedRoute>
           </TenantWrapper>
         } />

@@ -6204,7 +6204,7 @@ export async function fetchCustomerProfile(customerId) {
     // 2b. Treatment notes left by dentists across this customer's appointments
     const { data: treatmentNoteRows, error: notesError } = await supabase
       .from('treatment_notes')
-      .select('id, note, created_at, dentist:dentists(id, name)')
+      .select('id, booking_id, note, created_at, dentist:dentists(id, name)')
       .eq('customer_id', customerId)
       .order('created_at', { ascending: false });
 
@@ -10803,6 +10803,22 @@ export async function analyzeConsultationImages(kind, imagePaths) {
 }
 
 /** Most recent consultation for a booking (to resume a saved draft). */
+/** Every consultation recorded for a patient, newest first (for the patient chart). */
+export async function fetchConsultationsForCustomer(customerId) {
+  try {
+    const { data, error } = await supabase
+      .from('consultations')
+      .select('*')
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return { data: data || [], error: null };
+  } catch (error) {
+    console.error('[API] fetchConsultationsForCustomer error:', error.message);
+    return { data: [], error };
+  }
+}
+
 export async function fetchConsultationForBooking(bookingId) {
   try {
     const { data, error } = await supabase

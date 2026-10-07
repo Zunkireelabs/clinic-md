@@ -117,6 +117,9 @@ const BookingDetailsAssignmentModal = () => {
 
     if (result.error) {
       showActionError(result.error.message || 'Failed to update status.');
+    } else if (newStatus === 'in-progress' && CONSULTATION_ENABLED && userRole !== 'admin_viewer') {
+      navigate(`/${urlOrgSlug || profile?.organizations?.slug}/bookings/${bookingIdFromUrl}/consultation`);
+      return;
     } else {
       await loadBooking();
     }

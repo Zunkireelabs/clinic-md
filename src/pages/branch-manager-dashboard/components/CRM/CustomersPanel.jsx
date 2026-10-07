@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Icon from '../../../../components/AppIcon';
 import { getCustomerIntelligence } from '../../../../services/api';
 import { useAuth } from '../../../../contexts/AuthContext';
-import CustomerProfileModal from './CustomerProfileModal';
+import { useNavigate } from 'react-router-dom';
 import DuplicateCustomersPanel from './DuplicateCustomersPanel';
 
 const LOYALTY_CONFIG = {
@@ -36,7 +36,7 @@ const CustomersPanel = ({ branchId, readOnly = false }) => { // eslint-disable-l
   const [error, setError] = useState(null);
   const [filterTier, setFilterTier] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCustomerId, setSelectedCustomerId] = useState(null);
+  const navigate = useNavigate();
 
   const loadData = useCallback(async () => {
     if (!branchId) return;
@@ -60,7 +60,7 @@ const CustomersPanel = ({ branchId, readOnly = false }) => { // eslint-disable-l
   const tabs = (
     <div className="flex items-center gap-1 border-b border-border">
       {[
-        { key: 'customers', label: 'Customers' },
+        { key: 'customers', label: 'Patients' },
         { key: 'duplicates', label: 'Potential Duplicates' },
       ].map((tab) => (
         <button
@@ -207,11 +207,11 @@ const CustomersPanel = ({ branchId, readOnly = false }) => { // eslint-disable-l
           <div className="text-center py-12">
             <Icon name="Users" size={32} className="text-text-tertiary mx-auto mb-3" />
             <p className="font-body font-body-medium text-sm text-text-secondary">
-              {customers.length === 0 ? 'No customers yet' : 'No customers match your filter'}
+              {customers.length === 0 ? 'No patients yet' : 'No patients match your filter'}
             </p>
             {customers.length === 0 && (
               <p className="font-caption text-xs text-text-tertiary mt-1">
-                Customers are created automatically when bookings are made.
+                Patients are added automatically when bookings are made.
               </p>
             )}
           </div>
@@ -235,7 +235,7 @@ const CustomersPanel = ({ branchId, readOnly = false }) => { // eslint-disable-l
                   return (
                     <tr
                       key={c.id}
-                      onClick={() => setSelectedCustomerId(c.id)}
+                      onClick={() => navigate(`/${profile?.organizations?.slug}/patients/${c.id}`)}
                       className="border-b border-border last:border-0 hover:bg-background/50 cursor-pointer spa-transition-fast"
                     >
                       <td className="px-4 py-3 font-data font-data-normal text-xs text-text-tertiary">
@@ -288,14 +288,6 @@ const CustomersPanel = ({ branchId, readOnly = false }) => { // eslint-disable-l
           </div>
         )}
       </div>
-
-      {/* Profile Modal */}
-      {selectedCustomerId && (
-        <CustomerProfileModal
-          customerId={selectedCustomerId}
-          onClose={() => setSelectedCustomerId(null)}
-        />
-      )}
     </div>
   );
 };

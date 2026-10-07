@@ -1,9 +1,9 @@
 // Is the Doctor app unlocked right now? Kept only in memory on purpose: opening the
 // app from the Home Screen is a fresh start, so it is always locked until the code
 // from the computer (or a fresh QR / sign-in code) is entered. After that it stays
-// open while in use, and locks again if the phone was away for LOCK_AFTER_MS.
+// open while in use, and locks again if the phone was away for LOCK_AFTER_MS (1 hour).
 
-export const LOCK_AFTER_MS = 60 * 1000;
+export const LOCK_AFTER_MS = 60 * 60 * 1000;
 
 let state = { unlockedAt: null, lastSeen: null };
 

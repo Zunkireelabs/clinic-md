@@ -151,7 +151,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
     },
     {
       id: 'customers',
-      label: 'Customers',
+      label: 'Patients',
       icon: 'Users',
       path: `${basePath}?view=customers`,
       roles: ['manager', 'admin', 'admin_viewer']
