@@ -38,9 +38,10 @@ const TABS = [
   { key: 'billing', label: 'Billing', icon: 'CreditCard' },
 ];
 
-const PatientChart = () => {
+const PatientChart = ({ embedded = false, customerId: customerIdProp, onClose }) => {
   const navigate = useNavigate();
-  const { customerId, orgSlug: urlOrgSlug } = useParams();
+  const { customerId: customerIdParam, orgSlug: urlOrgSlug } = useParams();
+  const customerId = customerIdProp || customerIdParam;
   const { profile } = useAuth();
   const userRole = profile?.role || 'staff';
   const orgSlug = urlOrgSlug || profile?.organizations?.slug;
@@ -51,7 +52,7 @@ const PatientChart = () => {
   const [error, setError] = useState(null);
   const [tab, setTab] = useState('visits');
   const [consultations, setConsultations] = useState({});
-  const [closed, setClosed] = useState({});
+  const [expanded, setExpanded] = useState({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,19 +90,7 @@ const PatientChart = () => {
     return txt ? txt.split('\n')[0] : '';
   };
 
-  return (
-    <div className="min-h-screen bg-surface-sidebar">
-      <StaffSidebar userRole={userRole} onCollapseChange={setSidebarCollapsed} />
-      <div className={`${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-60'} pb-20 lg:pb-0 transition-all duration-200`}>
-        <StaffTopBar orgSlug={orgSlug} />
-        <div className="relative z-0 flex gap-2 sm:gap-3 min-h-[calc(100vh-52px)]">
-          <main
-            className="flex-1 min-w-0 px-3 sm:px-4 md:px-6 lg:px-8 py-3 sm:py-4 bg-surface-dim"
-            style={{ borderRadius: '16px 0 0 0', borderLeft: '1px solid #e5e7eb', borderTop: '1px solid #e5e7eb' }}
-          >
-            <button onClick={goBack} className="inline-flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary mb-3">
-              <Icon name="ArrowLeft" size={16} /> All patients
-            </button>
+  const content = (
             <div>
               {loading && (
                 <div className="p-16 text-center">
@@ -119,27 +108,28 @@ const PatientChart = () => {
               )}
 
               {!loading && data && (
-                <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4 items-start">
+                <div className={`grid grid-cols-1 gap-4 items-start ${embedded ? '' : 'lg:grid-cols-[300px_1fr]'}`}>
                   {/* Patient summary — stays in view while scrolling the record */}
-                  <aside className="lg:sticky lg:top-4 space-y-3">
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-                      <div className="flex items-center gap-3">
-                        <div className="w-14 h-14 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xl font-heading font-heading-semibold shrink-0">
+                  <aside className={embedded ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : 'lg:sticky lg:top-4 space-y-3'}>
+                    <div className={`bg-white rounded-2xl border border-gray-200/80 shadow-sm overflow-hidden ${embedded ? 'sm:col-span-2 flex flex-wrap items-stretch' : ''}`}>
+                      <div className={`flex items-center gap-3 p-4 bg-gradient-to-br from-primary/10 via-primary/[0.04] to-transparent ${embedded ? 'sm:w-64 shrink-0' : 'border-b border-gray-100'}`}>
+                        <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary to-accent text-white shadow flex items-center justify-center text-base font-heading font-heading-semibold shrink-0">
                           {initial}
                         </div>
                         <div className="min-w-0">
-                          <h1 className="font-heading font-heading-semibold text-lg text-text-primary leading-tight break-words">{c.fullName}</h1>
-                          <span className={`inline-flex mt-1 px-2 py-0.5 rounded-full text-xs font-caption ${TIER_STYLE[s.loyaltyTier] || TIER_STYLE.Standard}`}>
+                          <h1 className="font-heading font-heading-semibold text-base text-text-primary leading-tight break-words">{c.fullName}</h1>
+                          <span className={`inline-flex mt-0.5 px-1.5 py-px rounded-full text-[11px] font-caption ${TIER_STYLE[s.loyaltyTier] || TIER_STYLE.Standard}`}>
                             {s.loyaltyTier}
                           </span>
                         </div>
                       </div>
-                      <dl className="mt-4 space-y-2.5 text-sm">
+                      <div className={`flex-1 min-w-0 p-4 ${embedded ? 'flex flex-wrap items-center justify-between gap-x-6 gap-y-4' : ''}`}>
+                      <dl className="space-y-2 text-[13px]">
                         <div className="flex items-center gap-2 text-text-primary"><Icon name="Phone" size={14} className="text-text-tertiary" />{c.phone || '—'}</div>
                         {c.email && <div className="flex items-center gap-2 text-text-primary break-all"><Icon name="Mail" size={14} className="text-text-tertiary shrink-0" />{c.email}</div>}
                         <div className="flex items-center gap-2 text-text-secondary"><Icon name="Calendar" size={14} className="text-text-tertiary" />Patient since {fmt(c.createdAt, { month: 'short', year: 'numeric' })}</div>
                       </dl>
-                      <div className="grid grid-cols-2 gap-2 mt-4">
+                      <div className={`grid grid-cols-2 gap-2 ${embedded ? 'w-60 shrink-0' : 'mt-3'}`}>
                         <div className="rounded-lg bg-surface-dim border border-gray-100 p-2.5">
                           <p className="text-[11px] text-text-tertiary">Visits</p>
                           <p className="font-heading font-heading-semibold text-text-primary">{s.completedVisits}<span className="text-xs text-text-secondary font-normal"> / {s.totalVisits}</span></p>
@@ -150,13 +140,14 @@ const PatientChart = () => {
                         </div>
                       </div>
                       {s.mostBookedTreatment && (
-                        <p className="mt-3 text-xs text-text-secondary flex items-center gap-1.5">
+                        <p className={`text-xs text-text-secondary flex items-center gap-1.5 ${embedded ? 'basis-full pt-3 border-t border-gray-100' : 'mt-3'}`}>
                           <Icon name="Heart" size={12} className="text-primary" /> Most frequent: <span className="font-medium text-text-primary">{s.mostBookedTreatment}</span>
                         </p>
                       )}
+                      </div>
                     </div>
 
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                    <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-4">
                       <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2 flex items-center gap-1.5"><Icon name="Users" size={12} /> Care team</h3>
                       {doctorsSeen.length === 0 ? <p className="text-sm text-text-tertiary italic">No doctor assigned yet</p> : (
                         <ul className="space-y-1.5">
@@ -166,7 +157,7 @@ const PatientChart = () => {
                         </ul>
                       )}
                     </div>
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                    <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-4">
                       <h3 className="text-xs uppercase tracking-wider text-text-tertiary mb-2 flex items-center gap-1.5"><Icon name="Stethoscope" size={12} /> Treatments</h3>
                       <ul className="space-y-1.5">
                         {treatmentsDone.map(([n, k]) => (
@@ -176,13 +167,13 @@ const PatientChart = () => {
                     </div>
 
                     {c.notes && (
-                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                      <div className={`bg-amber-50 border border-amber-200 rounded-2xl p-4 ${embedded ? 'sm:col-span-2' : ''}`}>
                         <p className="text-xs font-medium text-amber-700 mb-1 flex items-center gap-1.5"><Icon name="AlertTriangle" size={12} /> Alerts / notes</p>
                         <p className="text-sm text-amber-900 whitespace-pre-wrap">{c.notes}</p>
                       </div>
                     )}
                     {unpaid.length > 0 && (
-                      <div className="bg-error/5 border border-error/20 rounded-xl p-4 text-sm text-error flex items-center gap-2">
+                      <div className={`bg-error/5 border border-error/20 rounded-2xl p-4 text-sm text-error flex items-center gap-2 ${embedded ? 'sm:col-span-2' : ''}`}>
                         <Icon name="AlertCircle" size={16} /> {unpaid.length} unpaid · {npr(unpaidTotal)}
                       </div>
                     )}
@@ -207,16 +198,16 @@ const PatientChart = () => {
                     </div>
 
                     {tab === 'visits' && (
-                      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
-                        <div className="col-span-2 rounded-xl bg-primary/5 border border-primary/20 p-4">
+                      <div className={`grid grid-cols-2 gap-3 mb-5 ${embedded ? '' : 'xl:grid-cols-4'}`}>
+                        <div className="col-span-2 rounded-2xl bg-gradient-to-br from-primary/10 to-primary/[0.03] border border-primary/20 p-4">
                           <p className="text-[11px] uppercase tracking-wider text-primary mb-1 flex items-center gap-1.5"><Icon name="ClipboardCheck" size={12} /> Latest diagnosis / notes</p>
                           <p className={`text-sm line-clamp-3 ${latestDx ? 'text-text-primary' : 'text-text-tertiary italic'}`}>{latestDx || 'Nothing recorded yet'}</p>
                         </div>
-                        <div className="rounded-xl bg-white border border-gray-200 p-4">
+                        <div className="rounded-2xl bg-white border border-gray-200/80 shadow-sm p-4">
                           <p className="text-[11px] uppercase tracking-wider text-text-tertiary mb-1">Consultations</p>
                           <p className="font-heading font-heading-semibold text-2xl text-text-primary">{consRows.length}</p>
                         </div>
-                        <div className="rounded-xl bg-white border border-gray-200 p-4">
+                        <div className="rounded-2xl bg-white border border-gray-200/80 shadow-sm p-4">
                           <p className="text-[11px] uppercase tracking-wider text-text-tertiary mb-1">X-rays & photos</p>
                           <p className="font-heading font-heading-semibold text-2xl text-text-primary">{imageCount}</p>
                         </div>
@@ -229,14 +220,14 @@ const PatientChart = () => {
                       ) : (
                         <ol className="relative border-l-2 border-gray-200 ml-2 space-y-4">
                           {history.map((b) => {
-                            const open = !closed[b.id];
+                            const open = !!expanded[b.id];
                             return (
                               <li key={b.id} className="pl-5 relative">
                                 <span className={`absolute -left-[7px] top-5 w-3 h-3 rounded-full border-2 border-white ${b.status === 'Completed' ? 'bg-success' : 'bg-gray-300'}`} />
                                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
                                   <button
                                     type="button"
-                                    onClick={() => setClosed((m) => ({ ...m, [b.id]: open }))}
+                                    onClick={() => setExpanded((m) => ({ ...m, [b.id]: !open }))}
                                     className="w-full text-left p-4 flex items-center gap-3"
                                     aria-expanded={open}
                                   >
@@ -319,6 +310,24 @@ const PatientChart = () => {
                 </div>
               )}
             </div>
+  );
+
+  if (embedded) return <div className="p-4 sm:p-6">{content}</div>;
+
+  return (
+    <div className="min-h-screen bg-surface-sidebar">
+      <StaffSidebar userRole={userRole} onCollapseChange={setSidebarCollapsed} />
+      <div className={`${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-60'} pb-20 lg:pb-0 transition-all duration-200`}>
+        <StaffTopBar orgSlug={orgSlug} />
+        <div className="relative z-0 flex gap-2 sm:gap-3 min-h-[calc(100vh-52px)]">
+          <main
+            className="flex-1 min-w-0 px-3 sm:px-4 md:px-6 lg:px-8 py-3 sm:py-4 bg-surface-dim"
+            style={{ borderRadius: '16px 0 0 0', borderLeft: '1px solid #e5e7eb', borderTop: '1px solid #e5e7eb' }}
+          >
+            <button onClick={goBack} className="inline-flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary mb-3">
+              <Icon name="ArrowLeft" size={16} /> All patients
+            </button>
+            {content}
           </main>
           <AIAssistantPanel />
         </div>

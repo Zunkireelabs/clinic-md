@@ -70,10 +70,12 @@ const ImageAnalysisCard = ({ title, icon, kind, bookingId, imagePaths, analysis,
   };
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-5">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Icon name={icon} size={18} className="text-primary" />
+    <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 bg-gradient-to-r from-primary/[0.05] to-transparent">
+        <div className="flex items-center gap-3">
+          <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <Icon name={icon} size={18} />
+          </span>
           <h2 className="font-heading font-heading-semibold text-base text-text-primary">{title}</h2>
         </div>
         <input ref={inputRef} type="file" accept="image/*" multiple hidden onChange={handleFiles} />
@@ -105,6 +107,7 @@ const ImageAnalysisCard = ({ title, icon, kind, bookingId, imagePaths, analysis,
         )}
       </div>
 
+      <div className="p-5">
       {compact && (
         <div className="grid grid-cols-1 gap-2 mb-4">
           <Button variant="primary" size="lg" fullWidth iconName="Camera" iconPosition="left"
@@ -172,9 +175,10 @@ const ImageAnalysisCard = ({ title, icon, kind, bookingId, imagePaths, analysis,
           disabled={disabled}
           rows={analysis ? 8 : 3}
           placeholder={`${title} will appear here after you upload images. You can also type or edit findings yourself.`}
-          className="w-full text-sm rounded-md border-gray-200 focus:border-primary focus:ring-primary"
+          className="w-full text-sm leading-relaxed rounded-xl border-gray-200 bg-gray-50/50 px-4 py-3 placeholder:text-gray-400 focus:bg-white focus:border-primary focus:ring-2 focus:ring-primary/20 transition"
         />
       )}
+      </div>
     </div>
   );
 };

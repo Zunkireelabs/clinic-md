@@ -6,6 +6,7 @@ import Button from '../../components/ui/Button';
 import StaffSidebar from '../../components/ui/StaffSidebar';
 import StaffTopBar from '../../components/ui/StaffTopBar';
 import { AIAssistantPanel } from '../../components/ui/AIAssistant';
+import PatientChart from '../patient-chart';
 import ImageAnalysisCard from './components/ImageAnalysisCard';
 import PhoneHandoff from './components/PhoneHandoff';
 import PhoneCodeBanner from './components/PhoneCodeBanner';
@@ -45,15 +46,17 @@ const hasContent = (f) =>
 const formatTimer = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
 const Card = ({ title, icon, children, action }) => (
-  <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-    <div className="flex items-center justify-between mb-4">
-      <div className="flex items-center gap-2">
-        <Icon name={icon} size={18} className="text-primary" />
+  <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+    <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 bg-gradient-to-r from-primary/[0.05] to-transparent">
+      <div className="flex items-center gap-3">
+        <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+          <Icon name={icon} size={18} />
+        </span>
         <h2 className="font-heading font-heading-semibold text-base text-text-primary">{title}</h2>
       </div>
       {action}
     </div>
-    {children}
+    <div className="p-5">{children}</div>
   </div>
 );
 
@@ -64,7 +67,7 @@ const TextArea = ({ value, onChange, rows = 6, placeholder, disabled }) => (
     rows={rows}
     disabled={disabled}
     placeholder={placeholder}
-    className="w-full text-sm rounded-md border-gray-200 focus:border-primary focus:ring-primary"
+    className="w-full text-sm leading-relaxed rounded-xl border-gray-200 bg-gray-50/50 px-4 py-3 placeholder:text-gray-400 focus:bg-white focus:border-primary focus:ring-2 focus:ring-primary/20 transition"
   />
 );
 
@@ -97,6 +100,15 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [booking, setBooking] = useState(null);
+  const [showChart, setShowChart] = useState(false);
+
+  // The chart pop-up scrolls on its own; freeze the page behind it.
+  useEffect(() => {
+    if (!showChart) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [showChart]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
@@ -768,44 +780,51 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
         {!loading && !loadError && booking && (
           <div className="max-w-5xl mx-auto p-4 lg:p-6 space-y-4">
             {/* Header */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <button onClick={goBack} aria-label="Go back" className="p-2 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 shrink-0">
-                  <Icon name="ArrowLeft" size={18} className="text-text-secondary" />
-                </button>
-                <div className="min-w-0">
-                  <h1 className="font-heading font-heading-semibold text-xl text-text-primary leading-tight">Consultation</h1>
-                  <p className="font-caption text-sm text-text-secondary flex items-center gap-1.5 truncate">
-                    <Icon name="Calendar" size={14} /> {longDate}
-                  </p>
+            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-secondary text-white shadow-md">
+              <div className="absolute -right-10 -top-12 w-48 h-48 rounded-full bg-white/10" />
+              <div className="absolute right-24 -bottom-16 w-40 h-40 rounded-full bg-accent/20" />
+              <div className="relative flex flex-wrap items-center justify-between gap-4 p-5">
+                <div className="flex items-center gap-4 min-w-0">
+                  <button onClick={goBack} aria-label="Go back" className="p-2.5 rounded-xl bg-white/15 hover:bg-white/25 backdrop-blur border border-white/20 shrink-0 transition">
+                    <Icon name="ArrowLeft" size={18} className="text-white" />
+                  </button>
+                  <div className="min-w-0">
+                    <h1 className="font-heading font-heading-semibold text-2xl leading-tight">Consultation</h1>
+                    <p className="font-caption text-sm text-white/80 flex items-center gap-1.5 truncate">
+                      <Icon name="Calendar" size={14} /> {longDate}
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-text-tertiary flex items-center gap-1">
-                  {syncState === 'saving' && <><span className="animate-spin w-3 h-3 border border-primary border-t-transparent rounded-full" /> Syncing…</>}
-                  {syncState === 'synced' && <><Icon name="Cloud" size={12} /> Synced</>}
-                  {syncState === 'error' && <span className="text-error flex items-center gap-1"><Icon name="CloudOff" size={12} /> Not synced — will retry on next change</span>}
-                </span>
-                <Button variant="outline" size="xs" iconName="Smartphone" iconPosition="left" onClick={() => setShowPhone(true)}>
-                  Continue on phone
-                </Button>
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusChip.cls}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full bg-current ${statusChip.pulse ? 'animate-pulse' : ''}`} />
-                  {statusChip.label}
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-white/80 flex items-center gap-1">
+                    {syncState === 'saving' && <><span className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" /> Syncing…</>}
+                    {syncState === 'synced' && <><Icon name="Cloud" size={12} /> Synced</>}
+                    {syncState === 'error' && <span className="text-red-200 flex items-center gap-1"><Icon name="CloudOff" size={12} /> Not synced — will retry on next change</span>}
+                  </span>
+                  <button type="button" onClick={() => setShowPhone(true)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-primary text-sm font-medium shadow-sm hover:bg-white/90 transition">
+                    <Icon name="Smartphone" size={14} /> Continue on phone
+                  </button>
+                  <span className="rounded-full bg-white shadow-sm">
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusChip.cls}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full bg-current ${statusChip.pulse ? 'animate-pulse' : ''}`} />
+                      {statusChip.label}
+                    </span>
+                  </span>
+                </div>
               </div>
             </div>
 
             {/* Steps */}
-            <div className="flex items-center gap-2 text-sm">
+            <div className="flex items-center gap-3 text-sm">
               {[{ key: 'active', label: 'Capture', n: 1 }, { key: 'review', label: 'Review & finish', n: 2 }].map((st, idx) => {
                 const current = phase === st.key;
                 return (
                   <React.Fragment key={st.key}>
-                    {idx > 0 && <span className="h-px w-8 bg-gray-300" />}
+                    {idx > 0 && <span className="h-0.5 w-8 shrink-0 rounded bg-gradient-to-r from-primary/40 to-gray-200" />}
                     <button type="button" disabled={busy || current} onClick={() => setPhase(st.key)}
-                            className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition ${current ? 'bg-primary text-white border-primary' : 'bg-white text-text-secondary border-gray-200 hover:bg-gray-50'}`}>
-                      <span className={`w-5 h-5 rounded-full text-xs flex items-center justify-center ${current ? 'bg-white/20' : 'bg-gray-100'}`}>{st.n}</span>
+                            className={`flex-1 justify-center flex items-center gap-2 px-4 py-2 rounded-full border font-medium transition ${current ? 'bg-primary text-white border-primary shadow-md shadow-primary/25' : 'bg-white text-text-secondary border-gray-200 hover:bg-gray-50 hover:border-primary/40'}`}>
+                      <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center ${current ? 'bg-white/25' : 'bg-gray-100'}`}>{st.n}</span>
                       {st.label}
                     </button>
                   </React.Fragment>
@@ -847,33 +866,36 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
             )}
 
             {/* Patient (prefilled from the booking) */}
-            <Card title="Patient Details" icon="User">
-              <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-8">
-                <div className="flex items-center gap-3 lg:min-w-[220px]">
-                  <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center font-heading font-heading-semibold text-lg shrink-0">
+            <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm overflow-hidden">
+              <div className="flex flex-col lg:flex-row">
+                <div className="flex items-center gap-4 p-5 lg:w-72 shrink-0 bg-gradient-to-br from-primary/10 via-primary/[0.04] to-transparent lg:border-r border-b lg:border-b-0 border-gray-100">
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-heading font-heading-semibold text-xl shadow-md shrink-0">
                     {(booking.customer_name || '?').trim().charAt(0).toUpperCase()}
                   </div>
                   <div className="min-w-0">
-                    <p className="font-heading font-heading-semibold text-text-primary truncate">{booking.customer_name}</p>
-                    <p className="text-xs text-text-tertiary">{booking.booking_number || '—'}</p>
+                    <p className="text-[11px] uppercase tracking-wider text-primary font-semibold">Patient</p>
+                    <p className="font-heading font-heading-semibold text-lg text-text-primary leading-tight break-words">{booking.customer_name}</p>
+                    <p className="text-xs text-text-tertiary mt-0.5">{booking.booking_number || '—'}</p>
                   </div>
                 </div>
-                <dl className="flex-1 grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+                <dl className="flex-1 grid grid-cols-2 md:grid-cols-5 gap-px bg-gray-100 text-sm">
                   {[
-                    ['Treatment', booking.treatment?.name || booking.treatment_name_snapshot || '—'],
-                    ['Dentist', booking.dentist?.name || booking.dentist_name_snapshot || 'Unassigned'],
-                    ['Visit date', formatVisitDate(sessionDate)],
-                    ['Last visit', lastVisit || '…'],
-                    ['Attended by', attendedBy.length ? attendedBy.join(', ') : 'No one yet'],
-                  ].map(([k, v]) => (
-                    <div key={k} className="rounded-lg bg-surface-dim/60 border border-gray-100 px-3 py-2 min-w-0">
-                      <dt className="text-text-tertiary text-xs mb-0.5">{k}</dt>
-                      <dd className="font-medium text-text-primary truncate" title={String(v)}>{v}</dd>
+                    ['Stethoscope', 'Treatment', booking.treatment?.name || booking.treatment_name_snapshot || '—'],
+                    ['UserRound', 'Dentist', booking.dentist?.name || booking.dentist_name_snapshot || 'Unassigned'],
+                    ['Calendar', 'Visit date', formatVisitDate(sessionDate)],
+                    ['History', 'Last visit', lastVisit || '…'],
+                    ['UserCheck', 'Attended by', attendedBy.length ? attendedBy.join(', ') : 'No one yet'],
+                  ].map(([icon, k, v]) => (
+                    <div key={k} className="bg-white px-4 py-3.5 min-w-0">
+                      <dt className="text-xs text-text-tertiary flex items-center gap-1.5 mb-1">
+                        <Icon name={icon} size={13} className="text-primary" /> {k}
+                      </dt>
+                      <dd className="font-semibold text-text-primary break-words leading-snug">{v}</dd>
                     </div>
                   ))}
                 </dl>
               </div>
-            </Card>
+            </div>
 
             {error && (
               <div className="p-3 bg-error/5 border border-error/20 rounded-md flex items-start gap-2">
@@ -950,8 +972,8 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
                     {processing === 'summarizing' && <span className="text-sm text-text-secondary flex items-center gap-2"><span className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full" />Generating summary…</span>}
                   </div>
                   {phones.length === 0 && !remote && (
-                    <p className="mt-3 text-xs text-text-tertiary flex items-center gap-1.5">
-                      <Icon name="Smartphone" size={12} /> Prefer your phone's mic? Tap <strong>Continue on phone</strong> at the top.
+                    <p className="mt-4 text-sm text-text-secondary flex items-center gap-2">
+                      <Icon name="Smartphone" size={14} className="shrink-0" /> Prefer your phone's mic? Tap <strong>Continue on phone</strong> at the top.
                     </p>
                   )}
                   {recorder.error && <p className="mt-3 text-sm text-error">{recorder.error}</p>}
@@ -995,11 +1017,22 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
                   disabled={recorder.isRecording}
                 />
 
-                <div className="flex justify-end">
-                  <Button variant="primary" iconName="ArrowRight" iconPosition="right" disabled={busy}
-                          onClick={() => { setPhase('review'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>
+                <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-primary/20 bg-gradient-to-r from-primary/[0.07] to-accent/[0.08] px-5 py-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="w-10 h-10 rounded-xl bg-white text-primary shadow-sm flex items-center justify-center shrink-0">
+                      <Icon name="ClipboardCheck" size={20} />
+                    </span>
+                    <div>
+                      <p className="font-heading font-heading-semibold text-text-primary leading-tight">Done capturing?</p>
+                      <p className="text-sm text-text-secondary">Add your notes and create the final summary.</p>
+                    </div>
+                  </div>
+                  <button type="button" disabled={busy}
+                          onClick={() => { setPhase('review'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                          className="group inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-md shadow-primary/25 hover:shadow-lg hover:-translate-y-px active:translate-y-0 transition disabled:opacity-50 disabled:pointer-events-none">
                     Finish Consultation
-                  </Button>
+                    <Icon name="ArrowRight" size={18} className="transition-transform group-hover:translate-x-0.5" />
+                  </button>
                 </div>
               </>
             )}
@@ -1026,16 +1059,11 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
                   <TextArea value={form.finalSummary} onChange={(v) => patchForm({ finalSummary: v })} rows={form.finalSummary ? 12 : 4}
                             placeholder="Combines the recording, X-rays, photos and your notes. You can also write it yourself." />
                 </Card>
-                <div>
-                  <Button variant="outline" iconName="ArrowLeft" iconPosition="left" disabled={busy} onClick={() => setPhase('active')}>
-                    Back to consultation
-                  </Button>
-                </div>
               </>
             )}
 
             {/* Actions */}
-            <div className="sticky bottom-16 lg:bottom-0 z-10 -mx-4 lg:mx-0 px-4 lg:px-4 py-3 bg-white/95 backdrop-blur border-t lg:border border-gray-200 lg:rounded-xl lg:shadow-sm">
+            <div className="px-5 py-4 bg-white border border-gray-200/80 rounded-2xl shadow-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <Button variant={isSavedClean ? 'success' : 'primary'} iconName={isSavedClean ? 'Check' : 'Save'} iconPosition="left" loading={saving} disabled={busy || !hasContent(form)} onClick={handleSave}>
                   {isSavedClean ? 'Saved' : (dbStatus === 'completed' ? 'Save changes' : 'Save Consultation')}
@@ -1044,6 +1072,10 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
                   <span className="text-xs text-text-tertiary">{saveBlockedReason}</span>
                 )}
                 <div className="flex flex-wrap items-center gap-2 ml-auto">
+                  <button type="button" disabled={!booking.customer_id} onClick={() => setShowChart(true)}
+                          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-primary/30 bg-primary/5 text-primary text-sm font-medium hover:bg-primary/10 hover:border-primary/50 transition disabled:opacity-50 disabled:pointer-events-none">
+                    <Icon name="UserRound" size={16} /> Patient Chart
+                  </button>
                   <Button variant="outline" size="sm" iconName="FileText" iconPosition="left" disabled={!canReport}
                           className="border-purple-200 text-purple-600 hover:bg-purple-50 hover:text-purple-700"
                           onClick={() => generateConsultationPdf(reportData, profile?.organizations?.name)}>
@@ -1083,6 +1115,26 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
               </button>
             </div>
             <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss"><Icon name="X" size={16} className="text-text-tertiary" /></button>
+          </div>
+        </div>
+      )}
+
+      {showChart && booking?.customer_id && (
+        <div className="fixed inset-0 z-modal-overlay flex items-center justify-center p-3 sm:p-6" role="dialog" aria-modal="true" aria-label="Patient chart">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowChart(false)} />
+          <div className="relative w-full max-w-4xl h-[92vh] flex flex-col rounded-2xl bg-surface-dim shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3 bg-white border-b border-gray-200 shrink-0">
+              <h2 className="font-heading font-heading-semibold text-text-primary flex items-center gap-2">
+                <Icon name="UserRound" size={18} className="text-primary" /> Patient Chart
+              </h2>
+              <button type="button" onClick={() => setShowChart(false)} aria-label="Close patient chart"
+                      className="p-2 rounded-lg text-text-secondary hover:bg-gray-100 hover:text-text-primary transition">
+                <Icon name="X" size={20} />
+              </button>
+            </div>
+            <div className="overflow-y-auto overscroll-contain">
+              <PatientChart embedded customerId={booking.customer_id} />
+            </div>
           </div>
         </div>
       )}
