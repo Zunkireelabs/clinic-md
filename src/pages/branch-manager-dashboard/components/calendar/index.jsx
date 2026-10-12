@@ -3,11 +3,27 @@ import { useSearchParams } from 'react-router-dom';
 import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, pointerWithin } from '@dnd-kit/core';
 import Icon from '../../../../components/AppIcon';
 import BookingActionModal from '../../../../components/ui/BookingActionModal';
-import StatusLegend from '../../../../components/ui/StatusLegend';
 import MiniMonthCalendar from './MiniMonthCalendar';
+import EmptySlotChoiceMenu from './EmptySlotChoiceMenu';
+import AddBlockModal from './AddBlockModal';
+import EditBlockModal from './EditBlockModal';
+import BlockScopeDialog from './BlockScopeDialog';
+import TransferFromCalendarModal from './TransferFromCalendarModal';
+import TransferManagementModal from '../../../../components/ui/TransferManagementModal';
+import BlockOverlapWarning from '../../../../components/ui/BlockOverlapWarning';
+import { useDayBlocks } from '../../../../hooks/useBlockOverlap';
+import { findBlockOverlap, describeBlockOverlap } from '../../../../utils/blockOverlap';
 import CalendarGrid, { HOUR_HEIGHT } from './CalendarGrid';
+import { useAutoRefresh } from '../../../../hooks/useAutoRefresh';
 import {
   getCalendarBookings,
+  fetchBlocksForRange,
+  fetchTransferOccurrences,
+  isTransferFeatureMissing,
+  cancelScheduledTransfer,
+  revertStaffTransferNow,
+  deleteBlock,
+  updateBlock,
   fetchBookingById,
   updateBookingStatus,
   assignDentist,
@@ -61,14 +77,12 @@ function formatDateTitle(dateStr, viewMode) {
     const endStr = end.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
     return `${startStr} – ${endStr}`;
   }
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  if (dateStr === todayStr) return 'Today';
   return d.toLocaleDateString('en-GB', {
+    weekday: 'short',
     day: 'numeric',
-    month: 'long',
+    month: 'short',
     year: 'numeric',
-  });
+  }).replace(',', '');
 }
 
 function getDateRange(dateStr, viewMode) {
@@ -76,6 +90,30 @@ function getDateRange(dateStr, viewMode) {
     return { start: dateStr, end: addDays(dateStr, 3) };
   }
   return { start: dateStr, end: dateStr };
+}
+
+const JUMP_OPTIONS = [
+  { label: '1 week', unit: 'week', amount: 1 },
+  { label: '2 weeks', unit: 'week', amount: 2 },
+  { label: '3 weeks', unit: 'week', amount: 3 },
+  { label: '4 weeks', unit: 'week', amount: 4 },
+  { label: '5 weeks', unit: 'week', amount: 5 },
+  { label: '6 weeks', unit: 'week', amount: 6 },
+  { label: '7 weeks', unit: 'week', amount: 7 },
+  { label: '8 weeks', unit: 'week', amount: 8 },
+  { label: '6 months', unit: 'month', amount: 6 },
+  { label: '1 year', unit: 'year', amount: 1 },
+];
+
+// Local-time month math; clamps to the last day of the target month (Jan 31 + 1 month -> Feb 28).
+function addMonths(dateStr, months) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + months);
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
+  return toLocalISO(d);
 }
 
 function getStepDays(viewMode) {
@@ -247,6 +285,27 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
 
   // Compute which dentists & chairs are busy during the selected time slot
   const selectedTreatment = (treatments || []).find((s) => s.id === treatmentId);
+  // Warn (and disable Create) when the booking interval overlaps a manual block. Client-side only.
+  const dayBlocks = useDayBlocks(branchId, bookingDate);
+  const blockOverlapMsg = useMemo(() => {
+    if (!bookingDate || !bookingTime) return '';
+    const durOf = (tid) => (treatments || []).find((t) => t.id === tid)?.duration_minutes || 60;
+    const participants = bookingMode === 'group'
+      ? people.map((p) => ({
+          dentistIds: p.dentistId ? [p.dentistId] : [],
+          chairId: groupType === 'couple' ? groupChairId : p.chairId,
+          dur: durOf(treatmentMode === 'same' ? groupTreatmentId : p.treatmentId),
+        }))
+      : [{ dentistIds: selectedDentistIds, chairId, dur: selectedTreatment?.duration_minutes || 60 }];
+    for (const p of participants) {
+      const occ = findBlockOverlap(dayBlocks, {
+        date: bookingDate, startTime: bookingTime, durationMinutes: p.dur, dentistIds: p.dentistIds, chairId: p.chairId,
+      });
+      if (occ) return describeBlockOverlap(occ);
+    }
+    return '';
+  }, [dayBlocks, bookingDate, bookingTime, bookingMode, people, groupType, groupChairId, treatmentMode, groupTreatmentId, selectedDentistIds, chairId, selectedTreatment, treatments]);
+
   // Parse chair capacity from amenities (e.g., "3 Chair" → 3, "1 Bed" → 1)
   const getChairCapacity = (chair) => {
     if (!chair.amenities || chair.amenities.length === 0) return 1;
@@ -448,6 +507,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (bookingMode === 'group' ? !groupValid : (!treatmentId || !customerName.trim())) return;
+    if (blockOverlapMsg) return;
     // Synchronous re-entry guard: the `submitting` state disables the button
     // only after a re-render, so a fast double-click can fire two submits and
     // create duplicate bookings. The ref blocks the second call immediately.
@@ -594,6 +654,8 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
         {/* Form */}
         <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-y-auto">
           <div className="px-5 py-4 space-y-4 flex-1">
+            <BlockOverlapWarning message={blockOverlapMsg} />
+
             {/* Booking mode: Individual | Group */}
             <div className="grid grid-cols-2 gap-2 p-1 bg-background border border-border rounded-spa">
               {[['individual', 'Individual'], ['group', 'Group']].map(([val, label]) => (
@@ -1190,7 +1252,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
             </button>
             <button
               type="submit"
-              disabled={submitting || (bookingMode === 'group' ? !groupValid : (!treatmentId || !customerName.trim()))}
+              disabled={submitting || !!blockOverlapMsg || (bookingMode === 'group' ? !groupValid : (!treatmentId || !customerName.trim()))}
               className="px-4 py-2 text-sm font-body font-body-medium bg-primary text-white rounded-spa hover:bg-primary/90 spa-transition-fast disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {submitting && <div className="animate-spin w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full" />}
@@ -1229,6 +1291,9 @@ function isCheckedOutBlockedSlot(checkedOutByDentistAndDate, dentistId, day, hou
   return isAfterCheckout(checkOutTime, day, slotTime);
 }
 
+// Default interval (minutes) used to pre-check an empty-slot click before a treatment is chosen.
+const DEFAULT_SLOT_MINUTES = 30;
+
 // ── Component ────────────────────────────────────────────────
 
 const OperationalCalendar = ({ branchId }) => {
@@ -1249,7 +1314,15 @@ const OperationalCalendar = ({ branchId }) => {
   const [selectedPositions, setSelectedPositions] = useState([]); // empty = all
   const [positionDropdownOpen, setPositionDropdownOpen] = useState(false);
   const positionDropdownRef = useRef(null);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [dateDropdownOpen, setDateDropdownOpen] = useState(false);
+  const dateDropdownRef = useRef(null);
+  const [tipOpen, setTipOpen] = useState(false);
+  const tipRef = useRef(null);
+  const [awayOpen, setAwayOpen] = useState(false);
+  const awayRef = useRef(null);
+  const [jumpMenuOpen, setJumpMenuOpen] = useState(null); // 'prev' | 'next' | null
+  const prevJumpRef = useRef(null);
+  const nextJumpRef = useRef(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Calendar data state
@@ -1286,15 +1359,53 @@ const OperationalCalendar = ({ branchId }) => {
     return list;
   }, [calendarData?.dentists, showTreatmentOnly, selectedPositions, attendanceMap, currentDate]);
 
+  // Close toolbar popovers on outside click / Esc
+  useEffect(() => {
+    if (!dateDropdownOpen && !tipOpen && !awayOpen && !jumpMenuOpen) return;
+    const onDown = (e) => {
+      const inside = (r) => r.current && r.current.contains(e.target);
+      if (dateDropdownOpen && !inside(dateDropdownRef)) setDateDropdownOpen(false);
+      if (tipOpen && !inside(tipRef)) setTipOpen(false);
+      if (awayOpen && !inside(awayRef)) setAwayOpen(false);
+      if (jumpMenuOpen && !inside(jumpMenuOpen === 'prev' ? prevJumpRef : nextJumpRef)) setJumpMenuOpen(null);
+    };
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      setDateDropdownOpen(false);
+      setTipOpen(false);
+      setAwayOpen(false);
+      setJumpMenuOpen(null);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [dateDropdownOpen, tipOpen, awayOpen, jumpMenuOpen]);
+
   // Close position dropdown on outside click
   useEffect(() => {
     if (!positionDropdownOpen) return;
     const handle = (e) => {
       if (positionDropdownRef.current && !positionDropdownRef.current.contains(e.target)) setPositionDropdownOpen(false);
     };
+    const onKey = (e) => { if (e.key === 'Escape') setPositionDropdownOpen(false); };
     document.addEventListener('mousedown', handle);
-    return () => document.removeEventListener('mousedown', handle);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', handle);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [positionDropdownOpen]);
+
+  // Absent / on-leave dentists (hidden from columns) for the toolbar "N away" summary
+  const awayList = useMemo(() => {
+    if (!calendarData?.dentists) return [];
+    return Object.entries(attendanceMap)
+      .map(([id, status]) => ({ id, status, name: calendarData.dentists.find(t => t.id === id)?.name }))
+      .filter(a => a.name);
+  }, [attendanceMap, calendarData?.dentists]);
 
   // Modal state
   const [selectedBooking, setSelectedBooking] = useState(null);
@@ -1317,6 +1428,21 @@ const OperationalCalendar = ({ branchId }) => {
 
   // Quick-create panel state
   const [quickCreateSlot, setQuickCreateSlot] = useState(null);
+
+  // Manual blocks + empty-slot choice menu
+  const [choiceMenuSlot, setChoiceMenuSlot] = useState(null);
+  const [addBlockSlot, setAddBlockSlot] = useState(null);
+  const [editingBlock, setEditingBlock] = useState(null); // { blockId, day }
+  const [blockDeleteRequest, setBlockDeleteRequest] = useState(null); // { blockId, day, seriesId, description }
+  const [activeDragBlock, setActiveDragBlock] = useState(null);
+  // False when the DB has no manual_blocks table yet (migration-001 not applied): hides "Add block".
+  const [blocksAvailable, setBlocksAvailable] = useState(true);
+  const lastBlockWasChairOnly = useRef(false);
+  // Staff transfers. False when the DB has no transfer tables/RPCs yet (migrations 003–005 not applied).
+  const [transfersAvailable, setTransfersAvailable] = useState(true);
+  const [transferModalTarget, setTransferModalTarget] = useState(null);   // create (from empty-slot menu)
+  const [editingTransferDentist, setEditingTransferDentist] = useState(null); // manage (header badge / shading)
+  const [transferCancelRequest, setTransferCancelRequest] = useState(null);   // { kind: 'scheduled'|'active', col }
   const [treatmentsCache, setTreatmentsCache] = useState(null);
   const [treatmentsLoading, setTreatmentsLoading] = useState(false);
 
@@ -1390,9 +1516,11 @@ const OperationalCalendar = ({ branchId }) => {
     setLoading(true);
     setError(null);
 
-    const [result, attResult] = await Promise.all([
+    const [result, attResult, blocksResult, transferResult] = await Promise.all([
       getCalendarBookings(branchId, startDate, endDate),
       fetchAttendance({ branchId, date: startDate }),
+      fetchBlocksForRange(branchId, startDate, endDate),
+      fetchTransferOccurrences(branchId, startDate, endDate),
     ]);
 
     if (result.error) {
@@ -1401,7 +1529,11 @@ const OperationalCalendar = ({ branchId }) => {
       return;
     }
 
-    setCalendarData(result.data);
+    // Blocks are best-effort: a failure (e.g. DB without migration-001) must not break the calendar.
+    const blocksTableMissing = ['PGRST205', '42P01'].includes(blocksResult.error?.code);
+    setBlocksAvailable(!blocksTableMissing);
+    setTransfersAvailable(!isTransferFeatureMissing(transferResult.error));
+    setCalendarData({ ...result.data, blockOccurrences: blocksResult.data || [], transferOccurrences: transferResult.data || [] });
 
     const attMap = {};
     if (attResult.data) {
@@ -1427,11 +1559,26 @@ const OperationalCalendar = ({ branchId }) => {
     fetchData(start, end);
   }, [currentDate, viewMode, fetchData]);
 
+  // Auto-refresh every 60s. Paused while any modal/panel/drag/confirm is active
+  // (the tab-hidden skip lives in the hook). fetchData swaps calendarData in place,
+  // so scroll position, popovers and the hover label are untouched.
+  const autoRefreshPaused = modalOpen || !!activeDragId || isRescheduling || !!quickCreateSlot
+    || !!pendingReassign || !!rebookSource || !!choiceMenuSlot || !!addBlockSlot || !!editingBlock || !!blockDeleteRequest
+    || !!transferModalTarget || !!editingTransferDentist || !!transferCancelRequest;
+  useAutoRefresh(refreshCalendar, { intervalMs: 60000, enabled: !!branchId && !autoRefreshPaused });
+
   // ── Navigation ─────────────────────────────────────────────
 
   const goToday = () => setCurrentDate(todayStr());
   const goPrev = () => setCurrentDate(addDays(currentDate, -getStepDays(viewMode)));
   const goNext = () => setCurrentDate(addDays(currentDate, getStepDays(viewMode)));
+  const applyJump = (sign, unit, amount) => {
+    setCurrentDate(
+      unit === 'week'
+        ? addDays(currentDate, sign * amount * 7)
+        : addMonths(currentDate, sign * amount * (unit === 'year' ? 12 : 1))
+    );
+  };
 
   // Ref to track current pointer Y position during drag (synchronous updates)
   const pointerYRef = useRef(null);
@@ -1472,7 +1619,7 @@ const OperationalCalendar = ({ branchId }) => {
     const minutesFromTop = (relativeY / effectiveHourHeight) * 60;
     const hour = Math.floor(minutesFromTop / 60) + openHour;
     const rawMinute = minutesFromTop % 60;
-    const minute = Math.floor(rawMinute / 5) * 5; // Round to 5-minute intervals
+    const minute = Math.floor(rawMinute / 10) * 10; // Snap to 10-minute intervals (matches click + hover label)
 
     // Clamp to valid hours
     if (hour < openHour || minute < 0) {
@@ -1487,6 +1634,24 @@ const OperationalCalendar = ({ branchId }) => {
   const handleDragStart = useCallback((event) => {
     const { active, activatorEvent } = event;
     setActiveDragId(active.id);
+
+    if (active.data.current?.type === 'manual-block') {
+      setActiveDragBlock(active.data.current.block);
+      // Align the block's TOP edge with the slot (not wherever on the block the cursor grabbed it).
+      // Same method as bookings below: expected top from the start time (the drop math has no TOP_PAD).
+      const blk = active.data.current.block;
+      if (blk?.fromTime && gridRef.current) {
+        const gridRect = gridRef.current.getBoundingClientRect();
+        const openHour = parseInt(gridRef.current.dataset?.openHour || '9', 10);
+        const hourHeight = parseFloat(gridRef.current.dataset?.hourHeight || '72');
+        const [bh, bm] = blk.fromTime.split(':').map(Number);
+        const expectedTop = gridRect.top + (((bh - openHour) * 60 + bm) / 60) * hourHeight;
+        setDragGrabOffset((activatorEvent?.clientY ?? expectedTop) - expectedTop);
+      } else {
+        setDragGrabOffset(0);
+      }
+      return;
+    }
 
     const booking = active.data.current?.booking;
     if (booking) {
@@ -1555,8 +1720,52 @@ const OperationalCalendar = ({ branchId }) => {
     return map;
   }, [calendarData]);
 
+  // Drag a block to a new day/time/column. Scoped to this occurrence (a recurring block's dragged
+  // occurrence spins off its own one-off row). Declared above handleDragEnd because that callback's
+  // dependency array references it eagerly.
+  const handleMoveManualBlock = useCallback(async (block, newDate, newStartTime, targetColId) => {
+    const patch = { blockId: block.blockId, scope: 'this', occurrenceDate: block.day, blockDate: newDate, startTime: newStartTime };
+    // A whole-branch block renders one copy per column — moving whichever copy was grabbed must only
+    // change day/time, never narrow it to that one column.
+    if (!block.isWholeBranch) {
+      if (columnMode === 'dentist') {
+        patch.dentistId = targetColId === 'unassigned' ? null : targetColId;
+      } else if (columnMode === 'chair') {
+        patch.chairId = targetColId === 'unassigned' ? null : targetColId;
+      }
+    }
+    const result = await updateBlock(patch);
+    if (result.error) {
+      showToast(result.error.message || 'Failed to move block.', 'error');
+      return;
+    }
+    refreshCalendar();
+  }, [columnMode, refreshCalendar]);
+
   const handleDragEnd = useCallback((event) => {
     const { active, over } = event;
+
+    if (active.data.current?.type === 'manual-block') {
+      const finalTimeData = over?.data?.current
+        ? calculateTimeFromPointer(over.data.current)
+        : overSlotData;
+      const block = active.data.current.block;
+      setActiveDragId(null);
+      setActiveDragBlock(null);
+      setOverSlotData(null);
+      setDragGrabOffset(0);
+
+      if (!finalTimeData || finalTimeData.hour === undefined) return;
+      const { day: newDate, colId: targetColId, hour, minute } = finalTimeData;
+      const newStartTime = formatTimeFromSlot(hour, minute);
+      const effectiveTargetColId = targetColId || 'unassigned';
+      const sourceColId = block.colId || 'unassigned';
+      if (newDate === block.day && newStartTime === block.fromTime.slice(0, 5) && effectiveTargetColId === sourceColId) {
+        return; // no change
+      }
+      handleMoveManualBlock(block, newDate, newStartTime, targetColId);
+      return;
+    }
 
     // Capture final position before clearing state
     // Fallback to last overSlotData if over is null (same-column drag may not trigger new over)
@@ -1629,6 +1838,18 @@ const OperationalCalendar = ({ branchId }) => {
         showToast('This dentist has already checked out for the day and is not bookable after their check-out time.', 'error');
         return;
       }
+    }
+
+    const manualBlockOnDrop = findBlockOverlap([...(calendarData?.blockOccurrences || []), ...(calendarData?.transferOccurrences || [])], {
+      date: newDate,
+      startTime: newStartTime,
+      endTime: newEndTime,
+      dentistId: columnMode === 'dentist' ? effectiveTargetColId : null,
+      chairId: columnMode === 'chair' ? effectiveTargetColId : null,
+    });
+    if (manualBlockOnDrop) {
+      showToast(describeBlockOverlap(manualBlockOnDrop), 'error');
+      return;
     }
 
     if (isCrossColumn) {
@@ -1717,7 +1938,7 @@ const OperationalCalendar = ({ branchId }) => {
         timeOnly: true,
       });
     }
-  }, [refreshCalendar, calculateTimeFromPointer, columnMode, colNameMap, calendarData]);
+  }, [refreshCalendar, calculateTimeFromPointer, columnMode, colNameMap, calendarData, handleMoveManualBlock, overSlotData]);
 
   // Execute reschedule with optimistic update (time-only, no column change)
   const executeReschedule = useCallback(async ({ bookingId, newDate, newStartTime, newEndTime, durationMinutes }) => {
@@ -1843,13 +2064,38 @@ const OperationalCalendar = ({ branchId }) => {
   const handleDragCancel = useCallback(() => {
     setActiveDragId(null);
     setActiveDragBooking(null);
+    setActiveDragBlock(null);
     setOverSlotData(null);
     setDragGrabOffset(0);
   }, []);
 
   // ── Quick-create handlers ──────────────────────────────────
 
+  // "Add booking" choice — opens the quick-create panel at the slot (the previous direct behaviour).
+  const openQuickCreateForSlot = useCallback(async (slotInfo) => {
+    setQuickCreateSlot(slotInfo);
+    if (!treatmentsCache && !treatmentsLoading) {
+      setTreatmentsLoading(true);
+      const result = await fetchTreatments(branchId);
+      if (result.data) setTreatmentsCache(result.data);
+      setTreatmentsLoading(false);
+    }
+  }, [treatmentsCache, treatmentsLoading, branchId]);
+
   const handleEmptySlotClick = useCallback(async (slotInfo) => {
+    // Refuse new bookings/blocks on any slot covered by a manual block.
+    const manualBlock = findBlockOverlap([...(calendarData?.blockOccurrences || []), ...(calendarData?.transferOccurrences || [])], {
+      date: slotInfo.day,
+      startTime: formatTimeFromSlot(slotInfo.hour, slotInfo.minute),
+      durationMinutes: DEFAULT_SLOT_MINUTES,
+      dentistId: slotInfo.colType === 'dentist' ? slotInfo.colId : null,
+      chairId: slotInfo.colType === 'chair' ? slotInfo.colId : null,
+    });
+    if (manualBlock) {
+      showToast(describeBlockOverlap(manualBlock), 'error');
+      return;
+    }
+
     if (slotInfo.colType === 'dentist') {
       if (isCheckedOutBlockedSlot(calendarData?.checkedOutByDentistAndDate, slotInfo.colId, slotInfo.day, slotInfo.hour, slotInfo.minute)) {
         showToast('This dentist has already checked out for the day and is not bookable after their check-out time.', 'error');
@@ -1887,15 +2133,49 @@ const OperationalCalendar = ({ branchId }) => {
       return;
     }
 
-    // Normal flow — open QuickCreatePanel
-    setQuickCreateSlot(slotInfo);
-    if (!treatmentsCache && !treatmentsLoading) {
-      setTreatmentsLoading(true);
-      const result = await fetchTreatments(branchId);
-      if (result.data) setTreatmentsCache(result.data);
-      setTreatmentsLoading(false);
+    // Normal flow — offer a choice (Add booking / Add block); with only one option, skip the menu.
+    if (!blocksAvailable) {
+      openQuickCreateForSlot(slotInfo);
+      return;
     }
-  }, [treatmentsCache, treatmentsLoading, rebookSource, branchId, refreshCalendar, calendarData]);
+    setChoiceMenuSlot(slotInfo);
+  }, [rebookSource, branchId, refreshCalendar, calendarData, blocksAvailable, openQuickCreateForSlot]);
+
+  // Transfers: cancel a scheduled transfer / bring an active one back now, via an in-app confirm.
+  const handleConfirmTransferCancel = useCallback(async () => {
+    const req = transferCancelRequest;
+    setTransferCancelRequest(null);
+    if (!req) return;
+    const result = req.kind === 'scheduled'
+      ? await cancelScheduledTransfer(req.col.scheduledTransfer.id)
+      : await revertStaffTransferNow({ transferId: req.col.transferId });
+    if (result.error) {
+      showToast(result.error.message || 'Failed to cancel transfer.', 'error');
+      return;
+    }
+    showToast(req.kind === 'scheduled' ? 'Scheduled transfer cancelled.' : `${req.col.name} is back at this branch.`);
+    refreshCalendar();
+  }, [transferCancelRequest, refreshCalendar]);
+
+  // Block management from the calendar overlay: resize, and delete (via the in-app scope dialog).
+  const handleDeleteManualBlock = useCallback(async ({ blockId, day, scope = 'this' }) => {
+    const result = await deleteBlock({ blockId, scope, occurrenceDate: day });
+    if (result.error) {
+      showToast(result.error.message || 'Failed to remove block.', 'error');
+      return;
+    }
+    showToast(scope === 'series' ? 'Block series removed.' : 'Block removed.');
+    refreshCalendar();
+  }, [refreshCalendar]);
+
+  const handleResizeManualBlock = useCallback(async ({ blockId, day, durationMinutes }) => {
+    const result = await updateBlock({ blockId, scope: 'this', occurrenceDate: day, durationMinutes });
+    if (result.error) {
+      showToast(result.error.message || 'Failed to resize block.', 'error');
+      return;
+    }
+    refreshCalendar();
+  }, [refreshCalendar]);
 
   const handleQuickCreateClose = useCallback(() => {
     setQuickCreateSlot(null);
@@ -2277,122 +2557,224 @@ const OperationalCalendar = ({ branchId }) => {
         onDragCancel={handleDragCancel}
       >
         <div className="bg-surface overflow-hidden flex flex-col h-full pb-2">
-          {/* Top toolbar — stacks into 3 rows on mobile (left controls / centered date / Day+Filter),
-              single row on sm+ */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 px-3 sm:px-4 py-2.5 border-b border-border bg-background/50 flex-shrink-0">
-            {/* Left: Navigation (desktop only — panel button is folded into the center row on mobile) */}
-            <div className="hidden sm:flex items-center space-x-2">
-              <div className="flex items-center border border-border rounded-spa overflow-hidden">
-                <button
-                  onClick={goPrev}
-                  className="px-2 py-1.5 hover:bg-background spa-transition-fast border-r border-border"
-                  aria-label="Previous day"
-                >
-                  <Icon name="ChevronLeft" size={16} className="text-text-secondary" />
-                </button>
-                <button
-                  onClick={goNext}
-                  className="px-2 py-1.5 hover:bg-background spa-transition-fast"
-                  aria-label="Next day"
-                >
-                  <Icon name="ChevronRight" size={16} className="text-text-secondary" />
-                </button>
-              </div>
-              <button
-                onClick={goToday}
-                className="hidden sm:inline-flex px-3 py-1.5 text-sm font-body font-body-medium border border-border rounded-spa hover:bg-background spa-transition-fast"
-              >
-                Today
-              </button>
-            </div>
-
-            {/* Center: Date title with navigation.
-                Mobile: 3-col grid — panel-toggle on the left, centered date group, balancing spacer on the right.
-                Desktop: plain flex row in the normal toolbar position. */}
-            <div className="grid grid-cols-[auto_1fr_auto] sm:flex items-center sm:space-x-3 w-full sm:w-auto">
-              {/* Panel toggle (mobile only) */}
-              <button
-                onClick={() => setMobileSidebarOpen(true)}
-                className="sm:hidden p-1.5 border border-border rounded-spa hover:bg-background spa-transition-fast justify-self-start"
-                aria-label="Show calendar tools"
-              >
-                <Icon name="PanelLeftOpen" size={18} className="text-text-secondary" />
-              </button>
-
-              {/* Date + chevrons (centered in the middle grid column) */}
-              <div className="flex items-center justify-center space-x-3">
-                <button
-                  onClick={goPrev}
-                  className="p-1.5 border border-border rounded-spa hover:bg-background spa-transition-fast"
-                  aria-label="Previous"
-                >
-                  <Icon name="ChevronLeft" size={18} className="text-text-secondary" />
-                </button>
-                <h2 className="font-heading font-heading-semibold text-sm sm:text-base text-text-primary min-w-[110px] sm:min-w-[140px] text-center">
-                  {formatDateTitle(currentDate, viewMode)}
-                </h2>
-                <button
-                  onClick={goNext}
-                  className="p-1.5 border border-border rounded-spa hover:bg-background spa-transition-fast"
-                  aria-label="Next"
-                >
-                  <Icon name="ChevronRight" size={18} className="text-text-secondary" />
-                </button>
-              </div>
-
-              {/* Right-side spacer balancing the panel button so the date stays screen-centered (mobile only) */}
-              <div className="sm:hidden w-9" aria-hidden="true" />
-            </div>
-
-            {/* Right: Position filter + View toggle
-                On mobile: own row spreading full width — Day/4-Day on the left, Position filter on the right */}
-            <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-between sm:justify-end flex-row-reverse sm:flex-row">
-              {columnMode === 'dentist' && calendarPositionOptions.length > 0 && (
-                <div className="relative" ref={positionDropdownRef}>
+          {/* Top toolbar — wraps on narrow screens; 3-column grid on sm+ (left / center / right) */}
+          <div className="flex flex-wrap items-center justify-between gap-2 sm:grid sm:grid-cols-[1fr_auto_1fr] sm:gap-3 px-3 sm:px-4 py-2 border-b border-border bg-surface flex-shrink-0">
+            {/* Left: Dentist/Chair toggle + away summary */}
+            <div className="flex items-center gap-3 justify-self-start min-w-0">
+              {enableChairs ? (
+                <div className="flex items-center border border-border rounded-spa bg-background p-0.5 gap-0.5 h-9">
+                  {[
+                    { key: 'dentist', icon: 'User', label: staffLabel },
+                    { key: 'chair', icon: 'DoorOpen', label: locationLabel },
+                  ].map(m => (
+                    <button
+                      key={m.key}
+                      onClick={() => setColumnMode(m.key)}
+                      className={`flex items-center gap-1.5 px-2.5 h-full text-[13px] rounded-[4px] font-body font-body-medium spa-transition-fast ${
+                        columnMode === m.key ? 'bg-text-primary text-white' : 'text-text-secondary hover:text-text-primary'
+                      }`}
+                    >
+                      <Icon name={m.icon} size={14} />
+                      <span>{m.label}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 text-[13px] text-text-primary font-body">
+                  <Icon name="User" size={14} className="text-text-secondary" />
+                  <span>{staffLabelPlural}</span>
+                </div>
+              )}
+              {awayList.length > 0 && columnMode === 'dentist' && (
+                <div className="relative hidden sm:block" ref={awayRef}>
                   <button
-                    onClick={() => setPositionDropdownOpen(prev => !prev)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-spa spa-transition-fast ${
-                      selectedPositions.length > 0 ? 'border-primary bg-primary/5 text-primary' : 'border-border bg-surface text-text-primary'
-                    }`}
+                    onClick={() => setAwayOpen(prev => !prev)}
+                    className="text-[13px] text-text-tertiary hover:text-text-secondary spa-transition-fast whitespace-nowrap"
+                    aria-label="Show staff who are away"
                   >
-                    <Icon name="Filter" size={14} />
-                    <span>{selectedPositions.length === 0 ? 'All Positions' : `${selectedPositions.length} selected`}</span>
-                    <Icon name="ChevronDown" size={14} className={`spa-transition-fast ${positionDropdownOpen ? 'rotate-180' : ''}`} />
+                    {awayList.length} away
                   </button>
-                  {positionDropdownOpen && (
-                    <div className="absolute right-0 top-full mt-1 w-56 bg-surface border border-border rounded-spa shadow-lg z-dropdown">
-                      <div className="p-1.5 border-b border-border">
-                        <button
-                          onClick={() => setSelectedPositions([])}
-                          className="w-full text-left px-2 py-1 text-xs text-primary hover:bg-primary/5 rounded"
-                        >
-                          Clear all
-                        </button>
-                      </div>
-                      <div className="max-h-[200px] overflow-y-auto p-1.5 space-y-0.5">
-                        {calendarPositionOptions.map(pos => (
-                          <label key={pos} className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-primary/5 ${selectedPositions.includes(pos) ? 'bg-primary/5' : ''}`}>
-                            <input
-                              type="checkbox"
-                              checked={selectedPositions.includes(pos)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedPositions(prev => [...prev, pos]);
-                                } else {
-                                  setSelectedPositions(prev => prev.filter(p => p !== pos));
-                                }
-                              }}
-                              className="text-primary focus:ring-primary w-3.5 h-3.5 rounded"
-                            />
-                            <span className="text-sm text-text-primary">{pos}</span>
-                          </label>
-                        ))}
-                      </div>
+                  {awayOpen && (
+                    <div className="absolute left-0 top-full mt-1 w-56 bg-surface border border-border rounded-spa-lg shadow-spa-elevated z-dropdown p-2 space-y-1">
+                      {awayList.map(a => (
+                        <div key={a.id} className="flex items-center gap-1.5 text-[13px] text-text-secondary">
+                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${a.status === 'Absent' ? 'bg-error' : 'bg-warning'}`} />
+                          <span className="truncate text-text-primary">{a.name}</span>
+                          <span className="ml-auto text-text-tertiary">{a.status === 'Absent' ? 'Absent' : 'On leave'}</span>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
               )}
-              <div className="flex items-center border border-border rounded-spa overflow-hidden">
+            </div>
+
+            {/* Center: jump / prev / Today / date / next / jump */}
+            <div className="flex items-center gap-1.5 justify-center justify-self-center order-last sm:order-none w-full sm:w-auto">
+              <div className="relative" ref={prevJumpRef}>
+                <button
+                  onClick={() => setJumpMenuOpen(prev => (prev === 'prev' ? null : 'prev'))}
+                  className="h-9 w-9 flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
+                  aria-label="Jump back"
+                >
+                  <Icon name="ChevronsLeft" size={16} className="text-text-secondary" />
+                </button>
+                {jumpMenuOpen === 'prev' && (
+                  <div className="absolute left-0 top-full mt-1 w-32 max-h-72 overflow-y-auto bg-surface border border-border rounded-spa-lg shadow-spa-elevated z-dropdown py-1">
+                    {JUMP_OPTIONS.map(opt => (
+                      <button
+                        key={opt.label}
+                        onClick={() => { applyJump(-1, opt.unit, opt.amount); setJumpMenuOpen(null); }}
+                        className="w-full text-left px-3 py-1.5 text-[13px] text-text-primary hover:bg-background"
+                      >
+                        -{opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={goPrev}
+                className="h-9 w-9 flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
+                aria-label="Previous"
+              >
+                <Icon name="ChevronLeft" size={16} className="text-text-secondary" />
+              </button>
+              <button
+                onClick={goToday}
+                className="h-9 px-3 text-[13px] font-body font-body-medium text-text-primary border border-border rounded-spa hover:bg-background spa-transition-fast"
+              >
+                Today
+              </button>
+              <div className="relative" ref={dateDropdownRef}>
+                <button
+                  onClick={() => setDateDropdownOpen(prev => !prev)}
+                  className={`h-9 flex items-center gap-1.5 px-3 text-[13px] font-body font-body-medium text-text-primary border rounded-spa hover:bg-background spa-transition-fast justify-between ${
+                    dateDropdownOpen ? 'border-text-primary' : 'border-border'
+                  }`}
+                  aria-haspopup="dialog"
+                  aria-expanded={dateDropdownOpen}
+                >
+                  <span className="whitespace-nowrap">{formatDateTitle(currentDate, viewMode)}</span>
+                  <Icon name="ChevronDown" size={14} className={`text-text-secondary spa-transition-fast ${dateDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {dateDropdownOpen && (
+                  <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 bg-surface border border-border rounded-spa-lg shadow-spa-elevated z-dropdown p-3">
+                    <MiniMonthCalendar
+                      selectedDate={currentDate}
+                      onDateSelect={(d) => { setCurrentDate(d); setDateDropdownOpen(false); }}
+                    />
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={goNext}
+                className="h-9 w-9 flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
+                aria-label="Next"
+              >
+                <Icon name="ChevronRight" size={16} className="text-text-secondary" />
+              </button>
+              <div className="relative" ref={nextJumpRef}>
+                <button
+                  onClick={() => setJumpMenuOpen(prev => (prev === 'next' ? null : 'next'))}
+                  className="h-9 w-9 flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
+                  aria-label="Jump forward"
+                >
+                  <Icon name="ChevronsRight" size={16} className="text-text-secondary" />
+                </button>
+                {jumpMenuOpen === 'next' && (
+                  <div className="absolute right-0 top-full mt-1 w-32 max-h-72 overflow-y-auto bg-surface border border-border rounded-spa-lg shadow-spa-elevated z-dropdown py-1">
+                    {JUMP_OPTIONS.map(opt => (
+                      <button
+                        key={opt.label}
+                        onClick={() => { applyJump(1, opt.unit, opt.amount); setJumpMenuOpen(null); }}
+                        className="w-full text-left px-3 py-1.5 text-[13px] text-text-primary hover:bg-background"
+                      >
+                        +{opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right: tip + position filter + view toggle */}
+            <div className="flex items-center gap-2 justify-self-end">
+              <div className="relative" ref={tipRef}>
+                <button
+                  type="button"
+                  onClick={() => setTipOpen(prev => !prev)}
+                  className="h-9 w-9 flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
+                  aria-label="Drag and drop tip"
+                >
+                  <Icon name="Info" size={16} className="text-text-secondary" />
+                </button>
+                {tipOpen && (
+                  <div className="absolute right-0 top-full mt-1 w-64 bg-surface border border-border rounded-spa-lg shadow-spa-elevated z-dropdown p-3 text-[13px] text-text-secondary leading-relaxed text-left">
+                    Drag a booking to reschedule it. Bookings that are paid, in progress, completed, no-show or
+                    cancelled, or day-closed, can't be moved. Once the start time has passed, only Pending bookings can.
+                  </div>
+                )}
+              </div>
+              {columnMode === 'dentist' && (
+                <div className="relative" ref={positionDropdownRef}>
+                  <button
+                    onClick={() => setPositionDropdownOpen(prev => !prev)}
+                    className={`h-9 flex items-center gap-1.5 px-3 text-[13px] border rounded-spa spa-transition-fast ${
+                      selectedPositions.length > 0 ? 'border-text-primary bg-background text-text-primary' : 'border-border bg-surface text-text-primary'
+                    }`}
+                  >
+                    <Icon name="Filter" size={14} />
+                    <span className="hidden sm:inline">{selectedPositions.length === 0 ? 'All Positions' : `${selectedPositions.length} selected`}</span>
+                    <Icon name="ChevronDown" size={14} className={`spa-transition-fast ${positionDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {positionDropdownOpen && (
+                    <div className="absolute right-0 top-full mt-1 w-56 bg-surface border border-border rounded-spa-lg shadow-spa-elevated z-dropdown">
+                      <label className="flex items-center gap-2 px-3 py-2 border-b border-border cursor-pointer hover:bg-background">
+                        <input
+                          type="checkbox"
+                          checked={showTreatmentOnly}
+                          onChange={(e) => setShowTreatmentOnly(e.target.checked)}
+                          className="text-primary focus:ring-primary w-3.5 h-3.5 rounded"
+                        />
+                        <span className="text-[13px] text-text-primary">Treatment staff only</span>
+                      </label>
+                      {calendarPositionOptions.length > 0 && (
+                        <>
+                          <div className="p-1.5 border-b border-border">
+                            <button
+                              onClick={() => setSelectedPositions([])}
+                              className="w-full text-left px-2 py-1 text-xs text-primary hover:bg-primary/5 rounded"
+                            >
+                              Clear all
+                            </button>
+                          </div>
+                          <div className="max-h-[200px] overflow-y-auto p-1.5 space-y-0.5">
+                            {calendarPositionOptions.map(pos => (
+                              <label key={pos} className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-background ${selectedPositions.includes(pos) ? 'bg-background' : ''}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedPositions.includes(pos)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedPositions(prev => [...prev, pos]);
+                                    } else {
+                                      setSelectedPositions(prev => prev.filter(p => p !== pos));
+                                    }
+                                  }}
+                                  className="text-primary focus:ring-primary w-3.5 h-3.5 rounded"
+                                />
+                                <span className="text-[13px] text-text-primary">{pos}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="flex items-center border border-border rounded-spa bg-background p-0.5 gap-0.5 h-9">
                 {[
                   { key: 'day', label: 'Day' },
                   { key: '4day', label: '4 Day' },
@@ -2400,10 +2782,10 @@ const OperationalCalendar = ({ branchId }) => {
                   <button
                     key={v.key}
                     onClick={() => setViewMode(v.key)}
-                    className={`px-3 py-1.5 text-sm font-body font-body-medium spa-transition-fast ${
+                    className={`px-3 h-full text-[13px] rounded-[4px] font-body font-body-medium spa-transition-fast whitespace-nowrap ${
                       viewMode === v.key
-                        ? 'bg-primary text-white'
-                        : 'text-text-primary hover:bg-background'
+                        ? 'bg-text-primary text-white'
+                        : 'text-text-secondary hover:text-text-primary'
                     }`}
                   >
                     {v.label}
@@ -2413,140 +2795,8 @@ const OperationalCalendar = ({ branchId }) => {
             </div>
           </div>
 
-          {/* Main content area: Sidebar + Grid */}
+          {/* Main content area: Grid */}
           <div className="flex flex-1 min-h-0">
-            {/* Left sidebar: Mini calendar + Legend
-                - desktop (md+): always visible inline
-                - mobile: rendered inline when toggled — pushes the grid right, which scrolls horizontally */}
-            <div className={`${mobileSidebarOpen ? 'flex' : 'hidden'} md:flex w-64 md:w-52 flex-shrink-0 border-r border-border bg-surface p-3 flex-col overflow-y-auto sidebar-scroll`}>
-              {/* Mobile close button */}
-              <div className="md:hidden flex justify-end mb-2">
-                <button
-                  onClick={() => setMobileSidebarOpen(false)}
-                  className="p-1.5 rounded-spa hover:bg-background spa-transition-fast"
-                  aria-label="Hide calendar tools"
-                >
-                  <Icon name="X" size={18} className="text-text-secondary" />
-                </button>
-              </div>
-              <MiniMonthCalendar
-                selectedDate={currentDate}
-                onDateSelect={setCurrentDate}
-              />
-
-              {/* View By toggle - only show if chairs are enabled, otherwise just show staff */}
-              <div className="mt-4 pt-4 border-t border-border">
-                <div className="font-caption font-semibold text-[10px] text-text-secondary uppercase tracking-wider mb-2">
-                  View By
-                </div>
-                {enableChairs ? (
-                  <div className="flex border border-border rounded-spa overflow-hidden">
-                    <button
-                      onClick={() => setColumnMode('dentist')}
-                      className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-body font-body-medium spa-transition-fast ${
-                        columnMode === 'dentist'
-                          ? 'bg-primary text-white'
-                          : 'text-text-primary hover:bg-background'
-                      }`}
-                    >
-                      <Icon name="User" size={12} />
-                      <span>{staffLabel}</span>
-                    </button>
-                    <button
-                      onClick={() => setColumnMode('chair')}
-                      className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-body font-body-medium spa-transition-fast border-l border-border ${
-                        columnMode === 'chair'
-                          ? 'bg-primary text-white'
-                          : 'text-text-primary hover:bg-background'
-                      }`}
-                    >
-                      <Icon name="DoorOpen" size={12} />
-                      <span>{locationLabel}</span>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5 text-sm text-text-primary font-body">
-                    <Icon name="User" size={14} className="text-text-secondary" />
-                    <span>{staffLabelPlural}</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-4 pt-4 border-t border-border">
-                <div className="font-caption font-semibold text-[10px] text-text-secondary uppercase tracking-wider mb-2">
-                  Status
-                </div>
-                <StatusLegend showPayment compact />
-              </div>
-
-              {/* Drag hint */}
-              <div className="mt-4 pt-4 border-t border-border">
-                <div className="font-caption font-semibold text-[10px] text-text-secondary uppercase tracking-wider mb-2">
-                  Tip
-                </div>
-                <p className="text-xs text-text-secondary leading-relaxed">
-                  Drag Pending bookings to reschedule. Confirmed, in-progress, paid, completed,
-                  cancelled, and day-closed bookings are locked.
-                </p>
-              </div>
-
-              {/* Resource count */}
-              {calendarData && (
-                <div className="mt-4 pt-4 border-t border-border">
-                  {columnMode === 'dentist' || !enableChairs ? (
-                    <>
-                      <div className="font-caption font-semibold text-[10px] text-text-secondary uppercase tracking-wider mb-2">
-                        {staffLabelPlural}
-                      </div>
-                      <div className="flex items-center gap-1.5 text-sm text-text-primary font-body">
-                        <Icon name="Users" size={14} className="text-text-secondary" />
-                        <span>{filteredDentists.length} active</span>
-                      </div>
-                      <label className="flex items-center gap-2 mt-2 cursor-pointer">
-                        <button
-                          type="button"
-                          onClick={() => setShowTreatmentOnly(prev => !prev)}
-                          className={`relative inline-flex h-5 w-9 items-center rounded-full spa-transition-fast ${
-                            showTreatmentOnly ? 'bg-primary' : 'bg-border'
-                          }`}
-                        >
-                          <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white spa-transition-fast transform ${
-                            showTreatmentOnly ? 'translate-x-4' : 'translate-x-0.5'
-                          }`} />
-                        </button>
-                        <span className="font-caption text-xs text-text-secondary">Treatment staff only</span>
-                      </label>
-                      {Object.keys(attendanceMap).length > 0 && (
-                        <div className="mt-1.5 space-y-1">
-                          {Object.entries(attendanceMap).map(([tid, status]) => {
-                            const t = calendarData.dentists.find(th => th.id === tid);
-                            if (!t) return null;
-                            return (
-                              <div key={tid} className="flex items-center gap-1.5 text-xs text-text-secondary">
-                                <span className={`w-1.5 h-1.5 rounded-full ${status === 'Absent' ? 'bg-error' : 'bg-warning'}`} />
-                                <span className="truncate">{t.name}</span>
-                                <span className="opacity-60">({status})</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <div className="font-caption font-semibold text-[10px] text-text-secondary uppercase tracking-wider mb-2">
-                        {locationLabelPlural}
-                      </div>
-                      <div className="flex items-center gap-1.5 text-sm text-text-primary font-body">
-                        <Icon name="DoorOpen" size={14} className="text-text-secondary" />
-                        <span>{calendarData.chairs?.length || 0} active</span>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-
             {/* Calendar grid */}
             <div className="flex-1 overflow-x-auto md:overflow-hidden">
               {calendarData ? (
@@ -2570,6 +2820,13 @@ const OperationalCalendar = ({ branchId }) => {
                   onToggleFreezeUnassigned={() => setFreezeUnassigned(prev => !prev)}
                   onDentistReorder={canReorderDentists ? handleDentistReorder : undefined}
                   onChairReorder={canReorderDentists ? handleChairReorder : undefined}
+                  blockOccurrences={calendarData.blockOccurrences}
+                  onDeleteManualBlock={setBlockDeleteRequest}
+                  onResizeManualBlock={handleResizeManualBlock}
+                  onEditManualBlock={(range) => setEditingBlock({ blockId: range.blockId, day: range.day })}
+                  onEditTransfer={transfersAvailable ? (col) => setEditingTransferDentist({ id: col.id, name: col.name }) : undefined}
+                  onCancelScheduledTransfer={transfersAvailable ? (col) => setTransferCancelRequest({ kind: 'scheduled', col }) : undefined}
+                  onCancelActiveTransfer={transfersAvailable ? (col) => setTransferCancelRequest({ kind: 'active', col }) : undefined}
                 />
               ) : (
                 <div className="flex items-center justify-center h-full">
@@ -2585,6 +2842,21 @@ const OperationalCalendar = ({ branchId }) => {
 
         {/* Drag overlay for visual feedback */}
         <DragOverlay>
+          {activeDragBlock && (() => {
+            const [fh, fm] = activeDragBlock.fromTime.split(':').map(Number);
+            const [th, tm] = activeDragBlock.toTime.split(':').map(Number);
+            const blockMins = (th * 60 + tm) - (fh * 60 + fm);
+            return (
+              <div className="bg-background rounded-spa border border-border shadow-spa-elevated px-3 py-2 min-w-[140px]">
+                <div className="font-body text-[11px] text-text-secondary">{activeDragBlock.description || 'Blocked'}</div>
+                {overSlotData && blockMins > 0 && (
+                  <div className="font-data text-xs font-semibold text-text-primary mt-0.5">
+                    {formatTimeFromSlot(overSlotData.hour, overSlotData.minute)} – {calculateEndTime(overSlotData.hour, overSlotData.minute, blockMins)}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           {activeDragBooking && (() => {
             // Calculate preview time based on hovered slot
             const duration = activeDragBooking.treatmentDuration ||
@@ -2701,6 +2973,123 @@ const OperationalCalendar = ({ branchId }) => {
           <Icon name={actionToast.type === 'error' ? 'AlertCircle' : actionToast.type === 'info' ? 'Clock' : 'CheckCircle'} size={16} />
           <span className="font-body font-body-medium text-sm">{actionToast.msg}</span>
         </div>
+      )}
+
+      {/* Empty-slot choice menu — add further options (e.g. 3c "Transfer staff") to this array */}
+      {choiceMenuSlot && (
+        <EmptySlotChoiceMenu
+          x={choiceMenuSlot.clientX}
+          y={choiceMenuSlot.clientY}
+          onClose={() => setChoiceMenuSlot(null)}
+          options={[
+            { key: 'booking', label: 'Add booking', icon: 'CalendarPlus', onSelect: () => openQuickCreateForSlot(choiceMenuSlot) },
+            { key: 'block', label: 'Add block', icon: 'Ban', onSelect: () => setAddBlockSlot(choiceMenuSlot) },
+            // Transfer is a dentist-column action for managers/admins only (the RPC enforces it too).
+            ...(transfersAvailable && choiceMenuSlot.colType === 'dentist' && ['manager', 'admin'].includes(profile?.role) ? [{
+              key: 'transfer',
+              label: 'Transfer dentist',
+              icon: 'ArrowRightLeft',
+              onSelect: () => setTransferModalTarget({
+                dentistId: choiceMenuSlot.colId,
+                dentistName: choiceMenuSlot.colName,
+                defaultDate: choiceMenuSlot.day,
+                defaultTime: `${String(choiceMenuSlot.hour).padStart(2, '0')}:${String(choiceMenuSlot.minute).padStart(2, '0')}`,
+              }),
+            }] : []),
+          ]}
+        />
+      )}
+
+      {transferModalTarget && (
+        <TransferFromCalendarModal
+          dentistId={transferModalTarget.dentistId}
+          dentistName={transferModalTarget.dentistName}
+          currentBranchId={branchId}
+          defaultDate={transferModalTarget.defaultDate}
+          defaultTime={transferModalTarget.defaultTime}
+          onClose={() => setTransferModalTarget(null)}
+          onSuccess={({ applied, startDate, startTime } = {}) => {
+            const name = transferModalTarget.dentistName;
+            setTransferModalTarget(null);
+            showToast(applied === false
+              ? `${name}'s transfer is scheduled for ${startTime ? `${startDate} at ${startTime}` : startDate} — it hasn't happened yet.`
+              : `${name} transferred.`);
+            refreshCalendar();
+          }}
+        />
+      )}
+
+      {editingTransferDentist && (
+        <TransferManagementModal
+          dentistId={editingTransferDentist.id}
+          dentistName={editingTransferDentist.name}
+          currentBranchId={branchId}
+          defaultStartDate={currentDate}
+          onClose={() => setEditingTransferDentist(null)}
+          onSuccess={(message) => {
+            setEditingTransferDentist(null);
+            if (message) showToast(message);
+            refreshCalendar();
+          }}
+        />
+      )}
+
+      {transferCancelRequest && (
+        <BlockScopeDialog
+          title={transferCancelRequest.kind === 'scheduled'
+            ? `Cancel ${transferCancelRequest.col.name}'s scheduled transfer?`
+            : `Cancel ${transferCancelRequest.col.name}'s transfer and bring them back now?`}
+          recurring={false}
+          confirmLabel={transferCancelRequest.kind === 'scheduled' ? 'Cancel transfer' : 'Bring back now'}
+          onCancel={() => setTransferCancelRequest(null)}
+          onChoose={handleConfirmTransferCancel}
+        />
+      )}
+
+      {addBlockSlot && (
+        <AddBlockModal
+          branchId={branchId}
+          slotInfo={addBlockSlot}
+          dentists={calendarData?.dentists || []}
+          chairs={calendarData?.chairs || []}
+          onClose={() => setAddBlockSlot(null)}
+          onSuccess={() => {
+            const hiddenInThisView = columnMode === 'dentist' && lastBlockWasChairOnly.current;
+            setAddBlockSlot(null);
+            showToast(hiddenInThisView ? 'Block added. Switch to Chair view to see it.' : 'Block added.');
+            refreshCalendar();
+          }}
+          onChairOnlyChange={(v) => { lastBlockWasChairOnly.current = v; }}
+        />
+      )}
+
+      {editingBlock && (
+        <EditBlockModal
+          blockId={editingBlock.blockId}
+          occurrenceDate={editingBlock.day}
+          dentists={calendarData?.dentists || []}
+          chairs={calendarData?.chairs || []}
+          onClose={() => setEditingBlock(null)}
+          onSuccess={() => {
+            setEditingBlock(null);
+            showToast('Block updated.');
+            refreshCalendar();
+          }}
+        />
+      )}
+
+      {blockDeleteRequest && (
+        <BlockScopeDialog
+          title="Remove block"
+          verb="removed"
+          recurring={!!blockDeleteRequest.seriesId}
+          onCancel={() => setBlockDeleteRequest(null)}
+          onChoose={(scope) => {
+            const req = blockDeleteRequest;
+            setBlockDeleteRequest(null);
+            handleDeleteManualBlock({ blockId: req.blockId, day: req.day, scope });
+          }}
+        />
       )}
 
       {/* Quick Create Panel */}

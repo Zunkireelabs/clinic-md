@@ -4,6 +4,9 @@ import { capture } from '../lib/analytics';
 import { MEMBERSHIP_ENABLED, CUSTOMER_REFERRALS_ENABLED, VOUCHER_ENABLED } from '../lib/featureFlags';
 import { toE164, samePhone } from '../utils/phone';
 import { isAfterCheckout } from './dentistBranchWindow';
+import { expandBlockOccurrences } from '../utils/blockRecurrence';
+import { dedupeTransfersByKey, sortTransfersByTime } from './transferDedup';
+import { transferWindowOccurrencesForDate } from '../utils/transferOccurrences';
 
 // Sentinel "branch" meaning "all branches in the admin's org" (the Overall view).
 // Admin RLS is already org-scoped, so dropping the per-branch filter for this value
@@ -4247,6 +4250,152 @@ export async function fetchBookingById(bookingId) {
 // Phase 8.1: Calendar Read-Only Query
 // ============================================================
 
+// ============================================================
+// Staff (dentist) transfers (supabase/migration-003/004/005) — see supabase/TRANSFERS_DESIGN.md
+// ============================================================
+
+// True when an error means "the transfer tables / RPCs don't exist on this database" (e.g. the
+// cloud DB before promotion). Callers fail open: no transfer data, nothing breaks.
+export function isTransferFeatureMissing(error) {
+  return ['PGRST205', 'PGRST202', '42P01', '42883'].includes(error?.code);
+}
+
+// One cheap probe per page load (cached): does this database have the staff-transfer tables?
+// Resolves true/false; any non-"missing" error (network, permissions) counts as available so the
+// feature is never hidden by a transient failure.
+let transferFeatureProbe = null;
+export function probeTransferFeature() {
+  if (!transferFeatureProbe) {
+    transferFeatureProbe = supabase
+      .from('staff_transfers')
+      .select('id', { head: true, count: 'exact' })
+      .limit(0)
+      .then(({ error }) => !isTransferFeatureMissing(error))
+      .catch(() => true);
+  }
+  return transferFeatureProbe;
+}
+
+const kathmanduInstant = (date, time) => (date && time ? `${date}T${String(time).slice(0, 8)}+05:45` : null);
+
+// Per-day "unavailable" occurrences for transfer windows touching this branch in [startDate, endDate],
+// shaped like block occurrences so findBlockOverlap treats them the same (see utils/transferOccurrences.js).
+// Fail open: any error (including missing tables) -> { data: [], error }.
+export async function fetchTransferOccurrences(branchId, startDate, endDate) {
+  try {
+    const resolvedBranchId = resolveBranchId(branchId);
+    const { data, error } = await supabase
+      .from('staff_transfers')
+      .select('dentist_id, from_branch_id, to_branch_id, effective_date, start_time, revert_at, reverted, reverted_at, fromBranch:branches!staff_transfers_from_branch_id_fkey(name), toBranch:branches!staff_transfers_to_branch_id_fkey(name)')
+      .or(`from_branch_id.eq.${resolvedBranchId},to_branch_id.eq.${resolvedBranchId}`)
+      .eq('applied', true).eq('is_permanent', false).eq('is_return_leg', false)
+      .not('revert_at', 'is', null)
+      .lte('effective_date', endDate);
+    if (error) throw error;
+
+    const rows = (data || []).map(t => {
+      const out = t.from_branch_id === resolvedBranchId;
+      return {
+        dentistId: t.dentist_id,
+        kind: out ? 'out' : 'in',
+        startDate: t.effective_date,
+        startTime: t.start_time,
+        endAt: t.reverted && t.reverted_at ? t.reverted_at : t.revert_at,
+        otherBranch: out ? t.toBranch?.name : t.fromBranch?.name,
+      };
+    });
+
+    const occurrences = [];
+    for (let d = startDate; d <= endDate; d = shiftDateStr(d, 1)) {
+      rows.forEach(r => occurrences.push(...transferWindowOccurrencesForDate(r, d)));
+    }
+    return { data: occurrences, error: null };
+  } catch (error) {
+    if (!isTransferFeatureMissing(error)) console.warn('[API] fetchTransferOccurrences:', error.message);
+    return { data: [], error };
+  }
+}
+
+// Applies transfer data to a branch's calendar dentists for [startDate, endDate]:
+//  - tags dentists currently visiting this branch (transferredIn + window),
+//  - tags dentists with a scheduled (not yet applied) transfer out (scheduledTransfer),
+//  - adds grey "transferred out" columns for dentists who are away (or were, within the range),
+//  - adds a "visiting" column for a visitor who already returned home in the range.
+// Fails open: on any error (including missing tables) returns the dentists unchanged.
+async function applyCalendarTransfers(branchId, startDate, endDate, dentists) {
+  try {
+    const cols = 'id, dentist_id, revert_at, effective_date, start_time, from_display_order, reverted, reverted_at';
+    const dentistCols = 'dentist:dentists!staff_transfers_dentist_id_fkey(id, name, gender, specialties, position, is_treatment_staff, display_order)';
+    // Temporary, applied, non-return-leg windows; still-active ones plus ones that ended within the range.
+    const windowFilter = `reverted.eq.false,and(effective_date.gte.${startDate},effective_date.lte.${endDate})`;
+    const [outRes, inRes, schedRes] = await Promise.all([
+      supabase.from('staff_transfers')
+        .select(`${cols}, ${dentistCols}`)
+        .eq('from_branch_id', branchId).eq('applied', true).eq('is_permanent', false).eq('is_return_leg', false)
+        .not('revert_at', 'is', null).or(windowFilter)
+        .order('effective_date').order('start_time'),
+      supabase.from('staff_transfers')
+        .select(`${cols}, fromBranch:branches!staff_transfers_from_branch_id_fkey(name), ${dentistCols}`)
+        .eq('to_branch_id', branchId).eq('applied', true).eq('is_permanent', false).eq('is_return_leg', false)
+        .not('revert_at', 'is', null).or(windowFilter)
+        .order('effective_date').order('start_time'),
+      supabase.from('staff_transfers')
+        .select('id, dentist_id, effective_date, start_time, toBranch:branches!staff_transfers_to_branch_id_fkey(name)')
+        .eq('from_branch_id', branchId).eq('applied', false)
+        .gte('effective_date', startDate).lte('effective_date', endDate)
+        .order('effective_date').order('start_time'),
+    ]);
+    const err = outRes.error || inRes.error || schedRes.error;
+    if (err) {
+      if (!isTransferFeatureMissing(err)) console.warn('[API] applyCalendarTransfers:', err.message);
+      return dentists;
+    }
+
+    const activeIds = new Set(dentists.map(d => d.id));
+    // A transfer ended early ends at reverted_at, not the originally scheduled revert_at.
+    const windowOf = (t) => ({ returnsAt: t.reverted && t.reverted_at ? t.reverted_at : t.revert_at, transferStartAt: kathmanduInstant(t.effective_date, t.start_time) });
+
+    const scheduledByDentist = {};
+    (schedRes.data || []).forEach(r => {
+      scheduledByDentist[r.dentist_id] ??= { id: r.id, effectiveDate: r.effective_date, startTime: r.start_time, toBranch: r.toBranch?.name || null };
+    });
+
+    const outRows = dedupeTransfersByKey(sortTransfersByTime(outRes.data || []), t => t.dentist?.id);
+    const inRows = dedupeTransfersByKey(sortTransfersByTime(inRes.data || []), t => t.dentist_id);
+    const inById = {};
+    inRows.forEach(t => { inById[t.dentist_id] = { fromBranch: t.fromBranch?.name || null, ...windowOf(t) }; });
+
+    const tagged = dentists.map(d => {
+      const withIn = inById[d.id] ? { ...d, transferredIn: true, ...inById[d.id] } : d;
+      return scheduledByDentist[d.id] ? { ...withIn, scheduledTransfer: scheduledByDentist[d.id] } : withIn;
+    });
+
+    // Away dentists: their dentists.branch_id is elsewhere, so they're not in `dentists`.
+    const awayColumns = outRows
+      .filter(t => t.dentist && !activeIds.has(t.dentist.id))
+      .map(t => ({
+        ...t.dentist,
+        display_order: t.from_display_order ?? t.dentist.display_order,
+        transferredOut: true,
+        transferId: t.id,
+        ...windowOf(t),
+      }));
+    // A visitor who already returned home within the range: keep a column recording the visit.
+    const awayIds = new Set(awayColumns.map(c => c.id));
+    const visitedColumns = inRows
+      .filter(t => t.dentist && !activeIds.has(t.dentist.id) && !awayIds.has(t.dentist.id))
+      .map(t => ({ ...t.dentist, transferredIn: true, fromBranch: t.fromBranch?.name || null, ...windowOf(t) }));
+
+    return [...tagged, ...awayColumns, ...visitedColumns]
+      .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || a.name.localeCompare(b.name));
+  } catch (error) {
+    console.warn('[API] applyCalendarTransfers failed open:', error.message);
+    return dentists;
+  }
+}
+
+
+
 export async function getCalendarBookings(branchId, startDate, endDate) {
   try {
     const resolvedBranchId = resolveBranchId(branchId);
@@ -4301,14 +4450,17 @@ export async function getCalendarBookings(branchId, startDate, endDate) {
       checkedOutByDentistAndDate[`${row.dentist_id}_${row.date}`] = row.check_out_time;
     });
 
-    const mergedDentists = (dentistsResult.data || [])
-      .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || a.name.localeCompare(b.name));
+    const mergedDentists = await applyCalendarTransfers(
+      resolvedBranchId, startDate, endDate,
+      (dentistsResult.data || [])
+        .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || a.name.localeCompare(b.name))
+    );
 
     // 3. Fetch bookings in date range, excluding Cancelled and No Show
     const { data: bookings, error: bookingsError } = await supabase
       .from('bookings')
       .select(`
-        id, booking_number, customer_name, customer_phone, status, payment_status,
+        id, booking_number, customer_id, customer_name, customer_phone, status, payment_status,
         date, start_time, end_time, start_datetime, end_datetime, created_at,
         dentist_id, chair_id,
         base_amount, discount_amount, final_amount, special_requests,
@@ -4326,6 +4478,35 @@ export async function getCalendarBookings(branchId, startDate, endDate) {
       .order('start_time');
 
     if (bookingsError) throw bookingsError;
+
+    // "New" tag: customer has no earlier non-Cancelled booking. Batched for every customer
+    // in this range (one read-only query). No customer_id (walk-in/guest) → never New.
+    const bookingCustomerIds = [...new Set((bookings || []).map(b => b.customer_id).filter(Boolean))];
+    const firstBookingIdByCustomer = {};
+    let historyFailed = false;
+    if (bookingCustomerIds.length > 0) {
+      const { data: historyRows, error: histErr } = await supabase
+        .from('bookings')
+        .select('id, customer_id, date, start_time')
+        .in('customer_id', bookingCustomerIds)
+        .neq('status', 'Cancelled')
+        .order('date', { ascending: true })
+        .order('start_time', { ascending: true });
+      if (histErr) {
+        // Cosmetic tag only — never block the calendar from loading.
+        console.warn('[API] getCalendarBookings: New-patient lookup failed:', histErr.message);
+        historyFailed = true;
+      }
+      for (const h of (historyRows || [])) {
+        if (!(h.customer_id in firstBookingIdByCustomer)) {
+          firstBookingIdByCustomer[h.customer_id] = h.id;
+        }
+      }
+    }
+    const bookingsWithNewFlag = (bookings || []).map(b => ({
+      ...b,
+      isNewCustomer: !historyFailed && !!b.customer_id && firstBookingIdByCustomer[b.customer_id] === b.id,
+    }));
 
     // A dentist who's since been deactivated or moved to a different branch can still be
     // referenced by a booking made here earlier. Without a column, CalendarGrid's
@@ -4370,7 +4551,7 @@ export async function getCalendarBookings(branchId, startDate, endDate) {
         },
         dentists: finalDentists,
         chairs: chairsResult.data || [],
-        bookings: bookings || [],
+        bookings: bookingsWithNewFlag,
         checkedOutByDentistAndDate,
       },
       error: null,
@@ -10714,3 +10895,643 @@ export async function sendCustomerMessage({ customerId, bookingId = null, channe
     return { data: null, error };
   }
 }
+
+// ============================================================
+// Manual Blocks (supabase/migration-001-manual-blocks.sql) — Calendar "block time off"
+// ============================================================
+
+// 'YYYY-MM-DD' +/- N days, calendar math only (no timezone drift).
+function shiftDateStr(dateStr, days) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  return dt.toISOString().split('T')[0];
+}
+
+function transformBlockRow(row) {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    branchId: row.branch_id,
+    dentistId: row.dentist_id,
+    chairId: row.chair_id,
+    blockDate: row.block_date,
+    startTime: row.start_time,
+    durationMinutes: row.duration_minutes,
+    description: row.description,
+    preventOnlineBooking: row.prevent_online_booking,
+    recurrenceFreq: row.recurrence_freq,
+    recurrenceInterval: row.recurrence_interval,
+    recurrenceEndDate: row.recurrence_end_date,
+    recurrenceCount: row.recurrence_count,
+    seriesId: row.series_id,
+    isCancelled: row.is_cancelled,
+  };
+}
+
+export async function createBlock({
+  orgId, branchId, dentistId = null, chairId = null, blockDate, startTime,
+  durationMinutes, description = null, preventOnlineBooking = true,
+  recurrenceFreq = null, recurrenceInterval = 1, recurrenceEndDate = null, recurrenceCount = null,
+}) {
+  try {
+    const { user, error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    if (!orgId || !branchId) return { data: null, error: { code: 'INVALID_INPUT', message: 'orgId and branchId are required.' } };
+    if (!blockDate || !startTime) return { data: null, error: { code: 'INVALID_INPUT', message: 'A date and start time are required.' } };
+    const duration = Number(durationMinutes);
+    if (!Number.isFinite(duration) || duration <= 0) {
+      return { data: null, error: { code: 'INVALID_INPUT', message: 'Duration must be greater than zero.' } };
+    }
+
+    const isRecurring = !!recurrenceFreq;
+    const { data, error } = await supabase
+      .from('manual_blocks')
+      .insert({
+        org_id: orgId,
+        branch_id: resolveBranchId(branchId),
+        dentist_id: dentistId,
+        chair_id: chairId,
+        block_date: blockDate,
+        start_time: startTime,
+        duration_minutes: duration,
+        description: description?.trim() || null,
+        prevent_online_booking: preventOnlineBooking,
+        created_by: user?.id || null,
+        recurrence_freq: recurrenceFreq,
+        recurrence_interval: recurrenceInterval || 1,
+        recurrence_end_date: isRecurring ? recurrenceEndDate : null,
+        recurrence_count: isRecurring ? recurrenceCount : null,
+        series_id: isRecurring ? crypto.randomUUID() : null,
+      })
+      .select('id')
+      .single();
+
+    if (error) throw error;
+    return { data: { id: data.id }, error: null };
+  } catch (error) {
+    console.error('[API] createBlock error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Full row for the Edit Block modal — occurrence rows from fetchBlocksForRange carry only what's
+// needed to render/gate, not the full recurrence rule.
+export async function fetchBlockById(blockId) {
+  try {
+    const { data, error } = await supabase
+      .from('manual_blocks')
+      .select('*')
+      .eq('id', blockId)
+      .single();
+    if (error) throw error;
+    return { data: transformBlockRow(data), error: null };
+  } catch (error) {
+    console.error('[API] fetchBlockById error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Fetches manual_blocks rows (+ exceptions) whose recurrence could touch [startDate, endDate],
+// expands them client-side, and returns flat occurrence rows
+// { date, startTime, endTime, blockId, seriesId, dentistId, chairId, description, preventOnlineBooking }.
+export async function fetchBlocksForRange(branchId, startDate, endDate) {
+  try {
+    const resolvedBranchId = resolveBranchId(branchId);
+
+    const { data: rows, error } = await supabase
+      .from('manual_blocks')
+      .select('*')
+      .eq('branch_id', resolvedBranchId)
+      .eq('is_cancelled', false)
+      .lte('block_date', endDate)
+      .or(`recurrence_freq.not.is.null,block_date.gte.${startDate}`);
+    if (error) throw error;
+
+    const blocks = (rows || []).map(transformBlockRow);
+    const seriesIds = [...new Set(blocks.map(b => b.seriesId).filter(Boolean))];
+
+    const exceptionsBySeriesId = {};
+    if (seriesIds.length > 0) {
+      const { data: exceptions, error: excError } = await supabase
+        .from('manual_block_exceptions')
+        .select('series_id, exception_date')
+        .in('series_id', seriesIds);
+      if (excError) throw excError;
+      for (const e of (exceptions || [])) {
+        (exceptionsBySeriesId[e.series_id] ||= []).push(e.exception_date);
+      }
+    }
+
+    const occurrences = [];
+    for (const block of blocks) {
+      const exceptions = block.seriesId ? (exceptionsBySeriesId[block.seriesId] || []) : [];
+      for (const occ of expandBlockOccurrences(block, exceptions, startDate, endDate)) {
+        occurrences.push({
+          ...occ,
+          blockId: block.id,
+          seriesId: block.seriesId,
+          dentistId: block.dentistId,
+          chairId: block.chairId,
+          description: block.description,
+          preventOnlineBooking: block.preventOnlineBooking,
+        });
+      }
+    }
+    return { data: occurrences, error: null };
+  } catch (error) {
+    console.error('[API] fetchBlocksForRange error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// scope: 'this' (cancel just this occurrence), 'following' (cap the series the day before
+// occurrenceDate), or 'series' (cancel the whole thing).
+export async function deleteBlock({ blockId, scope, occurrenceDate = null }) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    if (scope === 'series') {
+      const { error } = await supabase
+        .from('manual_blocks')
+        .update({ is_cancelled: true, cancelled_at: new Date().toISOString() })
+        .eq('id', blockId);
+      if (error) throw error;
+      return { data: { ok: true }, error: null };
+    }
+
+    if (scope === 'this') {
+      if (!occurrenceDate) return { data: null, error: { code: 'INVALID_INPUT', message: 'occurrenceDate is required.' } };
+      const { data: block, error: fetchError } = await supabase
+        .from('manual_blocks')
+        .select('series_id, block_date, recurrence_freq')
+        .eq('id', blockId)
+        .single();
+      if (fetchError) throw fetchError;
+
+      if (!block.recurrence_freq) {
+        const { error } = await supabase
+          .from('manual_blocks')
+          .update({ is_cancelled: true, cancelled_at: new Date().toISOString() })
+          .eq('id', blockId);
+        if (error) throw error;
+        return { data: { ok: true }, error: null };
+      }
+
+      const { error } = await supabase
+        .from('manual_block_exceptions')
+        .insert({ series_id: block.series_id, exception_date: occurrenceDate });
+      if (error) throw error;
+      return { data: { ok: true }, error: null };
+    }
+
+    if (scope === 'following') {
+      if (!occurrenceDate) return { data: null, error: { code: 'INVALID_INPUT', message: 'occurrenceDate is required.' } };
+      const { error } = await supabase
+        .from('manual_blocks')
+        .update({ recurrence_end_date: shiftDateStr(occurrenceDate, -1) })
+        .eq('id', blockId);
+      if (error) throw error;
+      return { data: { ok: true }, error: null };
+    }
+
+    return { data: null, error: { code: 'INVALID_INPUT', message: `Unknown scope: ${scope}` } };
+  } catch (error) {
+    console.error('[API] deleteBlock error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// scope 'this'/'following' edits split the series like deleteBlock's scopes, then insert a new
+// row carrying the edited fields from occurrenceDate onward. scope 'series' updates in place.
+export async function updateBlock({ blockId, scope, occurrenceDate = null, ...fields }) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    const { data: existing, error: fetchError } = await supabase
+      .from('manual_blocks')
+      .select('*')
+      .eq('id', blockId)
+      .single();
+    if (fetchError) throw fetchError;
+
+    const patch = {};
+    if (fields.description !== undefined) patch.description = fields.description?.trim() || null;
+    if (fields.startTime !== undefined) patch.start_time = fields.startTime;
+    if (fields.durationMinutes !== undefined) patch.duration_minutes = Number(fields.durationMinutes);
+    if (fields.preventOnlineBooking !== undefined) patch.prevent_online_booking = fields.preventOnlineBooking;
+    if (fields.dentistId !== undefined) patch.dentist_id = fields.dentistId;
+    if (fields.chairId !== undefined) patch.chair_id = fields.chairId;
+    // blockDate = where the occurrence is moving to; occurrenceDate = the ORIGINAL occurrence acted on.
+    if (fields.blockDate !== undefined) patch.block_date = fields.blockDate;
+
+    if (scope === 'series') {
+      const { error } = await supabase.from('manual_blocks').update(patch).eq('id', blockId);
+      if (error) throw error;
+      return { data: { ok: true }, error: null };
+    }
+
+    if (scope === 'this' || scope === 'following') {
+      if (!occurrenceDate) return { data: null, error: { code: 'INVALID_INPUT', message: 'occurrenceDate is required.' } };
+
+      if (!existing.recurrence_freq) {
+        const { error } = await supabase.from('manual_blocks').update(patch).eq('id', blockId);
+        if (error) throw error;
+        return { data: { ok: true }, error: null };
+      }
+
+      // Fields explicitly passed as null (e.g. "whole branch") must clear, so use `in` not `??`.
+      const pick = (key) => (key in patch ? patch[key] : existing[key]);
+      const base = {
+        org_id: existing.org_id,
+        branch_id: existing.branch_id,
+        dentist_id: pick('dentist_id'),
+        chair_id: pick('chair_id'),
+        block_date: patch.block_date ?? occurrenceDate,
+        start_time: pick('start_time'),
+        duration_minutes: pick('duration_minutes'),
+        description: pick('description'),
+        prevent_online_booking: pick('prevent_online_booking'),
+        created_by: existing.created_by,
+      };
+
+      if (scope === 'this') {
+        const { error: excError } = await supabase
+          .from('manual_block_exceptions')
+          .insert({ series_id: existing.series_id, exception_date: occurrenceDate });
+        if (excError) throw excError;
+
+        const { error: insError } = await supabase.from('manual_blocks').insert({
+          ...base,
+          recurrence_freq: null,
+          series_id: null,
+        });
+        if (insError) throw insError;
+        return { data: { ok: true }, error: null };
+      }
+
+      // 'following': cap the existing series the day before occurrenceDate, then start a new
+      // row at occurrenceDate with the edited fields.
+      const endDateStr = shiftDateStr(occurrenceDate, -1);
+      const { error: capError } = await supabase
+        .from('manual_blocks')
+        .update({ recurrence_end_date: endDateStr })
+        .eq('id', blockId);
+      if (capError) throw capError;
+
+      // The new row restarts occurrence counting at n=0, so subtract what the original series
+      // already consumed before the split.
+      const remainingCount = existing.recurrence_count != null
+        ? Math.max(existing.recurrence_count - expandBlockOccurrences(transformBlockRow(existing), [], existing.block_date, endDateStr).length, 0)
+        : null;
+
+      const { error: insError } = await supabase.from('manual_blocks').insert({
+        ...base,
+        recurrence_freq: existing.recurrence_freq,
+        recurrence_interval: existing.recurrence_interval,
+        recurrence_end_date: existing.recurrence_end_date,
+        recurrence_count: remainingCount,
+        series_id: existing.series_id,
+      });
+      if (insError) throw insError;
+      return { data: { ok: true }, error: null };
+    }
+
+    return { data: null, error: { code: 'INVALID_INPUT', message: `Unknown scope: ${scope}` } };
+  } catch (error) {
+    console.error('[API] updateBlock error:', error.message);
+    return { data: null, error };
+  }
+}
+
+/**
+ * Transfer a dentist to another branch in the same org, either Temporary (required
+ * duration, auto-reverts) or Permanent (no duration, stays until transferred again).
+ * Authorization + the audit row are enforced server-side by the SECURITY DEFINER
+ * transfer_dentist() function (migration-004): only an admin, or the
+ * manager of the dentist's CURRENT branch, may transfer.
+ */
+export async function transferDentist({
+  dentistId,
+  toBranchId,
+  permanent = false,
+  startTime = null,
+  durationValue = null,
+  durationUnit = null,
+  note = null,
+  effectiveDate = null,
+}) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    const { data, error } = await supabase.rpc('transfer_dentist', {
+      p_dentist_id: dentistId,
+      p_to_branch_id: toBranchId,
+      p_start_time: permanent ? null : startTime,
+      p_duration_value: permanent ? null : durationValue,
+      p_duration_unit: permanent ? null : durationUnit,
+      p_note: note,
+      p_effective_date: effectiveDate,
+      p_permanent: permanent,
+    });
+
+    if (error) throw error;
+    capture('staff_transfer_scheduled', {
+      dentist_id: dentistId,
+      to_branch_id: toBranchId,
+      effective_date: effectiveDate,
+      permanent,
+      duration_value: durationValue,
+      duration_unit: durationUnit,
+    });
+
+    const { data: row } = await supabase
+      .from('staff_transfers')
+      .select('applied, effective_date, start_time')
+      .eq('id', data)
+      .single();
+
+    return {
+      data: {
+        transferId: data,
+        applied: row?.applied ?? null,
+        effectiveDate: row?.effective_date ?? null,
+        startTime: row?.start_time ?? null,
+      },
+      error: null,
+    };
+  } catch (error) {
+    console.error('[API] transferDentist error:', error.message);
+    return { data: null, error };
+  }
+}
+
+
+// Org-wide staff transfer history. RLS scopes rows to the caller's org.
+export async function fetchStaffTransfers() {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    const { data, error } = await supabase
+      .from('staff_transfers')
+      .select(`
+        id, transferred_at, effective_date, applied, note,
+        start_time, duration_value, duration_unit, revert_at, reverted, reverted_at, is_permanent,
+        is_return_leg,
+        dentist:dentists!staff_transfers_dentist_id_fkey(name),
+        fromBranch:branches!staff_transfers_from_branch_id_fkey(name),
+        toBranch:branches!staff_transfers_to_branch_id_fkey(name),
+        transferredBy:users!staff_transfers_transferred_by_fkey(full_name)
+      `)
+      .order('transferred_at', { ascending: false });
+
+    if (error) throw error;
+
+    const transfers = (data || []).map(t => ({
+      id: t.id,
+      transferredAt: t.transferred_at,
+      effectiveDate: t.effective_date,
+      applied: t.applied,
+      note: t.note,
+      startTime: t.start_time,
+      durationValue: t.duration_value,
+      durationUnit: t.duration_unit,
+      revertAt: t.revert_at,
+      isPermanent: t.is_permanent,
+      reverted: t.reverted,
+      revertedAt: t.reverted_at,
+      isReturnLeg: t.is_return_leg,
+      dentistName: t.dentist?.name || '—',
+      fromBranch: t.fromBranch?.name || '—',
+      toBranch: t.toBranch?.name || '—',
+      transferredBy: t.transferredBy?.full_name || 'System',
+    }));
+
+    return { data: transfers, error: null };
+  } catch (error) {
+    console.error('[API] fetchStaffTransfers error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Pending (scheduled, not-yet-applied) transfers. When branchId is given, returns
+// only those moving a dentist OUT of that branch (the source branch's manager view).
+export async function fetchPendingTransfers(branchId = null) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    let query = supabase
+      .from('staff_transfers')
+      .select(`
+        id, transferred_at, effective_date, applied, note, dentist_id,
+        start_time, duration_value, duration_unit, revert_at, reverted, reverted_at, is_permanent,
+        dentist:dentists!staff_transfers_dentist_id_fkey(name),
+        fromBranch:branches!staff_transfers_from_branch_id_fkey(name),
+        toBranch:branches!staff_transfers_to_branch_id_fkey(name),
+        transferredBy:users!staff_transfers_transferred_by_fkey(full_name)
+      `)
+      .eq('applied', false)
+      .order('effective_date', { ascending: true });
+
+    if (branchId && !isOverallBranch(branchId)) {
+      query = query.eq('from_branch_id', branchId);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const transfers = (data || []).map(t => ({
+      id: t.id,
+      dentistId: t.dentist_id,
+      transferredAt: t.transferred_at,
+      effectiveDate: t.effective_date,
+      applied: t.applied,
+      note: t.note,
+      startTime: t.start_time,
+      durationValue: t.duration_value,
+      durationUnit: t.duration_unit,
+      revertAt: t.revert_at,
+      isPermanent: t.is_permanent,
+      reverted: t.reverted,
+      revertedAt: t.reverted_at,
+      dentistName: t.dentist?.name || '—',
+      fromBranch: t.fromBranch?.name || '—',
+      toBranch: t.toBranch?.name || '—',
+      transferredBy: t.transferredBy?.full_name || 'System',
+    }));
+
+    return { data: transfers, error: null };
+  } catch (error) {
+    console.error('[API] fetchPendingTransfers error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Cancel a scheduled (not-yet-applied) transfer. Org/role checked server-side.
+export async function cancelScheduledTransfer(transferId) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    const { data, error } = await supabase.rpc('cancel_scheduled_transfer', {
+      p_id: transferId,
+    });
+
+    if (error) throw error;
+    return { data, error: null };
+  } catch (error) {
+    console.error('[API] cancelScheduledTransfer error:', error.message);
+    return { data: null, error };
+  }
+}
+
+/**
+ * Push an ACTIVE (applied, not yet reverted) transfer's revert_at further out —
+ * "Add Extra Time" — without creating a second transfer row. Only the destination
+ * branch's manager (whoever currently has the dentist) or an admin may do this;
+ * enforced server-side by extend_staff_transfer() (migration-004). Fails cleanly if
+ * the transfer has already auto-reverted (race-safe — checked atomically server-side).
+ */
+export async function extendStaffTransfer({ transferId, additionalValue, additionalUnit }) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    const { data, error } = await supabase.rpc('extend_staff_transfer', {
+      p_transfer_id: transferId,
+      p_additional_value: additionalValue,
+      p_additional_unit: additionalUnit,
+    });
+
+    if (error) throw error;
+    capture('staff_transfer_extended', { transfer_id: transferId, additional_value: additionalValue, additional_unit: additionalUnit });
+    return { data: { revertAt: data }, error: null };
+  } catch (error) {
+    console.error('[API] extendStaffTransfer error:', error.message);
+    return { data: null, error };
+  }
+}
+
+/**
+ * Move an ACTIVE (applied, not yet reverted) transfer's scheduled return to a new, still-FUTURE
+ * date/time — e.g. a 2-day transfer that only turns out to be needed for 1 day, so the manager
+ * wants the dentist back tomorrow instead of waiting the full original duration. Distinct from
+ * revertStaffTransferNow(), which only records a return that already happened (a past time).
+ * The destination branch's manager, the origin branch's manager, or an admin may do this;
+ * enforced server-side by reschedule_staff_transfer_return() (migration-004).
+ */
+export async function rescheduleStaffTransferReturn({ transferId, newRevertAt }) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    const { data, error } = await supabase.rpc('reschedule_staff_transfer_return', {
+      p_transfer_id: transferId,
+      p_new_revert_at: new Date(newRevertAt).toISOString(),
+    });
+
+    if (error) throw error;
+    capture('staff_transfer_return_rescheduled', { transfer_id: transferId });
+    return { data: { revertAt: data }, error: null };
+  } catch (error) {
+    console.error('[API] rescheduleStaffTransferReturn error:', error.message);
+    return { data: null, error };
+  }
+}
+
+/**
+ * End an ACTIVE (applied, not yet reverted) transfer right now — "Mark Returned Early" —
+ * instead of waiting for the scheduled revert_at / the apply_due_staff_reverts() cron tick.
+ * The destination branch's manager (whoever currently has the dentist), the origin branch's
+ * manager, or an admin may do this; enforced server-side by revert_staff_transfer_now()
+ * (migration-004). Fails cleanly
+ * if the transfer has already ended (race-safe — checked atomically server-side).
+ *
+ * @param {string} transferId
+ * @param {Date|string} [revertedAt] - When the dentist actually returned, if not "right now".
+ *   Must be in the past and before the transfer's scheduled revert_at (validated server-side).
+ *   Omit to use the server's current time.
+ */
+export async function revertStaffTransferNow({ transferId, revertedAt } = {}) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    const { data, error } = await supabase.rpc('revert_staff_transfer_now', {
+      p_transfer_id: transferId,
+      p_reverted_at: revertedAt ? new Date(revertedAt).toISOString() : null,
+    });
+
+    if (error) throw error;
+    capture('staff_transfer_reverted_early', { transfer_id: transferId, custom_time: !!revertedAt });
+    return { data: { revertedAt: data }, error: null };
+  } catch (error) {
+    console.error('[API] revertStaffTransferNow error:', error.message);
+    return { data: null, error };
+  }
+}
+
+/**
+ * For each dentist currently AT branchId, the single most recent staff_transfers
+ * row (either direction), used by the Attendance panel to decide what the Transfer
+ * button should open: a blank create form, the ACTIVE transfer (destination's view,
+ * offering "Add Extra Time"), or a just-COMPLETED summary (origin's view, offering
+ * "Transfer Dentist Again").
+ */
+export async function fetchDentistTransferStatus(branchId) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    const { data, error } = await supabase
+      .from('staff_transfers')
+      .select(`
+        id, dentist_id, from_branch_id, to_branch_id, transferred_at, effective_date,
+        start_time, duration_value, duration_unit, revert_at, applied, reverted, reverted_at, is_permanent, note,
+        dentist:dentists!staff_transfers_dentist_id_fkey(name),
+        fromBranch:branches!staff_transfers_from_branch_id_fkey(name),
+        toBranch:branches!staff_transfers_to_branch_id_fkey(name)
+      `)
+      .or(`from_branch_id.eq.${branchId},to_branch_id.eq.${branchId}`)
+      .order('transferred_at', { ascending: false });
+
+    if (error) throw error;
+
+    // Keep only the latest row per dentist (data is already ordered newest-first).
+    const map = {};
+    (data || []).forEach(t => {
+      if (map[t.dentist_id]) return;
+      map[t.dentist_id] = {
+        id: t.id,
+        dentistId: t.dentist_id,
+        dentistName: t.dentist?.name || '—',
+        fromBranchId: t.from_branch_id,
+        toBranchId: t.to_branch_id,
+        fromBranch: t.fromBranch?.name || '—',
+        toBranch: t.toBranch?.name || '—',
+        transferredAt: t.transferred_at,
+        effectiveDate: t.effective_date,
+        startTime: t.start_time,
+        durationValue: t.duration_value,
+        durationUnit: t.duration_unit,
+        revertAt: t.revert_at,
+        isPermanent: t.is_permanent,
+        applied: t.applied,
+        reverted: t.reverted,
+        revertedAt: t.reverted_at,
+        note: t.note,
+      };
+    });
+
+    return { data: map, error: null };
+  } catch (error) {
+    console.error('[API] fetchDentistTransferStatus error:', error.message);
+    return { data: null, error };
+  }
+}
+

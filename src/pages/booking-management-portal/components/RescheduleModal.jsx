@@ -1,8 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import BlockOverlapWarning from '../../../components/ui/BlockOverlapWarning';
+import { useBlockOverlap } from '../../../hooks/useBlockOverlap';
 
-const RescheduleModal = ({ isOpen, onClose, booking, onConfirm }) => {
+// `blockCheckBranchId` is passed only by staff screens: when set, the chosen time is checked against
+// manual blocks (warn + disable Confirm). The customer portal omits it, so no block data is fetched.
+const RescheduleModal = ({ isOpen, onClose, booking, onConfirm, blockCheckBranchId = null }) => {
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -42,7 +46,16 @@ const RescheduleModal = ({ isOpen, onClose, booking, onConfirm }) => {
     return slots;
   }, []);
 
+  const { message: blockOverlapMsg } = useBlockOverlap(blockCheckBranchId, {
+    date: selectedDate,
+    startTime: selectedTime,
+    durationMinutes: parseInt(booking?.duration, 10) || 60,
+    dentistIds: (booking?.dentists || []).map((d) => d.id),
+    chairId: booking?.chairId || null,
+  }, !!blockCheckBranchId);
+
   const handleConfirm = async () => {
+    if (blockOverlapMsg) return;
     if (!selectedDate || !selectedTime) return;
     setIsLoading(true);
     setError(null);
@@ -170,6 +183,8 @@ const RescheduleModal = ({ isOpen, onClose, booking, onConfirm }) => {
             </div>
           )}
 
+          <BlockOverlapWarning message={blockOverlapMsg} className="mt-4" />
+
           {/* Error */}
           {error && (
             <div className="mt-4 p-3 bg-error/10 border border-error/20 rounded-spa">
@@ -199,7 +214,7 @@ const RescheduleModal = ({ isOpen, onClose, booking, onConfirm }) => {
               variant="primary"
               onClick={handleConfirm}
               loading={isLoading}
-              disabled={!selectedDate || !selectedTime}
+              disabled={!selectedDate || !selectedTime || !!blockOverlapMsg}
             >
               Confirm Reschedule
             </Button>

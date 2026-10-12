@@ -42,6 +42,7 @@ import StatusLegend from '../../components/ui/StatusLegend';
 import PendingDiscountsPanel from './components/PendingDiscountsPanel';
 import DiscountsPanel from './components/DiscountsPanel';
 import AttendanceReportPanel from './components/AttendanceReportPanel';
+import TransferReportPanel from './components/TransferReportPanel';
 import OutstandingReportPanel from './components/Outstanding/OutstandingReportPanel';
 import ReferralsReportPanel from './components/Referrals/ReferralsReportPanel';
 import CustomerReferralsReportPanel from './components/Referrals/CustomerReferralsReportPanel';
@@ -421,7 +422,7 @@ const BranchManagerDashboard = () => {
         <div className={`${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-60'} transition-all duration-200 ${viewMode === 'calendar' ? 'h-screen overflow-hidden flex flex-col' : 'pb-20 lg:pb-0'}`}>
           {/* Header */}
           <header className="bg-surface-sidebar sticky top-0 z-header flex-shrink-0">
-            <div className="px-4 sm:px-6 lg:px-8 py-3">
+            <div className="px-4 sm:px-6 lg:px-8 py-1.5">
               <div className="flex items-center justify-between">
                 {/* Left: Branch name + date/time */}
                 <div className="flex items-center space-x-3 min-w-0">
@@ -632,6 +633,7 @@ const BranchManagerDashboard = () => {
               {viewMode === 'performance' && <DentistPerformancePanel branchId={branchId} />}
               {viewMode === 'discounts' && <DiscountsPanel branchId={branchId} />}
               {viewMode === 'attendance-report' && <AttendanceReportPanel branchId={branchId} />}
+              {viewMode === 'transfer-report' && <TransferReportPanel />}
               {viewMode === 'outstanding' && <OutstandingReportPanel branchId={branchId} />}
               {viewMode === 'referrals' && <ReferralsReportPanel branchId={branchId} />}
               {viewMode === 'customer-referrals' && CUSTOMER_REFERRALS_ENABLED && <CustomerReferralsReportPanel branchId={branchId} />}

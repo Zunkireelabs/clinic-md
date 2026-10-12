@@ -4,10 +4,12 @@ import Icon from '../AppIcon';
 import { useAuth } from 'contexts/AuthContext';
 import { useBranch } from 'contexts/BranchContext';
 import { useIndustry } from 'hooks/useIndustry';
+import { useTransferFeature } from 'hooks/useTransferFeature';
 import { fetchPendingApprovalCount } from 'services/api';
 import { MEMBERSHIP_ENABLED, CUSTOMER_REFERRALS_ENABLED, VOUCHER_ENABLED, OUTREACH_ENABLED } from 'lib/featureFlags';
 
 const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: propBranch, onCollapseChange }) => {
+  const transfersAvailable = useTransferFeature(); // hide transfer entries unless the DB has the tables
   const location = useLocation();
   const { orgSlug: urlOrgSlug } = useParams();
   const { profile, signOut } = useAuth();
@@ -194,6 +196,13 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
           label: 'Attendance Calendar',
           icon: 'CalendarDays',
           path: orgSlug ? `/${orgSlug}/attendance-calendar` : '/attendance-calendar',
+          roles: ['manager', 'admin', 'admin_viewer']
+        },
+        {
+          id: 'transfer-report',
+          label: 'Transfer Report',
+          icon: 'ArrowRightLeft',
+          path: `${basePath}?view=transfer-report`,
           roles: ['manager', 'admin', 'admin_viewer']
         },
         {
@@ -403,7 +412,8 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
   // Filter items by role (and, in the Overall aggregate view, hide write/creation items
   // that have no single target branch).
   const isVisible = (item) =>
-    item.roles.includes(userRole) && !(isOverall && item.overallHidden);
+    item.roles.includes(userRole) && !(isOverall && item.overallHidden)
+    && !(item.id === 'transfer-report' && transfersAvailable !== true);
 
   const filterByRole = (items) => {
     return items
@@ -476,28 +486,10 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
         {/* Header */}
         <div className="px-5 py-3 h-[52px] flex items-center justify-between">
           {!isCollapsed && (
-            <Link to={basePath} className="flex items-center gap-3">
-              <div className="relative">
-                <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    className="text-white"
-                  >
-                    <path
-                      d="M12 2L13.09 8.26L20 9L13.09 9.74L12 16L10.91 9.74L4 9L10.91 8.26L12 2Z"
-                      fill="currentColor"
-                    />
-                    <circle cx="12" cy="19" r="2" fill="currentColor" opacity="0.7"/>
-                  </svg>
-                </div>
-              </div>
-              <div>
-                <h1 className="text-sm font-semibold text-gray-900">ClinicMD</h1>
-                <p className="text-xs text-gray-500">Staff Portal</p>
-              </div>
+            <Link to={basePath} aria-label="ClinicMD Staff Portal" className="flex items-start text-gray-900">
+              {/* Wordmark matches the marketing site: Clinic + superscript MD */}
+              <span className="text-[20px] font-normal tracking-[-0.04em] leading-none">Clinic</span>
+              <span className="text-[9px] font-medium leading-none ml-px">MD</span>
             </Link>
           )}
           <button
@@ -506,7 +498,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
               setIsCollapsed(next);
               onCollapseChange?.(next);
             }}
-            className="p-2 rounded-md hover:bg-background transition-colors"
+            className="p-2 rounded-md hover:bg-gray-100 transition-colors"
           >
             <Icon
               name={isCollapsed ? "ChevronRight" : "ChevronLeft"}
@@ -532,10 +524,10 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
                       a separate chevron control expands/collapses the children. */}
                   {item.path ? (
                     <div
-                      className={`w-full flex items-center gap-1 rounded-md text-sm font-medium transition-colors ${
+                      className={`w-full flex items-center gap-1 rounded-md text-[13px] font-medium transition-colors ${
                         parentActive
-                          ? 'bg-background text-gray-900'
-                          : 'text-gray-500 hover:bg-background hover:text-gray-900'
+                          ? 'bg-white text-gray-900 shadow-[0_0_0_1px_#E9E9EC]'
+                          : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
                       } ${isCollapsed ? 'justify-center' : ''}`}
                     >
                       <Link
@@ -554,7 +546,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
                         <button
                           onClick={() => toggleExpand(item.id)}
                           aria-label={isExpanded ? `Collapse ${item.label}` : `Expand ${item.label}`}
-                          className="px-2.5 py-2 rounded-md hover:bg-background/80 flex-shrink-0"
+                          className="px-2.5 py-2 rounded-md hover:bg-gray-100 flex-shrink-0"
                         >
                           <Icon
                             name="ChevronDown"
@@ -567,10 +559,10 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
                   ) : (
                     <button
                       onClick={() => toggleExpand(item.id)}
-                      className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                      className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-md text-[13px] font-medium transition-colors ${
                         parentActive
-                          ? 'bg-background text-gray-900'
-                          : 'text-gray-500 hover:bg-background hover:text-gray-900'
+                          ? 'bg-white text-gray-900 shadow-[0_0_0_1px_#E9E9EC]'
+                          : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
                       } ${isCollapsed ? 'justify-center' : ''}`}
                     >
                       <div className="flex items-center gap-3">
@@ -629,7 +621,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
                                   />
                                   {/* Arrow */}
                                   <div
-                                    className="absolute text-gray-300 text-xs"
+                                    className="absolute text-gray-300 text-[13px]"
                                     style={{
                                       left: '30px',
                                       top: '50%',
@@ -646,9 +638,9 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
 
                               <Link
                                 to={child.path}
-                                className={`flex-1 px-2 py-1.5 rounded-md text-sm transition-colors ${
+                                className={`flex-1 px-2 py-1.5 rounded-md text-[13px] transition-colors ${
                                   isChildActive
-                                    ? 'text-gray-900 font-medium bg-background'
+                                    ? 'text-gray-900 font-medium bg-white shadow-[0_0_0_1px_#E9E9EC]'
                                     : 'text-gray-500 hover:text-gray-900'
                                 }`}
                               >
@@ -670,10 +662,10 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
               <Link
                 key={item.id}
                 to={item.path}
-                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`flex items-center gap-3 px-3 py-2 rounded-md text-[13px] font-medium transition-colors ${
                   isActive(item.path)
-                    ? 'bg-background text-gray-900'
-                    : 'text-gray-500 hover:bg-background hover:text-gray-900'
+                    ? 'bg-white text-gray-900 shadow-[0_0_0_1px_#E9E9EC]'
+                    : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
                 } ${isCollapsed ? 'justify-center' : ''}`}
               >
                 <div className="relative flex-shrink-0">
@@ -701,9 +693,9 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
             </div>
           ) : (
             <div className="px-3 py-2 flex items-center gap-1.5">
-              <span className="text-xs text-gray-400">A Product of</span>
+              <span className="text-[13px] text-gray-400">A Product of</span>
               <img src="/zunkireelabs-icon.png" alt="Zunkireelabs" className="w-4 h-4" />
-              <span className="text-xs font-medium text-gray-700">zunkireelabs</span>
+              <span className="text-[13px] font-medium text-gray-700">zunkireelabs</span>
             </div>
           )}
         </div>

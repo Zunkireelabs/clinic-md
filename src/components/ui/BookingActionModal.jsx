@@ -10,6 +10,8 @@ import { fetchRelatedUnpaidBookings, fetchBookingCreator, fetchDiscountApprovers
 import { excludeRelatedFromPreviousDue } from '../../services/bookingTransformers';
 import { useBranch } from '../../contexts/BranchContext';
 import { getExtendOptions } from '../../utils/treatmentVariants';
+import BlockOverlapWarning from './BlockOverlapWarning';
+import { useBlockOverlap } from '../../hooks/useBlockOverlap';
 
 function getNepalNow() {
   return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kathmandu' }));
@@ -306,6 +308,27 @@ const BookingActionModal = ({
     return treatments.find(s => s.id === editForm.treatmentId);
   }, [isEditing, editForm.treatmentId, treatments]);
 
+  // Manual-block overlap warnings (client-side, warn-only): editing the date/time, and the
+  // Reschedule/Rebook/Add-treatment form. Both disable their save button while overlapping.
+  const currentDurationMin = parseInt(booking?.duration, 10) || 60;
+  const bookingDentistIds = (booking?.dentists || []).map((d) => d.id);
+  const { message: editBlockMsg } = useBlockOverlap(branchId, {
+    date: editForm.date,
+    startTime: editForm.startTime,
+    durationMinutes: selectedTreatment?.duration_minutes || currentDurationMin,
+    dentistIds: bookingDentistIds,
+    chairId: booking?.chairId || null,
+  }, !!isEditing);
+  const newTreatment = (treatments || []).find((t) => t.id === newBookingForm.treatmentId);
+  const { message: newBookingBlockMsg } = useBlockOverlap(branchId, {
+    date: newBookingForm.date,
+    startTime: newBookingForm.startTime,
+    durationMinutes: newTreatment?.duration_minutes || currentDurationMin,
+    dentistId: newBookingForm.dentistId || null,
+    dentistIds: newBookingForm.dentistId ? [newBookingForm.dentistId] : (newBookingMode === 'rebook' ? bookingDentistIds : []),
+    chairId: newBookingForm.chairId || (newBookingMode === 'rebook' ? booking?.chairId || null : null),
+  }, !!newBookingMode);
+
   // Extend-duration options (same treatment, category, longer duration)
   const [showExtendPanel, setShowExtendPanel] = useState(false);
   const extendPanelRef = useRef(null);
@@ -383,6 +406,7 @@ const BookingActionModal = ({
       setEditError('Customer name is required.');
       return;
     }
+    if (editBlockMsg) return;
 
     setIsLoading(true);
     try {
@@ -456,6 +480,7 @@ const BookingActionModal = ({
       setNewBookingError('Please select a time.');
       return;
     }
+    if (newBookingBlockMsg) return;
 
     setNewBookingSubmitting(true);
     setNewBookingError(null);
@@ -949,6 +974,9 @@ const BookingActionModal = ({
                               className={inputClasses}
                             />
                           </div>
+                        ) : null}
+                        {isEditing ? (
+                          <BlockOverlapWarning message={editBlockMsg} className="mt-2" />
                         ) : (
                           <p className="font-body font-body-normal text-sm text-text-primary">{booking.date} at {to12h(booking.time || booking.startTime)}</p>
                         )}
@@ -2068,6 +2096,8 @@ const BookingActionModal = ({
                   </div>
                 </div>
 
+                <BlockOverlapWarning message={newBookingBlockMsg} />
+
                 <div className="flex items-center justify-end gap-2 pt-2">
                   <Button variant="outline" onClick={() => setNewBookingMode(null)} className="min-h-[44px] sm:min-h-0">
                     Cancel
@@ -2076,6 +2106,7 @@ const BookingActionModal = ({
                     variant="primary"
                     onClick={handleNewBookingSubmit}
                     loading={newBookingSubmitting}
+                    disabled={!!newBookingBlockMsg}
                     className="min-h-[44px] sm:min-h-0"
                   >
                     {newBookingMode === 'rebook' ? rebookLabel : 'Create Booking'}
@@ -2126,6 +2157,7 @@ const BookingActionModal = ({
                     variant="primary"
                     onClick={handleSaveEdit}
                     loading={isLoading}
+                    disabled={!!editBlockMsg}
                     className="min-h-[44px] sm:min-h-0"
                   >
                     Save Changes

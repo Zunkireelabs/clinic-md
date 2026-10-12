@@ -4,15 +4,7 @@ import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import Icon from '../../../../components/AppIcon';
 
-const STATUS_COLORS = {
-  'Pending':     { bg: '#f59e0b', text: '#fff', light: '#fef3c7' },
-  'Confirmed':   { bg: '#3b82f6', text: '#fff', light: '#dbeafe' },
-  'In-Progress': { bg: '#6366f1', text: '#fff', light: '#e0e7ff' },
-  'Completed':   { bg: '#22c55e', text: '#fff', light: '#dcfce7' },
-  'No Show':     { bg: '#6b7280', text: '#fff', light: '#f3f4f6' },
-};
-
-const UNPAID_BORDER = '#facc15';
+import { getBookingStatusColors, UNPAID_DOT_COLOR } from '../../../../utils/bookingStatusColors';
 
 // Convert "HH:MM" or "HH:MM:SS" to 12h format
 function to12h(timeStr) {
@@ -21,6 +13,16 @@ function to12h(timeStr) {
   const period = h >= 12 ? 'pm' : 'am';
   const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
   return `${h12}:${String(m).padStart(2, '0')}${period}`;
+}
+
+// Compact 12h range: "2:30–3:15pm", or "11:30am–12:15pm" when the period differs
+function compactRange12h(startStr, endStr) {
+  if (!startStr) return '';
+  const start = to12h(startStr);
+  if (!endStr) return start;
+  const end = to12h(endStr);
+  const sp = start.slice(-2);
+  return sp === end.slice(-2) ? `${start.slice(0, -2)}–${end}` : `${start}–${end}`;
 }
 
 // Statuses that cannot be dragged (terminal states)
@@ -66,7 +68,7 @@ export function canDragBooking(booking) {
 }
 
 const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', onResize, isSelected = false, onSelect }) => {
-  const colors = STATUS_COLORS[booking.status] || STATUS_COLORS['Pending'];
+  const colors = getBookingStatusColors(booking.status);
   const isUnpaid = booking.paymentStatus === 'unpaid';
   const isPaid = booking.paymentStatus === 'paid';
   const isDraggable = canDragBooking(booking);
@@ -146,9 +148,10 @@ const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', 
     return (eh * 60 + em) - (sh * 60 + sm);
   })();
 
-  const timeLabel = booking.startTime && booking.endTime
-    ? `${to12h(booking.startTime)} – ${to12h(booking.endTime)}`
-    : '';
+  const rangeLabel = compactRange12h(booking.startTime, booking.endTime);
+  const cardHeight = typeof style?.height === 'number' ? style.height : parseFloat(style?.height) || 0;
+  const isTall = cardHeight >= 56;
+  const isShort = cardHeight > 0 && cardHeight < 40;
 
   const handleMouseEnter = useCallback(() => {
     if (isDragging) return;
@@ -194,9 +197,10 @@ const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', 
         cardRef.current = node;
         setNodeRef(node);
       }}
-      className={`absolute left-1 right-1 rounded-md overflow-visible transition-all duration-150 ease-out hover:shadow-lg hover:z-dropdown ${
+      className={`absolute left-1 right-1 rounded-spa overflow-visible transition-colors duration-150 ease-out hover:z-dropdown hover:brightness-[0.97] ${
         isDraggable && !isResizing ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
       } ${isSelected ? 'ring-2 ring-violet-500 ring-offset-1' : ''}`}
+      data-booking-card="true"
       data-booking-id={booking.isShared ? booking.bookingId : undefined}
       data-shared={booking.isShared ? 'true' : undefined}
       style={{
@@ -204,11 +208,8 @@ const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', 
         ...(isResizing ? {} : dragStyle),
         ...(isResizing && resizeDir === 'bottom' ? { height: Math.max((style?.height || 60) + resizeDelta, 20), zIndex: 9999 } : {}),
         ...(isResizing && resizeDir === 'top' ? { top: (style?.top || 0) + resizeDelta, height: Math.max((style?.height || 60) - resizeDelta, 20), zIndex: 9999 } : {}),
-        backgroundColor: colors.light,
-        borderLeft: `3px solid ${colors.bg}`,
-        borderTop: isUnpaid ? `2px solid ${UNPAID_BORDER}` : 'none',
-        borderRight: isUnpaid ? `1px solid ${UNPAID_BORDER}` : `1px solid ${colors.bg}20`,
-        borderBottom: isUnpaid ? `1px solid ${UNPAID_BORDER}` : `1px solid ${colors.bg}20`,
+        backgroundColor: colors.fill,
+        borderLeft: `3px solid ${colors.bar}`,
         opacity: isDragging ? 0.3 : booking._isFaded ? 0.4 : 1,
       }}
       onClick={(e) => {
@@ -229,49 +230,48 @@ const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', 
     >
       {/* Drag handle area — middle section of card, not edges */}
       <div
-        className="px-2 py-1.5 h-full flex flex-col overflow-hidden"
+        className={`px-2 ${isShort ? 'py-0.5 justify-center' : 'py-1.5'} h-full flex flex-col overflow-hidden`}
         {...(isDraggable && !isResizing ? { ...listeners, ...attributes } : {})}
       >
-        {timeLabel && (
-          <div className="font-data text-[10px] text-text-secondary leading-none mb-0.5 flex-shrink-0">
-            {timeLabel}
+        {isShort ? (
+          <div className="flex items-center gap-1 min-w-0 leading-tight">
+            {isUnpaid && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: UNPAID_DOT_COLOR }} title="Unpaid" />}
+            <span className="font-body font-medium text-xs text-text-primary truncate">{booking.customerName}</span>
+            <span className="font-data text-[11px] text-text-secondary flex-shrink-0">· {to12h(booking.startTime)}</span>
           </div>
-        )}
-        <div className="font-body font-semibold text-xs text-text-primary leading-tight truncate flex-shrink-0">
-          {booking.customerName}
-        </div>
-        <div className="font-body text-[11px] text-text-secondary leading-tight truncate flex-shrink-0">
-          {booking.treatmentName}
-        </div>
-        {columnMode === 'chair' && booking.dentistName && (
-          <div className="font-caption text-[10px] text-primary/70 leading-tight truncate flex-shrink-0">
-            {booking.dentistName}
-          </div>
-        )}
-        {columnMode === 'dentist' && booking.chairName && (
-          <div className="font-caption text-[10px] text-secondary/70 leading-tight truncate flex-shrink-0">
-            {booking.chairName}
-          </div>
-        )}
-        {durationMins && (
-          <div className="font-caption text-[10px] text-text-secondary/70 mt-auto flex-shrink-0">
-            {durationMins} mins
-          </div>
-        )}
-        {(isUnpaid || isLocked || isPaid || booking.specialRequests) && (
-          <div className="flex items-center gap-1 mt-0.5 flex-shrink-0">
-            {booking.specialRequests && (
-              <Icon name="AlertTriangle" size={14} className="text-warning" title="Special request" />
-            )}
-            {isUnpaid && (
-              <span className="inline-flex items-center gap-0.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
-                <span className="text-[9px] text-yellow-600 font-medium">Unpaid</span>
+        ) : (
+          <>
+            <div className="flex items-center gap-1 min-w-0 flex-shrink-0">
+              {isUnpaid && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: UNPAID_DOT_COLOR }} title="Unpaid" />}
+              <span className="font-body font-medium text-xs text-text-primary leading-tight truncate">{booking.customerName}</span>
+              <span className="ml-auto flex items-center gap-1 flex-shrink-0 text-text-tertiary">
+                {booking.isNewCustomer && (
+                  <span className="px-1 rounded-sm bg-primary/10 text-primary text-[10px] font-medium leading-4">New</span>
+                )}
+                {booking.specialRequests && <Icon name="AlertTriangle" size={12} title="Special request" />}
+                {isLocked && <Icon name="Lock" size={12} title="Locked" />}
+                {!isLocked && isPaid && <Icon name="Check" size={12} title="Paid" />}
               </span>
+            </div>
+            <div className="font-body text-[11px] text-text-secondary leading-tight truncate flex-shrink-0">
+              {rangeLabel}{booking.treatmentName ? ` · ${booking.treatmentName}` : ''}
+            </div>
+            {isTall && columnMode === 'chair' && booking.dentistName && (
+              <div className="font-body text-[11px] text-text-tertiary leading-tight truncate flex-shrink-0">
+                {booking.dentistName}
+              </div>
             )}
-            {isLocked && <span className="text-[9px]">🔒</span>}
-            {!isLocked && isPaid && <span className="text-[9px]">✓</span>}
-          </div>
+            {isTall && columnMode === 'dentist' && booking.chairName && (
+              <div className="font-body text-[11px] text-text-tertiary leading-tight truncate flex-shrink-0">
+                {booking.chairName}
+              </div>
+            )}
+            {isTall && durationMins && (
+              <div className="font-body text-[11px] text-text-tertiary mt-auto flex-shrink-0">
+                {durationMins} mins
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -308,7 +308,7 @@ const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', 
 // itself and by OverflowPopoverRow (the "+N" hidden-bookings list) so both
 // give the same detail preview instead of just a native title tooltip.
 export const BookingHoverPreview = ({ booking, position, draggable }) => {
-  const colors = STATUS_COLORS[booking.status] || STATUS_COLORS['Pending'];
+  const colors = getBookingStatusColors(booking.status);
   const isUnpaid = booking.paymentStatus === 'unpaid';
 
   const durationMins = (() => {
@@ -333,20 +333,23 @@ export const BookingHoverPreview = ({ booking, position, draggable }) => {
         width: 280,
       }}
     >
-      <div className="bg-surface rounded-lg border border-border spa-shadow-elevated overflow-hidden animate-fade-in">
-        {/* Status banner */}
-        <div
-          className="px-3 py-1.5 text-center text-xs font-body font-semibold"
-          style={{ backgroundColor: colors.bg, color: colors.text }}
-        >
-          {booking.status}
-        </div>
-
+      <div className="bg-surface rounded-spa-lg border border-border shadow-spa-elevated overflow-hidden animate-fade-in">
         {/* Customer info */}
         <div className="px-3 pt-2.5 pb-2 border-b border-border">
           <div className="flex items-start justify-between">
             <div className="font-body font-semibold text-sm text-text-primary">
               {booking.customerName}
+              {booking.isNewCustomer && (
+                <span className="ml-2 align-middle inline-block px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-primary/10 text-primary">
+                  New patient
+                </span>
+              )}
+              <span
+                className="ml-2 align-middle inline-block px-1.5 py-0.5 rounded-full text-[10px] font-medium"
+                style={{ backgroundColor: colors.fill, color: colors.text }}
+              >
+                {booking.status}
+              </span>
             </div>
             {booking.bookingNumber && (
               <span className="font-data text-[10px] text-text-secondary bg-background px-1.5 py-0.5 rounded">
@@ -356,7 +359,7 @@ export const BookingHoverPreview = ({ booking, position, draggable }) => {
           </div>
           {booking.customerPhone && (
             <div className="font-caption text-xs text-text-secondary mt-0.5">
-              📞 {booking.customerPhone}
+              <Icon name="Phone" size={12} className="inline mr-1 -mt-0.5 text-text-tertiary" />{booking.customerPhone}
             </div>
           )}
         </div>
@@ -397,8 +400,8 @@ export const BookingHoverPreview = ({ booking, position, draggable }) => {
             <span
               className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
                 isUnpaid
-                  ? 'bg-yellow-100 text-yellow-700'
-                  : 'bg-green-100 text-green-700'
+                  ? 'bg-[#FBF5E6] text-[#7A5408]'
+                  : 'bg-[#EAF6F0] text-[#125E41]'
               }`}
             >
               {isUnpaid ? 'Unpaid' : 'Paid'}

@@ -6,6 +6,8 @@ import { toE164, samePhone } from '../../../utils/phone';
 import CustomerAutocomplete from '../../../components/ui/CustomerAutocomplete';
 import { fetchTreatments, createBooking, getCustomerOutstandingBalance, fetchCustomersLightweight } from '../../../services/api';
 import { useBranch } from '../../../contexts/BranchContext';
+import BlockOverlapWarning from '../../../components/ui/BlockOverlapWarning';
+import { useBlockOverlap } from '../../../hooks/useBlockOverlap';
 import { CUSTOMER_REFERRALS_ENABLED } from '../../../lib/featureFlags';
 
 const StaffBookingForm = ({ onBookingCreated }) => {
@@ -245,7 +247,15 @@ const StaffBookingForm = ({ onBookingCreated }) => {
     setReferringCustomerId('');
   };
 
+  // Warn (and block Next/Create) when the chosen time overlaps a manual block. Client-side only.
+  const { message: blockOverlapMsg } = useBlockOverlap(branchId, {
+    date: selectedDate,
+    startTime: selectedTime,
+    durationMinutes: selectedTreatment?.duration_minutes || 60,
+  });
+
   const canProceed = () => {
+    if (step >= 2 && step <= 4 && blockOverlapMsg) return false;
     switch (step) {
       case 1: return !!selectedTreatment;
       case 2: return !!selectedDate && !!selectedTime;
@@ -649,6 +659,8 @@ const StaffBookingForm = ({ onBookingCreated }) => {
           </div>
         )}
       </div>
+
+      {step >= 2 && step <= 4 && <BlockOverlapWarning message={blockOverlapMsg} />}
 
       {/* Navigation - Stack on mobile */}
       <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">

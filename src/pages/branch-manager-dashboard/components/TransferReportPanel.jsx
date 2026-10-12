@@ -1,0 +1,359 @@
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import Icon from '../../../components/AppIcon';
+import FilterBar from '../../../components/ui/FilterBar';
+import { PERIOD_PRESETS, getPeriodRange, getTodayISO, toISO } from '../../../utils/periodPresets';
+import { useIndustry } from '../../../hooks/useIndustry';
+import { useAutoRefresh } from '../../../hooks/useAutoRefresh';
+import { fetchStaffTransfers } from '../../../services/api';
+import { useTransferFeature } from '../../../hooks/useTransferFeature';
+
+function formatDateTime(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function formatDateOnly(d) {
+  if (!d) return '—';
+  const [y, m, day] = d.split('-').map(Number);
+  return new Date(y, m - 1, day).toLocaleDateString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  });
+}
+
+// The actual moment the transfer took effect (Kathmandu wall clock) — distinct from
+// `transferredAt`, which is just when the row was logged/created and can lag the real
+// event by hours if entered retroactively.
+function formatTransferTime(effectiveDate, startTime) {
+  if (!effectiveDate || !startTime) return '—';
+  return formatDateTime(`${effectiveDate}T${startTime}+05:45`);
+}
+
+// e.g. 90 -> "1h 30m", 45 -> "45m", 1500 -> "1d 1h"
+function formatDuration(minutes) {
+  const abs = Math.round(Math.abs(minutes));
+  if (abs < 1) return 'less than a minute';
+  const days = Math.floor(abs / 1440);
+  const hours = Math.floor((abs % 1440) / 60);
+  const mins = abs % 60;
+  const parts = [];
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (mins && !days) parts.push(`${mins}m`);
+  return parts.join(' ') || '0m';
+}
+
+// Return-completion rows synthesized by revert_staff_transfer_now() / apply_due_staff_reverts()
+// (migration-160/149/163) — these represent the return leg itself, not a new outbound transfer.
+// is_return_leg (migration-163) is the source of truth; the note-text match only covers rows
+// from before that column existed (or a DB not yet migrated to 163).
+const RETURN_LEG_NOTES = ['Returned early (marked by manager)', 'Auto-reverted after scheduled duration'];
+function isReturnLeg(t) {
+  return t.isReturnLeg ?? RETURN_LEG_NOTES.includes(t.note);
+}
+
+// Status shown for a transfer row: Active (not yet returned — either still scheduled
+// to apply, or applied and currently at the destination branch) -> Returned (this leg
+// has ended, whether by the return-leg row itself, or the original row once reverted).
+function transferStatus(t) {
+  if (isReturnLeg(t)) return 'Returned';
+  if (t.applied && t.reverted) return 'Returned';
+  return 'Active';
+}
+
+const STATUS_STYLES = {
+  Active: { className: 'bg-success/10 text-success', icon: 'PlayCircle' },
+  Returned: { className: 'bg-[#B45309]/10 text-[#B45309]', icon: 'CheckCircle' },
+};
+
+const TransferReportPanel = () => {
+  const transfersAvailable = useTransferFeature();
+  const { staffLabel } = useIndustry();
+  const today = getTodayISO();
+  const [transfers, setTransfers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activePreset, setActivePreset] = useState('monthly');
+  const [mode, setMode] = useState('preset'); // 'preset' | 'custom'
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const [appliedFrom, setAppliedFrom] = useState('');
+  const [appliedTo, setAppliedTo] = useState('');
+
+  const range = useMemo(() => {
+    if (mode === 'custom' && appliedFrom) {
+      return { startDate: appliedFrom, endDate: appliedTo || today };
+    }
+    return getPeriodRange(activePreset);
+  }, [mode, activePreset, appliedFrom, appliedTo, today]);
+
+  const customDirty = customFrom && (customFrom !== appliedFrom || customTo !== appliedTo);
+
+  const handlePreset = (id) => {
+    setMode('preset');
+    setActivePreset(id);
+  };
+
+  const handleCustomApply = () => {
+    if (!customFrom) return;
+    setAppliedFrom(customFrom);
+    setAppliedTo(customTo);
+    setMode('custom');
+  };
+
+  // Only the very first load shows the full skeleton — background
+  // auto-refresh ticks (see useAutoRefresh below) swap data in silently so
+  // the panel doesn't flash back to a loading state while someone's viewing it.
+  const hasLoadedRef = useRef(false);
+  const loadTransferReport = useCallback(async () => {
+    if (!hasLoadedRef.current) setLoading(true);
+    setError(null);
+    const { data, error: err } = await fetchStaffTransfers();
+    if (err) {
+      setError(err.message || 'Failed to load transfer history.');
+    } else {
+      setTransfers(data || []);
+    }
+    hasLoadedRef.current = true;
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadTransferReport();
+  }, [loadTransferReport]);
+
+  useAutoRefresh(loadTransferReport, { intervalMs: 120000 });
+
+  const filtered = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return transfers.filter(t => {
+      const matchesSearch = !q
+        || t.dentistName.toLowerCase().includes(q)
+        || t.fromBranch.toLowerCase().includes(q)
+        || t.toBranch.toLowerCase().includes(q)
+        || t.transferredBy.toLowerCase().includes(q);
+      const ds = t.transferredAt ? toISO(new Date(t.transferredAt)) : '';
+      const matchesDate = !ds || (ds >= range.startDate && ds <= range.endDate);
+      return matchesSearch && matchesDate;
+    });
+  }, [transfers, searchQuery, range]);
+
+  const handleExportCSV = () => {
+    if (!filtered.length) return;
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Transferred At', 'Staff', 'From', 'To', 'Effective Date', 'Type', 'Status', 'Scheduled Return', 'Returned At', 'Transferred By', 'Remarks'];
+    let csv = header.join(',') + '\n';
+    filtered.forEach((t) => {
+      const earlyMinutes = t.revertAt && t.reverted && t.revertedAt
+        ? (new Date(t.revertAt).getTime() - new Date(t.revertedAt).getTime()) / 60000
+        : null;
+      const earlyLabel = earlyMinutes === null
+        ? ''
+        : earlyMinutes > 1 ? ` (${formatDuration(earlyMinutes)} early)`
+          : earlyMinutes < -1 ? ` (${formatDuration(earlyMinutes)} late)`
+            : ' (on time)';
+      csv += [
+        esc(formatTransferTime(t.effectiveDate, t.startTime)),
+        esc(t.dentistName),
+        esc(t.fromBranch),
+        esc(t.toBranch),
+        esc(formatDateOnly(t.effectiveDate)),
+        esc(t.isPermanent ? 'Permanent' : 'Temporary'),
+        esc(transferStatus(t)),
+        esc(t.revertAt ? formatDateTime(t.revertAt) : '—'),
+        esc(t.reverted
+          ? `${formatDateTime(t.revertedAt)}${earlyLabel}`
+          : isReturnLeg(t) ? formatDateTime(t.transferredAt) : '—'),
+        esc(t.transferredBy),
+        esc(t.note || ''),
+      ].join(',') + '\n';
+    });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'transfer-report.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  if (transfersAvailable === false) {
+    return (
+      <div className="bg-surface rounded-spa-lg border border-border p-10 text-center">
+        <Icon name="ArrowRightLeft" size={32} className="text-text-tertiary mx-auto mb-3" />
+        <h2 className="font-heading font-heading-semibold text-lg text-text-primary mb-1">Transfer report isn't available yet</h2>
+        <p className="font-body text-sm text-text-secondary">Staff transfers haven't been enabled for this environment.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-heading font-heading-semibold text-lg text-text-primary">{staffLabel} Transfer Report</h3>
+          <p className="font-body text-sm text-text-secondary">
+            {loading ? 'Loading…' : `${filtered.length} transfer${filtered.length !== 1 ? 's' : ''}`}
+          </p>
+        </div>
+        {filtered.length > 0 && (
+          <button
+            onClick={handleExportCSV}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-spa border border-border bg-surface font-body font-body-medium text-sm text-text-secondary hover:bg-background spa-transition-fast flex-shrink-0"
+          >
+            <Icon name="Download" size={16} />
+            <span>Export CSV</span>
+          </button>
+        )}
+      </div>
+
+      {/* Filters */}
+      <FilterBar
+        count={{ value: filtered.length, label: filtered.length === 1 ? 'Transfer' : 'Transfers' }}
+        search={{ value: searchQuery, onChange: setSearchQuery, placeholder: 'Search by staff, branch, or person…' }}
+        presets={PERIOD_PRESETS.map((p) => ({
+          label: p.label,
+          active: mode === 'preset' && activePreset === p.id,
+          onClick: () => handlePreset(p.id),
+        }))}
+        dateRange={{
+          from: customFrom,
+          onFromChange: setCustomFrom,
+          to: customTo,
+          onToChange: setCustomTo,
+          max: today,
+          onApply: handleCustomApply,
+          applyDisabled: !customFrom || !customDirty,
+          applyActive: mode === 'custom',
+        }}
+        hasActiveFilters={searchQuery.trim().length > 0}
+        onClear={() => setSearchQuery('')}
+      />
+
+      {/* Error */}
+      {error && (
+        <div className="flex items-center gap-2 p-3 bg-error/10 border border-error/20 rounded-spa text-error text-sm">
+          <Icon name="AlertCircle" size={16} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* Table */}
+      <div className="bg-surface border border-border rounded-spa overflow-hidden">
+        {loading ? (
+          <div className="py-12 text-center">
+            <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
+            <p className="font-body text-sm text-text-secondary">Loading transfer history...</p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="py-12 text-center">
+            <Icon name="ArrowRightLeft" size={32} className="text-text-tertiary mx-auto mb-3" />
+            <p className="font-body text-sm text-text-secondary">
+              {transfers.length === 0 ? 'No transfers recorded yet.' : 'No transfers match the current filters.'}
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-background border-b border-border">
+                  <th className="text-left px-4 py-3 font-body font-body-medium text-sm text-text-secondary">Transferred At</th>
+                  <th className="text-left px-4 py-3 font-body font-body-medium text-sm text-text-secondary">{staffLabel}</th>
+                  <th className="text-left px-4 py-3 font-body font-body-medium text-sm text-text-secondary">From → To</th>
+                  <th className="text-left px-4 py-3 font-body font-body-medium text-sm text-text-secondary">Effective Date</th>
+                  <th className="text-left px-4 py-3 font-body font-body-medium text-sm text-text-secondary">Type</th>
+                  <th className="text-left px-4 py-3 font-body font-body-medium text-sm text-text-secondary">Status</th>
+                  <th className="text-left px-4 py-3 font-body font-body-medium text-sm text-text-secondary">Scheduled Return</th>
+                  <th className="text-left px-4 py-3 font-body font-body-medium text-sm text-text-secondary">Returned At</th>
+                  <th className="text-left px-4 py-3 font-body font-body-medium text-sm text-text-secondary">Transferred By</th>
+                  <th className="text-left px-4 py-3 font-body font-body-medium text-sm text-text-secondary">Remarks</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(t => (
+                  <tr key={t.id} className="border-b border-border last:border-b-0 hover:bg-background/50 spa-transition-fast">
+                    <td className="px-4 py-3 font-body text-sm text-text-secondary whitespace-nowrap">{formatTransferTime(t.effectiveDate, t.startTime)}</td>
+                    <td className="px-4 py-3 font-body font-body-medium text-sm text-text-primary">{t.dentistName}</td>
+                    <td className="px-4 py-3 font-body text-sm text-text-secondary whitespace-nowrap">
+                      {t.fromBranch} <span className="text-text-tertiary">→</span> {t.toBranch}
+                    </td>
+                    <td className="px-4 py-3 font-body text-sm text-text-secondary whitespace-nowrap">{formatDateOnly(t.effectiveDate)}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-caption font-caption-medium ${
+                        t.isPermanent ? 'bg-secondary/10 text-secondary' : 'bg-primary/10 text-primary'
+                      }`}>
+                        {t.isPermanent ? 'Permanent' : 'Temporary'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {(() => {
+                        const status = transferStatus(t);
+                        const style = STATUS_STYLES[status];
+                        return (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-caption font-caption-medium ${style.className}`}>
+                            <Icon name={style.icon} size={12} />
+                            {status}
+                          </span>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-4 py-3 font-body text-sm text-text-secondary whitespace-nowrap">
+                      {t.revertAt ? formatDateTime(t.revertAt) : '—'}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {t.revertAt ? (
+                        (() => {
+                          const earlyMinutes = t.reverted && t.revertedAt
+                            ? (new Date(t.revertAt).getTime() - new Date(t.revertedAt).getTime()) / 60000
+                            : null;
+                          const earlyLabel = earlyMinutes === null
+                            ? null
+                            : earlyMinutes > 1
+                              ? `${formatDuration(earlyMinutes)} early`
+                              : earlyMinutes < -1
+                                ? `${formatDuration(earlyMinutes)} late`
+                                : 'on time';
+                          return t.reverted ? (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-caption font-caption-medium bg-success/10 text-success"
+                              title={`Scheduled ${formatDateTime(t.revertAt)} — Reverted ${formatDateTime(t.revertedAt)} (${earlyLabel})`}
+                            >
+                              <Icon name="CheckCircle" size={12} />
+                              {formatDateTime(t.revertedAt)}{earlyLabel ? ` · ${earlyLabel}` : ''}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-caption font-caption-medium bg-accent/10 text-accent">
+                              <Icon name="Clock" size={12} />
+                              Not yet
+                            </span>
+                          );
+                        })()
+                      ) : isReturnLeg(t) ? (
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-caption font-caption-medium bg-success/10 text-success"
+                          title={`Returned ${formatDateTime(t.transferredAt)}`}
+                        >
+                          <Icon name="CheckCircle" size={12} />
+                          {formatDateTime(t.transferredAt)}
+                        </span>
+                      ) : (
+                        <span className="font-body text-sm text-text-tertiary">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 font-body text-sm text-text-secondary">{t.transferredBy}</td>
+                    <td className="px-4 py-3 font-body text-sm text-text-secondary">{t.note || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default TransferReportPanel;

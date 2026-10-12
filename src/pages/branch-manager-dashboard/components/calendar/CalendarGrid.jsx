@@ -5,6 +5,10 @@ import { CSS } from '@dnd-kit/utilities';
 import { useDroppable, useDraggable } from '@dnd-kit/core';
 import Icon from '../../../../components/AppIcon';
 import CalendarBookingCard, { canDragBooking, BookingHoverPreview } from './CalendarBookingCard';
+import { to12h as to12hSpaced } from '../../../../services/bookingTransformers';
+
+// Compact 12h ('2:00pm') to match the gutter and cards.
+const to12h = (t) => to12hSpaced(t).replace(' ', '');
 
 // SVG overlay: inverted-U bracket connectors between shared booking cards
 const SharedBookingLines = ({ containerRef, bookings }) => {
@@ -105,8 +109,8 @@ const SharedBookingLines = ({ containerRef, bookings }) => {
 };
 
 // Export these constants for time calculation in parent
-export const SLOT_HEIGHT = 60; // px per 30-min slot (120px per hour) - for visual grid lines
-export const HOUR_HEIGHT = SLOT_HEIGHT * 2; // 120px per hour
+export const SLOT_HEIGHT = 36; // px per 30-min slot (72px per hour) - for visual grid lines
+export const HOUR_HEIGHT = SLOT_HEIGHT * 2; // 72px per hour
 const TIME_COL_WIDTH = 64;
 
 // Pinch-to-zoom bounds (mobile/touch only) — effective hour height 40px–320px
@@ -534,6 +538,79 @@ const OverflowBadge = ({ count, bookings, style, expandedStyle, onBookingClick, 
   );
 };
 
+// A manual-block occurrence's overlay: calm neutral fill with subtle diagonal stripes (NOT amber —
+// amber is the Pending status colour). Draggable to reschedule (same DndContext/sensors as bookings),
+// with a delete × and a bottom-edge resize handle layered on top. The inner controls stop
+// `pointerdown` propagation because dnd-kit's drag activation listens on it specifically.
+// Own component (not inline in a .map()) because useDraggable is a hook.
+function ManualBlockOverlay({ range, blockTop, blockHeight, onDeleteClick, onResizeStart, onClick }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    // colId disambiguates a whole-branch block, which renders one instance per column.
+    id: `manual-block-${range.blockId}-${range.day}-${range.colId}`,
+    data: { type: 'manual-block', block: range },
+    disabled: !range.blockId,
+  });
+
+  // Hide the original while dragging — the DragOverlay renders the floating copy.
+  const dragStyle = transform ? {
+    transform: CSS.Translate.toString(transform),
+    zIndex: 9999,
+    opacity: isDragging ? 0 : 1,
+  } : {};
+
+  const showTime = blockHeight >= 36;
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      data-block-overlay="true"
+      onClick={(e) => { e.stopPropagation(); if (range.blockId) onClick?.(); }}
+      className={`group absolute inset-x-0.5 rounded-spa border border-border overflow-hidden px-2 py-1 ${range.blockId ? 'cursor-grab active:cursor-grabbing' : ''}`}
+      style={{
+        top: blockTop,
+        height: blockHeight,
+        backgroundColor: '#F4F4F6',
+        backgroundImage: 'repeating-linear-gradient(135deg, rgba(14,13,12,0.045) 0, rgba(14,13,12,0.045) 1px, transparent 1px, transparent 7px)',
+        ...dragStyle,
+      }}
+    >
+      <div className="font-body text-[11px] leading-tight text-text-secondary truncate pr-4">
+        {range.description || 'Blocked'}
+      </div>
+      {showTime && (
+        <div className="font-body text-[11px] leading-tight text-text-tertiary truncate">
+          {to12h(range.fromTime)}–{to12h(range.toTime)}
+        </div>
+      )}
+
+      {range.blockId && (
+        <button
+          type="button"
+          onClick={onDeleteClick}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="absolute top-1 right-1 w-4 h-4 rounded-full bg-surface border border-border text-text-secondary hover:text-error flex items-center justify-center opacity-0 group-hover:opacity-100 spa-transition-fast"
+          title="Remove block"
+          aria-label="Remove block"
+        >
+          <Icon name="X" size={10} />
+        </button>
+      )}
+
+      {range.blockId && (
+        <div
+          onMouseDown={onResizeStart}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          className="absolute bottom-0 inset-x-0 h-1.5 cursor-row-resize opacity-0 group-hover:opacity-100 bg-text-tertiary/30"
+          title="Drag to resize"
+        />
+      )}
+    </div>
+  );
+}
+
 // Sortable wrapper for draggable column headers
 const SortableColumnHeader = ({ id, children, minWidth }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
@@ -578,6 +655,13 @@ const CalendarGrid = ({
   onToggleFreezeUnassigned,
   onDentistReorder,
   onChairReorder,
+  blockOccurrences,
+  onDeleteManualBlock,
+  onResizeManualBlock,
+  onEditManualBlock,
+  onEditTransfer,
+  onCancelScheduledTransfer,
+  onCancelActiveTransfer,
 }) => {
   const scrollRef = useRef(null);
   const headerScrollRef = useRef(null);
@@ -709,26 +793,52 @@ const CalendarGrid = ({
     }
   }, [gridRef]);
 
-  const openHour = 9;  // 9am
-
-  const closeHour = 23;  // last label 10pm (22), grid ends at 11pm
-
-  const TOP_PAD = 12;  // breathing chair above the first (9am) line
-
-  const hours = useMemo(() => {
-    const result = [];
-    for (let h = openHour; h < closeHour; h++) result.push(h);
-    return result;
-  }, []);
-
-  const totalHeight = hours.length * eHH + TOP_PAD;
-
   const days = useMemo(() => {
     if (viewMode === '4day') return [0, 1, 2, 3].map(i => addDaysToStr(currentDate, i));
     return [currentDate];
   }, [currentDate, viewMode]);
 
   const isMultiDay = days.length > 1;
+
+  // Visible hour range: branch hours padded by 1h each side, extended to include
+  // any booking on a displayed day that falls outside it. Falls back to 9–21.
+  const { openHour, closeHour } = useMemo(() => {
+    const hourOf = (t, fallback) => {
+      const n = parseInt(String(t || '').split(':')[0], 10);
+      return Number.isNaN(n) ? fallback : n;
+    };
+    const minsOf = (t) => {
+      const [h, m] = String(t || '').split(':').map(Number);
+      return Number.isNaN(h) ? null : h * 60 + (m || 0);
+    };
+    let open = hourOf(branchHours?.openTime, 9);
+    let closeMins = minsOf(branchHours?.closeTime);
+    let close = closeMins == null ? 21 : Math.ceil(closeMins / 60);
+    open = Math.max(0, open - 1);
+    close = Math.min(24, close + 1);
+    (bookings || []).forEach(b => {
+      const date = b.date || (b.start_datetime ? b.start_datetime.split('T')[0] : null);
+      if (!date || !days.includes(date)) return;
+      const st = b.start_time || (b.start_datetime ? b.start_datetime.split('T')[1]?.slice(0, 8) : null);
+      const et = b.end_time || (b.end_datetime ? b.end_datetime.split('T')[1]?.slice(0, 8) : null);
+      const sm = minsOf(st);
+      const em = minsOf(et);
+      if (sm != null) open = Math.min(open, Math.floor(sm / 60));
+      if (em != null) close = Math.max(close, Math.min(24, Math.ceil(em / 60)));
+    });
+    if (close <= open) close = Math.min(24, open + 1);
+    return { openHour: open, closeHour: close };
+  }, [branchHours, bookings, days]);
+
+  const TOP_PAD = 12;  // breathing room above the first hour line
+
+  const hours = useMemo(() => {
+    const result = [];
+    for (let h = openHour; h < closeHour; h++) result.push(h);
+    return result;
+  }, [openHour, closeHour]);
+
+  const totalHeight = hours.length * eHH + TOP_PAD;
 
   // ── Build columns based on mode ──────────────────────────
   const columns = useMemo(() => {
@@ -752,6 +862,13 @@ const CalendarGrid = ({
       icon: 'User',
       subtitle: t.gender,
       attendance: attendanceMap[t.id],
+      transferredOut: t.transferredOut,
+      transferredIn: t.transferredIn,
+      transferId: t.transferId,
+      returnsAt: t.returnsAt,
+      transferStartAt: t.transferStartAt,
+      fromBranch: t.fromBranch,
+      scheduledTransfer: t.scheduledTransfer,
     }));
     cols.push({ id: 'unassigned', name: 'Unassigned', type: 'unassigned', icon: 'AlertCircle', subtitle: null, attendance: null });
     return cols;
@@ -882,6 +999,195 @@ const CalendarGrid = ({
   const openHourStr = `${String(openHour).padStart(2, '0')}:00`;
   const closeHourStr = `${String(closeHour).padStart(2, '0')}:00`;
 
+  // ── Transfers ────────────────────────────────────────────
+  // Window of a transferred-out / visiting column on `day`. 'during' carries the shaded [from,to);
+  // 'before' / 'after' are kept distinct: a visitor is unavailable before arriving, never after returning.
+  const getTransferBlockRange = (col, day) => {
+    if (!col.transferredOut && !col.transferredIn) return null;
+    const start = toKathmanduParts(col.transferStartAt);
+    const end = toKathmanduParts(col.returnsAt);
+    const openStr = `${String(openHour).padStart(2, '0')}:00`;
+    const closeStr = `${String(closeHour).padStart(2, '0')}:00`;
+    if (!end) return { phase: 'during', fromTime: openStr, toTime: closeStr };
+    if (start && day < start.date) return { phase: 'before' };
+    if (day > end.date) return { phase: 'after' };
+    return {
+      phase: 'during',
+      fromTime: start && day === start.date ? start.time : openStr,
+      toTime: day === end.date ? end.time : closeStr,
+    };
+  };
+
+  // 'back 6:43pm' for a same-day return, 'back 14 Oct, 6:43pm' otherwise.
+  const returnsAtLabel = (col) => {
+    if (!col.returnsAt) return null;
+    const parts = toKathmanduParts(col.returnsAt);
+    if (!parts) return null;
+    const [h, m] = parts.time.split(':').map(Number);
+    const t = `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')}${h >= 12 ? 'pm' : 'am'}`;
+    if (parts.date === todayStr) return t;
+    const d = new Date(`${parts.date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    return `${d}, ${t}`;
+  };
+
+  const getTransferReasonText = (col) => {
+    if (!col.transferredOut && !col.transferredIn) return null;
+    const back = returnsAtLabel(col);
+    return col.transferredOut
+      ? `Transferred${back ? ` · back ${back}` : ''}`
+      : `Visiting from ${col.fromBranch || 'another branch'}${back ? ` · until ${back}` : ''}`;
+  };
+
+  // Calm brand-tinted shading for a transfer window (distinct from the neutral striped block hatch).
+  const renderTransferShade = (key, top, height, text, onClick, cancelButton) => (
+    <div
+      key={key}
+      data-block-overlay="true"
+      onClick={(e) => { e.stopPropagation(); onClick?.(); }}
+      className="group absolute inset-x-0.5 rounded-spa overflow-hidden px-2 py-1 cursor-pointer border border-primary/15"
+      style={{ top, height, backgroundColor: 'rgba(123,47,247,0.07)' }}
+    >
+      <div className="font-body text-[11px] leading-tight text-primary/80 truncate pr-4">{text}</div>
+      {cancelButton}
+    </div>
+  );
+
+  const renderTransferOverlays = (col, day) => {
+    const range = getTransferBlockRange(col, day);
+    if (!range) return null;
+    const text = getTransferReasonText(col) || 'Not available';
+    if (col.transferredOut) {
+      if (range.phase !== 'during') return null;
+      return renderTransferShade(
+        `tx-out-${col.id}-${day}`,
+        timeToTop(range.fromTime),
+        Math.max(timeToHeight(range.fromTime, range.toTime), 20),
+        text,
+        () => onEditTransfer?.(col),
+        onCancelActiveTransfer && col.transferId ? (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onCancelActiveTransfer(col); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            title="Cancel this transfer — bring them back now"
+            aria-label="Cancel this transfer"
+            className="absolute top-1 right-1 w-4 h-4 rounded-full bg-surface border border-border text-text-secondary hover:text-error flex items-center justify-center opacity-0 group-hover:opacity-100 spa-transition-fast"
+          >
+            <Icon name="X" size={10} />
+          </button>
+        ) : null
+      );
+    }
+    // visiting: unavailable outside the visit window
+    const openStr = `${String(openHour).padStart(2, '0')}:00`;
+    const closeStr = `${String(closeHour).padStart(2, '0')}:00`;
+    const segments = [];
+    if (range.phase === 'before') segments.push({ from: openStr, to: closeStr });
+    else if (range.phase === 'during') {
+      if (range.fromTime > openStr) segments.push({ from: openStr, to: range.fromTime });
+      if (range.toTime < closeStr) segments.push({ from: range.toTime, to: closeStr });
+    }
+    return segments.map((seg, i) => renderTransferShade(
+      `tx-in-${col.id}-${day}-${i}`,
+      timeToTop(seg.from),
+      Math.max(timeToHeight(seg.from, seg.to), 20),
+      text,
+      () => onEditTransfer?.(col),
+      null
+    ));
+  };
+
+  // Manual-block occurrences covering this column/day as renderable ranges. A block with neither
+  // dentistId nor chairId is a whole-branch block and applies to every column (including
+  // Unassigned and the 4-day day columns). Dentist/chair-scoped blocks only show in the matching
+  // view: dentist blocks in dentist mode, chair blocks in chair mode.
+  const getManualBlockRanges = (col, day, occurrences) => {
+    if (!occurrences?.length) return [];
+    return occurrences
+      .filter(occ => {
+        if (occ.date !== day) return false;
+        if (!occ.dentistId && !occ.chairId) return true;
+        if (col.type === 'dentist') return occ.dentistId === col.id;
+        if (col.type === 'chair') return occ.chairId === col.id;
+        return false;
+      })
+      .map(occ => ({
+        fromTime: occ.startTime,
+        toTime: occ.endTime,
+        description: occ.description,
+        blockId: occ.blockId,
+        seriesId: occ.seriesId,
+        day: occ.date,
+        // Column this occurrence is rendered under — drag-to-move uses it to detect a column change.
+        colId: occ.dentistId || occ.chairId || col.id,
+        // Whole-branch blocks render one copy per column; moving one must not narrow it to a single column.
+        isWholeBranch: !occ.dentistId && !occ.chairId,
+      }));
+  };
+
+  // Resize a manual block by dragging its bottom edge: live preview via `resizingBlock`
+  // state, snapped to 10 minutes and persisted on mouseup (scoped to this occurrence).
+  const [resizingBlock, setResizingBlock] = useState(null); // { blockId, day, previewHeight }
+  const blockResizeRef = useRef(null);
+  const handleBlockResizeStart = useCallback((e, block, day) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = Math.max(timeToHeight(block.fromTime, block.toTime), 20);
+    blockResizeRef.current = { blockId: block.blockId, day, startY, startHeight };
+    setResizingBlock({ blockId: block.blockId, day, previewHeight: startHeight });
+
+    const handleMouseMove = (moveEvent) => {
+      const ref = blockResizeRef.current;
+      if (!ref) return;
+      const newHeight = Math.max(20, ref.startHeight + (moveEvent.clientY - ref.startY));
+      setResizingBlock({ blockId: ref.blockId, day: ref.day, previewHeight: newHeight });
+    };
+
+    const handleMouseUp = (upEvent) => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      const ref = blockResizeRef.current;
+      blockResizeRef.current = null;
+      setResizingBlock(null);
+      if (!ref) return;
+      // A plain click (no real drag) must never commit a resize.
+      if (Math.abs(upEvent.clientY - ref.startY) < 5) return;
+      const rawHeight = Math.max(20, ref.startHeight + (upEvent.clientY - ref.startY));
+      const snappedMinutes = Math.max(10, Math.round((rawHeight / eHH * 60) / 10) * 10);
+      const originalMinutes = Math.round(ref.startHeight / eHH * 60);
+      if (snappedMinutes === originalMinutes) return;
+      onResizeManualBlock?.({ blockId: ref.blockId, day: ref.day, durationMinutes: snappedMinutes });
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [eHH, onResizeManualBlock]);
+
+  const handleDeleteBlockClick = useCallback((e, block, day) => {
+    e.stopPropagation();
+    onDeleteManualBlock?.({ blockId: block.blockId, day, seriesId: block.seriesId, description: block.description });
+  }, [onDeleteManualBlock]);
+
+  const renderManualBlocks = (col, day) =>
+    getManualBlockRanges(col, day, blockOccurrences).map((range, i) => {
+      const isResizingThis = resizingBlock?.blockId === range.blockId && resizingBlock?.day === range.day;
+      const blockHeight = isResizingThis
+        ? resizingBlock.previewHeight
+        : Math.max(timeToHeight(range.fromTime, range.toTime), 20);
+      return (
+        <ManualBlockOverlay
+          key={`manual-block-${range.blockId}-${range.day}-${col.id}-${i}`}
+          range={{ ...range, colId: range.isWholeBranch ? col.id : range.colId }}
+          blockTop={timeToTop(range.fromTime)}
+          blockHeight={blockHeight}
+          onDeleteClick={(e) => handleDeleteBlockClick(e, range, range.day)}
+          onResizeStart={(e) => handleBlockResizeStart(e, range, range.day)}
+          onClick={() => onEditManualBlock?.(range)}
+        />
+      );
+    });
+
   // A dentist who's already checked out is blocked from their check-out time through
   // the rest of THAT specific day only — other days on the same column stay bookable.
   const getCheckoutBlockRange = (col, day) => {
@@ -894,9 +1200,19 @@ const CalendarGrid = ({
   };
 
   // Current time
-  const now = new Date();
-  const todayStr = now.toISOString().split('T')[0];
-  const nowTop = timeToTop(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:00`);
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(id);
+  }, []);
+  const nowParts = toKathmanduParts(now.toISOString());
+  const todayStr = nowParts?.date;
+  const nowTime = (nowParts?.time || '00:00').replace(/^24:/, '00:');
+  const nowTop = timeToTop(`${nowTime}:00`);
+  const nowLabel = (() => {
+    const [h, m] = nowTime.split(':').map(Number);
+    return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')}`;
+  })();
 
   // Scroll the grid to the current time once, when the calendar opens on today.
   // Deferred via rAF so it runs after the flex layout has sized the scroll
@@ -949,48 +1265,71 @@ const CalendarGrid = ({
   // ── Column header renderer ────────────────────────────────
   const renderColumnHeader = (col) => {
     const isUnassigned = col.type === 'unassigned';
+    const activeBlock = col.type !== 'unassigned' && days.includes(todayStr)
+      ? getManualBlockRanges(col, todayStr, blockOccurrences)
+          .find(r => nowTime >= r.fromTime.slice(0, 5) && nowTime < r.toTime.slice(0, 5))
+      : null;
+    const initials = col.name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase();
     return (
       <div
         key={col.id}
-        className="relative flex-1 border-r border-border last:border-r-0 px-1 py-2 text-center"
+        className="relative flex-1 border-r border-border last:border-r-0 px-2 h-11 flex items-center justify-center"
         style={{ minWidth: minColWidth }}
         onMouseEnter={(e) => showHeaderTooltip(e, col.name)}
         onMouseLeave={hideHeaderTooltip}
       >
-        <div className={`flex items-center justify-center gap-1 overflow-hidden min-w-0 ${isUnassigned ? 'text-warning' : 'text-text-primary'}`}>
-          <Icon
-            name={isUnassigned ? 'AlertCircle' : col.icon}
-            size={12}
-            className={`flex-shrink-0 ${isUnassigned ? 'text-warning' : 'text-text-secondary'}`}
-          />
-          <span
-            className={`font-body text-[11px] truncate max-w-full block ${isUnassigned ? 'italic font-medium' : 'font-semibold'}`}
-          >
-            {col.name}
+        <div className="flex items-center gap-2 overflow-hidden min-w-0">
+          <span className="w-6 h-6 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center flex-shrink-0 text-[10px] font-medium">
+            {col.type === 'dentist' ? initials : <Icon name={isUnassigned ? 'AlertCircle' : col.icon} size={12} />}
           </span>
+          <span className="min-w-0 flex flex-col">
+            <span
+              className={`font-body text-[13px] font-medium truncate block leading-tight ${isUnassigned ? 'text-text-secondary italic' : 'text-text-primary'}`}
+            >
+              {col.name}
+            </span>
+            {col.transferredOut || col.transferredIn ? (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onEditTransfer?.(col); }}
+                title="Manage this transfer"
+                className="font-body text-[10px] leading-tight text-primary truncate text-left hover:underline"
+              >
+                {getTransferReasonText(col)}
+              </button>
+            ) : col.scheduledTransfer ? (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onCancelScheduledTransfer?.(col); }}
+                title={`Scheduled transfer to ${col.scheduledTransfer.toBranch || 'another branch'} — click to cancel`}
+                className="font-body text-[10px] leading-tight text-text-tertiary truncate text-left hover:underline hover:text-error"
+              >
+                Transfer at {to12h(col.scheduledTransfer.startTime)} · Cancel
+              </button>
+            ) : activeBlock && (
+              <span className="font-body text-[10px] leading-tight text-text-tertiary truncate">
+                back at {to12h(activeBlock.toTime)}
+              </span>
+            )}
+          </span>
+          {col.type === 'dentist' && (
+            <span
+              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${col.attendance ? 'bg-gray-300' : 'bg-success'}`}
+              title={col.attendance === 'Absent' ? 'Absent' : col.attendance === 'Leave' ? 'On leave' : 'Present'}
+            />
+          )}
           {isUnassigned && onToggleFreezeUnassigned && (
             <button
               onClick={(e) => { e.stopPropagation(); onToggleFreezeUnassigned(); }}
               className={`p-0.5 rounded hover:bg-black/5 spa-transition-fast ${
-                freezeUnassigned ? 'text-primary' : 'text-text-secondary'
+                freezeUnassigned ? 'text-primary' : 'text-text-tertiary'
               }`}
               title={freezeUnassigned ? 'Unpin column' : 'Pin column'}
             >
               <Icon name={freezeUnassigned ? 'Pin' : 'PinOff'} size={13} />
             </button>
           )}
-          {col.attendance === 'Absent' && (
-            <span className="w-2 h-2 rounded-full bg-error flex-shrink-0" title="Absent" />
-          )}
-          {col.attendance === 'Leave' && (
-            <span className="w-2 h-2 rounded-full bg-warning flex-shrink-0" title="On Leave" />
-          )}
         </div>
-        {col.subtitle && (
-          <div className="text-[10px] font-caption text-text-secondary uppercase tracking-wider mt-0.5">
-            {col.subtitle}
-          </div>
-        )}
       </div>
     );
   };
@@ -1000,72 +1339,103 @@ const CalendarGrid = ({
     <div className="flex-shrink-0 border-r border-border relative bg-surface sticky left-0 z-header" style={{ width: TIME_COL_WIDTH }}>
       {hours.map((hour) => (
         <div key={hour} className="absolute w-full" style={{ top: (hour - openHour) * eHH + TOP_PAD }}>
-          <span className="absolute -top-2.5 right-2 font-data text-[13px] text-text-secondary">
+          <span className="absolute -top-2.5 right-2 font-data text-[11px] text-text-tertiary">
             {hour === 0 ? '12am' : hour < 12 ? `${hour}am` : hour === 12 ? '12pm' : `${hour - 12}pm`}
           </span>
         </div>
       ))}
+      {days.includes(todayStr) && nowTop >= 0 && nowTop <= totalHeight && (
+        <div className="absolute w-full pointer-events-none" style={{ top: nowTop }}>
+          <span className="absolute -top-2 right-2 px-1 rounded-sm bg-surface font-data text-[11px] font-medium text-[#E5484D]">
+            {nowLabel}
+          </span>
+        </div>
+      )}
     </div>
   );
 
-  // Solid lines only — rendered once per container, spans all columns
+  // Hour + half-hour hairlines — rendered once per container, spans all columns
   const renderGridLines = () => (
     <>
       {hours.map((hour) => {
         const top = (hour - openHour) * eHH + TOP_PAD;
         return (
           <React.Fragment key={`lines-${hour}`}>
-            <div className="absolute left-0 right-0 border-t-2 border-text-secondary/70" style={{ top }} />
-            <div className="absolute left-0 right-0 border-t border-border/40" style={{ top: top + eSlot }} />
+            <div className="absolute left-0 right-0 border-t border-border" style={{ top }} />
+            <div className="absolute left-0 right-0 border-t border-border/50" style={{ top: top + eSlot }} />
           </React.Fragment>
         );
       })}
     </>
   );
 
-  // Dashed interval lines with hover tooltips — rendered per-column
-  const renderIntervalLines = () => {
-    const TEN_MIN = eHH / 6;
-    const renderIntervalLine = (hour, minuteOffset, topPos) => {
-      const h12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-      const ampm = hour < 12 ? 'am' : 'pm';
-      const label = `${h12}:${String(minuteOffset).padStart(2, '0')}${ampm}`;
-      return (
-        <div key={`${hour}-${minuteOffset}`} className="absolute left-0 right-0 group/line" style={{ top: topPos }}>
-          <div className="absolute inset-x-0 top-0" style={{ borderTop: '1px dashed rgba(180, 180, 180, 0.35)' }} />
-          <div className="absolute inset-x-0 -top-[6px] h-3 cursor-default" />
-          <span className="absolute left-2 -top-5 hidden group-hover/line:block text-[10px] text-text-secondary bg-surface border border-border/50 px-1.5 py-0.5 rounded shadow-sm pointer-events-none font-data z-20">
-            {label}
-          </span>
-        </div>
-      );
-    };
-
-    return (
-      <>
-        {hours.map((hour) => {
-          const top = (hour - openHour) * eHH + TOP_PAD;
-          return (
-            <React.Fragment key={`interval-${hour}`}>
-              {renderIntervalLine(hour, 10, top + TEN_MIN)}
-              {renderIntervalLine(hour, 20, top + TEN_MIN * 2)}
-              {renderIntervalLine(hour, 40, top + TEN_MIN * 4)}
-              {renderIntervalLine(hour, 50, top + TEN_MIN * 5)}
-            </React.Fragment>
-          );
-        })}
-      </>
-    );
-  };
-
-  const renderNowIndicator = (day) => {
+  const renderNowIndicator = (day, showDot = false) => {
     if (day !== todayStr || nowTop < 0 || nowTop > totalHeight) return null;
     return (
       <div className="absolute left-0 right-0 z-10 pointer-events-none" style={{ top: nowTop }}>
-        <div className="h-0.5 bg-primary" />
+        <div className="h-px bg-[#E5484D]" />
+        {showDot && <span className="absolute -left-[3px] -top-[2.5px] w-1.5 h-1.5 rounded-full bg-[#E5484D]" />}
       </div>
     );
   };
+
+  // ── Hover time label ──────────────────────────────────────
+  // One pill + one dashed hairline per grid container, moved by direct style
+  // updates (no React state) so mousemove never re-renders the grid.
+  const HOVER_SNAP_MIN = 10;
+  const hoverLineRef = useRef(null);
+  const hoverPillRef = useRef(null);
+
+  const hideHoverTime = useCallback(() => {
+    if (hoverLineRef.current) hoverLineRef.current.style.display = 'none';
+    if (hoverPillRef.current) hoverPillRef.current.style.display = 'none';
+  }, []);
+
+  const handleGridMouseMove = (e) => {
+    const line = hoverLineRef.current;
+    const pill = hoverPillRef.current;
+    if (!line || !pill) return;
+    const col = e.target.closest ? e.target.closest('[data-cal-column]') : null;
+    if (activeDragId || !col || e.target.closest('[data-booking-card]') || e.target.closest('[data-block-overlay]')) {
+      hideHoverTime();
+      return;
+    }
+    const body = e.currentTarget.getBoundingClientRect();
+    const colRect = col.getBoundingClientRect();
+    const minutesFromTop = ((e.clientY - body.top - TOP_PAD) / eHH) * 60;
+    const snapped = Math.floor(minutesFromTop / HOVER_SNAP_MIN) * HOVER_SNAP_MIN;
+    const hour = openHour + Math.floor(snapped / 60);
+    if (snapped < 0 || hour >= closeHour) {
+      hideHoverTime();
+      return;
+    }
+    const minute = snapped % 60;
+    const top = TOP_PAD + (snapped / 60) * eHH;
+    const left = colRect.left - body.left;
+    line.style.display = 'block';
+    line.style.top = `${top}px`;
+    line.style.left = `${left}px`;
+    line.style.width = `${colRect.width}px`;
+    pill.style.display = 'block';
+    pill.style.top = `${top - 9}px`;
+    pill.style.left = `${left + 3}px`;
+    pill.textContent = `${hour % 12 === 0 ? 12 : hour % 12}:${String(minute).padStart(2, '0')}${hour < 12 ? 'am' : 'pm'}`;
+  };
+
+  const renderHoverTime = () => (
+    <>
+      <div
+        ref={hoverLineRef}
+        className="absolute pointer-events-none z-[5]"
+        style={{ display: 'none', borderTop: '1px dashed #C9C9CF' }}
+      />
+      <div
+        ref={hoverPillRef}
+        className="absolute pointer-events-none z-[6] px-1.5 h-[18px] leading-[16px] rounded-spa bg-surface border border-border font-data text-[11px] text-text-secondary"
+        style={{ display: 'none' }}
+      />
+    </>
+  );
 
   const handleBookingResize = useCallback((booking, pixelDelta, direction) => {
     if (!onBookingResize) return;
@@ -1080,9 +1450,9 @@ const CalendarGrid = ({
     const relativeY = e.clientY - e.currentTarget.getBoundingClientRect().top - TOP_PAD;
     const minutesFromTop = (relativeY / eHH) * 60;
     const hour = Math.floor(minutesFromTop / 60) + openHour;
-    const minute = Math.floor((minutesFromTop % 60) / 5) * 5;
+    const minute = Math.floor((minutesFromTop % 60) / HOVER_SNAP_MIN) * HOVER_SNAP_MIN;
     if (hour < openHour || hour >= closeHour) return;
-    onEmptySlotClick({ day, colId: col.id, colName: col.name, colType: col.type, hour, minute });
+    onEmptySlotClick({ day, colId: col.id, colName: col.name, colType: col.type, hour, minute, clientX: e.clientX, clientY: e.clientY });
   };
 
   const renderColumn = (col, day) => {
@@ -1092,14 +1462,11 @@ const CalendarGrid = ({
     return (
       <div
         key={col.id}
-        className="flex-1 relative border-r border-border/50 last:border-r-0 cursor-pointer"
+        className="flex-1 relative border-r border-border last:border-r-0 cursor-pointer"
         style={{ minWidth: minColWidth, height: totalHeight }}
         data-cal-column="true"
         onClick={(e) => handleColumnClick(e, day, col)}
       >
-        {/* Dashed interval lines with hover tooltips — per-column so hover works */}
-        {renderIntervalLines()}
-
         {/* Single droppable zone for the entire column (sibling to booking cards) */}
         <DroppableColumn
           id={droppableId}
@@ -1133,6 +1500,12 @@ const CalendarGrid = ({
             </div>
           );
         })()}
+
+        {/* Transfer windows */}
+        {renderTransferOverlays(col, day)}
+
+        {/* Manual blocks (time off) */}
+        {renderManualBlocks(col, day)}
 
         {/* Booking cards with overlap handling */}
         {(() => {
@@ -1222,7 +1595,7 @@ const CalendarGrid = ({
                       e.stopPropagation();
                       if (activeDragId) return;
                       const [h, m] = cluster[0].startTime.split(':').map(Number);
-                      onEmptySlotClick({ day, colId: col.id, colName: col.name, colType: col.type, hour: h, minute: m });
+                      onEmptySlotClick({ day, colId: col.id, colName: col.name, colType: col.type, hour: h, minute: m, clientX: e.clientX, clientY: e.clientY });
                     }}
                   >
                     <Icon name="Plus" size={12} />
@@ -1267,10 +1640,10 @@ const CalendarGrid = ({
       {/* Fixed header — outside scroll container */}
       <div
         ref={headerScrollRef}
-        className="flex-shrink-0 z-header bg-background border-b-2 border-border overflow-hidden"
+        className="flex-shrink-0 z-header bg-background border-b border-border overflow-hidden"
       >
         <div className="flex" style={{ width: '100%', minWidth: TIME_COL_WIDTH + columnsMinWidth }}>
-          <div className="flex-shrink-0 border-r border-border px-2 py-3 flex items-center sticky left-0 z-header bg-background" style={{ width: TIME_COL_WIDTH }}>
+          <div className="flex-shrink-0 border-r border-border px-2 h-11 flex items-center sticky left-0 z-header bg-background" style={{ width: TIME_COL_WIDTH }}>
             <Icon name="Clock" size={14} className="text-text-secondary" />
           </div>
           {unassignedCol && (
@@ -1321,7 +1694,10 @@ const CalendarGrid = ({
           style={{ height: totalHeight, width: '100%', minWidth: TIME_COL_WIDTH + columnsMinWidth }}
           data-open-hour={openHour}
           data-hour-height={eHH}
+          onMouseMove={handleGridMouseMove}
+          onMouseLeave={hideHoverTime}
         >
+          {renderHoverTime()}
           <SharedBookingLines containerRef={gridBodyRef} bookings={bookings} />
           {renderTimeLabels()}
           {unassignedCol && (() => {
@@ -1340,14 +1716,14 @@ const CalendarGrid = ({
                 onClick={(e) => handleColumnClick(e, currentDate, unassignedCol)}
               >
                 {renderGridLines()}
-                {renderIntervalLines()}
-                {renderNowIndicator(currentDate)}
+                {renderNowIndicator(currentDate, true)}
                 <DroppableColumn
                   id={droppableId}
                   data={{ day: currentDate, colId: unassignedCol.id, openHour, totalHeight }}
                   height={totalHeight}
                   isActive={!!activeDragId}
                 />
+                {renderManualBlocks(unassignedCol, currentDate)}
                 {/* Compact overlap rendering for unassigned column */}
                 {(() => {
                   const clusters = clusterOverlapping(colBookings);
@@ -1429,7 +1805,7 @@ const CalendarGrid = ({
                               e.stopPropagation();
                               if (activeDragId) return;
                               const [h, m] = cluster[0].startTime.split(':').map(Number);
-                              onEmptySlotClick({ day: currentDate, colId: unassignedCol.id, colName: unassignedCol.name, colType: unassignedCol.type, hour: h, minute: m });
+                              onEmptySlotClick({ day: currentDate, colId: unassignedCol.id, colName: unassignedCol.name, colType: unassignedCol.type, hour: h, minute: m, clientX: e.clientX, clientY: e.clientY });
                             }}
                           >
                             <Icon name="Plus" size={12} />
@@ -1444,7 +1820,7 @@ const CalendarGrid = ({
           })()}
           <div className="flex flex-1 relative overflow-hidden" style={{ minWidth: regularMinWidth }}>
             {renderGridLines()}
-            {renderNowIndicator(currentDate)}
+            {renderNowIndicator(currentDate, !unassignedCol)}
             {regularColumns.map(col => renderColumn(col, currentDate))}
           </div>
         </div>
@@ -1460,7 +1836,7 @@ const CalendarGrid = ({
       {/* Fixed header — outside scroll container */}
       <div
         ref={headerScrollRef}
-        className="flex-shrink-0 z-header bg-background border-b-2 border-border overflow-hidden"
+        className="flex-shrink-0 z-header bg-background border-b border-border overflow-hidden"
       >
         <div className="flex" style={{ width: '100%', minWidth: TIME_COL_WIDTH + daysMinWidth }}>
           <div className="flex-shrink-0 border-r border-border sticky left-0 bg-background" style={{ width: TIME_COL_WIDTH }} />
@@ -1498,7 +1874,10 @@ const CalendarGrid = ({
           style={{ height: totalHeight, width: '100%', minWidth: TIME_COL_WIDTH + daysMinWidth }}
           data-open-hour={openHour}
           data-hour-height={eHH}
+          onMouseMove={handleGridMouseMove}
+          onMouseLeave={hideHoverTime}
         >
+          {renderHoverTime()}
           {renderTimeLabels()}
           <div className="flex flex-1 relative" style={{ minWidth: daysMinWidth }}>
             {renderGridLines()}
@@ -1512,21 +1891,19 @@ const CalendarGrid = ({
               return (
                 <div
                   key={day}
-                  className={`flex-1 relative cursor-pointer ${di < days.length - 1 ? 'border-r-2 border-border' : ''} ${isCurrentDay ? 'bg-primary/[0.02]' : ''}`}
+                  className={`flex-1 relative cursor-pointer ${di < days.length - 1 ? 'border-r border-border' : ''} ${isCurrentDay ? 'bg-primary/[0.02]' : ''}`}
                   style={{ minWidth: minColWidth }}
+                  data-cal-column="true"
                   onClick={(e) => {
                     if (activeDragId || !onEmptySlotClick) return;
                     const relativeY = e.clientY - e.currentTarget.getBoundingClientRect().top - TOP_PAD;
                     const minutesFromTop = (relativeY / eHH) * 60;
                     const hour = Math.floor(minutesFromTop / 60) + openHour;
-                    const minute = Math.floor((minutesFromTop % 60) / 5) * 5;
+                    const minute = Math.floor((minutesFromTop % 60) / HOVER_SNAP_MIN) * HOVER_SNAP_MIN;
                     if (hour < openHour || hour >= closeHour) return;
-                    onEmptySlotClick({ day, colId: 'all', colName: formatShortDate(day), colType: 'day', hour, minute });
+                    onEmptySlotClick({ day, colId: 'all', colName: formatShortDate(day), colType: 'day', hour, minute, clientX: e.clientX, clientY: e.clientY });
                   }}
                 >
-                  {/* Dashed interval lines with hover tooltips — per-column so hover works */}
-                  {renderIntervalLines()}
-
                   {/* Single droppable zone for the entire day column (sibling to booking cards) */}
                   <DroppableColumn
                     id={droppableId}
@@ -1536,11 +1913,9 @@ const CalendarGrid = ({
                   />
 
                   {/* Now indicator */}
-                  {isCurrentDay && nowTop >= 0 && nowTop <= totalHeight && (
-                    <div className="absolute left-0 right-0 z-10 pointer-events-none" style={{ top: nowTop }}>
-                      <div className="h-0.5 bg-primary" />
-                    </div>
-                  )}
+                  {renderNowIndicator(day, di === 0)}
+
+                  {renderManualBlocks({ id: 'all', type: 'day' }, day)}
 
                   {/* Booking cards rendered as siblings to droppable */}
                   {dayBookings.map(booking => (
