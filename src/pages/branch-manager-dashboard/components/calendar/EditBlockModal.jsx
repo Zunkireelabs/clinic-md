@@ -1,24 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Icon from '../../../../components/AppIcon';
-import Select from '../../../../components/ui/Select';
-import Input from '../../../../components/ui/Input';
-import Button from '../../../../components/ui/Button';
-import { useBranch } from '../../../../contexts/BranchContext';
 import { fetchBlockById, updateBlock, deleteBlock } from '../../../../services/api';
-import { to12h } from '../../../../services/bookingTransformers';
-import BlockScopeDialog from './BlockScopeDialog';
-
-// 'HH:MM' + minutes -> 'HH:MM', for the "ends at" preview next to the duration field.
-function addMinutesToTime(timeStr, minutes) {
-  const [h, m] = timeStr.split(':').map(Number);
-  const total = h * 60 + m + minutes;
-  const wrapped = ((total % 1440) + 1440) % 1440;
-  return `${String(Math.floor(wrapped / 60)).padStart(2, '0')}:${String(wrapped % 60).padStart(2, '0')}`;
-}
+import { countBookingsInRange, bookingsInRangeMessage } from '../../../../utils/bookingsInRange';
+import {
+  PanelShell, FormBody, Field, TextInput, NumberInput, SelectField, Segmented, TabBar, DateField, TimeField,
+  InlineError, InlineWarning, format12h, addMinutes, formatShortDate,
+} from '../../../../components/ui/PanelFormKit';
 
 const TABS = [
-  { id: 'details', label: 'Details' },
-  { id: 'recurrence', label: 'Recurrence' },
+  { id: 'details', label: 'Details', icon: 'FileText' },
+  { id: 'recurrence', label: 'Recurrence', icon: 'Repeat' },
 ];
 
 const REPEAT_OPTIONS = [
@@ -34,13 +25,17 @@ const END_CONDITION_OPTIONS = [
   { value: 'count', label: 'After N occurrences' },
 ];
 
-// Editing counterpart to AddBlockModal — opened by clicking an existing block overlay on
-// the Calendar. Occurrence rows from
-// fetchBlocksForRange only carry what's needed to render/gate the calendar, not the full
-// recurrence rule, so this fetches the complete row via fetchBlockById on open. A recurring
-// block's Save/Delete asks this / this-and-following / all via the in-app BlockScopeDialog.
-const EditBlockModal = ({ blockId, occurrenceDate, dentists, chairs, onClose, onSuccess }) => {
-  const { branchName } = useBranch();
+const slotTime = (slot) => (slot?.hour != null ? `${String(slot.hour).padStart(2, '0')}:${String(slot.minute ?? 0).padStart(2, '0')}` : '');
+
+// Editing counterpart to AddBlockModal — opened by clicking an existing block overlay on the Calendar. Occurrence rows
+// only carry what's needed to render/gate the calendar, so this fetches the full row via fetchBlockById on open. A
+// recurring block's Save/Delete asks this / this-and-following / all, inline in the panel footer.
+// While open it reports a live draft (the grid hides the original occurrence and shows the edited one) and accepts
+// `retarget` (click an empty slot to move the block).
+const EditBlockModal = ({
+  variant = 'modal', blockId, occurrenceDate, dentists, chairs, bookings = [], branchHours, retarget, guardRef,
+  onClose, onSuccess, onDraftChange,
+}) => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('details');
 
@@ -48,7 +43,6 @@ const EditBlockModal = ({ blockId, occurrenceDate, dentists, chairs, onClose, on
   const [dentistId, setDentistId] = useState('');
   const [chairId, setChairId] = useState('');
   const [date, setDate] = useState(occurrenceDate || '');
-  const [editingDate, setEditingDate] = useState(false);
   const [startTime, setStartTime] = useState('');
   const [durationMinutes, setDurationMinutes] = useState('30');
   const [description, setDescription] = useState('');
@@ -64,6 +58,8 @@ const EditBlockModal = ({ blockId, occurrenceDate, dentists, chairs, onClose, on
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [moveConfirm, setMoveConfirm] = useState(null);
+  const loadedRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,14 +70,25 @@ const EditBlockModal = ({ blockId, occurrenceDate, dentists, chairs, onClose, on
         setLoading(false);
         return;
       }
-      setAssigneeType(data.dentistId ? 'dentist' : 'location');
-      setDentistId(data.dentistId || '');
-      setChairId(data.chairId || '');
-      setDate(occurrenceDate || data.blockDate);
-      setStartTime((data.startTime || '').slice(0, 5));
-      setDurationMinutes(String(data.durationMinutes || 30));
-      setDescription(data.description || '');
-      setPreventOnlineBooking(!!data.preventOnlineBooking);
+      const snap = {
+        assigneeType: data.dentistId ? 'dentist' : 'location',
+        dentistId: data.dentistId || '',
+        chairId: data.chairId || '',
+        date: occurrenceDate || data.blockDate,
+        startTime: (data.startTime || '').slice(0, 5),
+        durationMinutes: String(data.durationMinutes || 30),
+        description: data.description || '',
+        preventOnlineBooking: !!data.preventOnlineBooking,
+      };
+      loadedRef.current = snap;
+      setAssigneeType(snap.assigneeType);
+      setDentistId(snap.dentistId);
+      setChairId(snap.chairId);
+      setDate(snap.date);
+      setStartTime(snap.startTime);
+      setDurationMinutes(snap.durationMinutes);
+      setDescription(snap.description);
+      setPreventOnlineBooking(snap.preventOnlineBooking);
       setIsRecurring(!!data.recurrenceFreq);
       setRepeat(data.recurrenceFreq || '');
       setRecurrenceIntervalInput(String(data.recurrenceInterval || 1));
@@ -93,8 +100,46 @@ const EditBlockModal = ({ blockId, occurrenceDate, dentists, chairs, onClose, on
     return () => { cancelled = true; };
   }, [blockId, occurrenceDate]);
 
-  const isFormComplete = !!date && !!startTime && Number(durationMinutes) > 0
-    && (assigneeType !== 'dentist' || !!dentistId);
+  const isFormComplete = !!date && !!startTime && Number(durationMinutes) > 0 && (assigneeType !== 'dentist' || !!dentistId);
+  const dirty = !!loadedRef.current && JSON.stringify(loadedRef.current) !== JSON.stringify({
+    assigneeType, dentistId, chairId, date, startTime, durationMinutes, description, preventOnlineBooking,
+  });
+
+  const dur = Number(durationMinutes) > 0 ? Number(durationMinutes) : 0;
+  const effDentist = assigneeType === 'dentist' ? dentistId : '';
+  const bookingCount = useMemo(
+    () => countBookingsInRange(bookings, { date, startTime, durationMinutes: dur, dentistId: effDentist, chairId }),
+    [bookings, date, startTime, dur, effDentist, chairId]
+  );
+  const bookingWarning = bookingsInRangeMessage(bookingCount);
+
+  useEffect(() => {
+    if (loading) return;
+    onDraftChange?.({
+      kind: 'block', date, startTime, durationMinutes: dur || 30,
+      dentistId: effDentist || null, chairId: chairId || null, wholeBranch: !effDentist && !chairId,
+      overlap: bookingCount > 0, label: description.trim(),
+      hideBlock: { blockId, day: occurrenceDate },
+    });
+  }, [loading, date, startTime, dur, effDentist, chairId, bookingCount, description]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onDraftChange?.(null), []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Retarget by clicking an empty slot (not for the Unassigned / day columns, which carry no dentist or chair).
+  const lastRetargetRef = useRef(retarget?.nonce ?? null); // ignore a retarget request left over from an earlier panel
+  const applyRetarget = (s) => {
+    setDate(s.day);
+    setStartTime(slotTime(s));
+    if (s.colType === 'dentist' && s.colId) { setAssigneeType('dentist'); setDentistId(s.colId); }
+    if (s.colType === 'chair' && s.colId) setChairId(s.colId);
+  };
+  useEffect(() => {
+    if (!retarget || retarget.nonce === lastRetargetRef.current || loading) return;
+    lastRetargetRef.current = retarget.nonce;
+    const s = retarget.slot;
+    const curCol = s.colType === 'chair' ? chairId : s.colType === 'dentist' ? (assigneeType === 'dentist' ? dentistId : '') : '';
+    const changes = s.day !== date || ((s.colType === 'chair' || s.colType === 'dentist') && (s.colId || '') !== curCol);
+    if (dirty && changes) setMoveConfirm(s); else applyRetarget(s);
+  }, [retarget, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Which action is waiting on the "this / following / all" choice (null = none).
   const [pendingAction, setPendingAction] = useState(null); // 'save' | 'delete'
@@ -106,8 +151,7 @@ const EditBlockModal = ({ blockId, occurrenceDate, dentists, chairs, onClose, on
     return true;
   };
 
-  // A recurring block's edit/delete is scoped from the occurrence the user actually clicked,
-  // never the series' original anchor.
+  // A recurring block's edit/delete is scoped from the occurrence the user actually clicked, never the series' anchor.
   const runSave = async (scope) => {
     setSubmitting(true);
     setError(null);
@@ -151,8 +195,6 @@ const EditBlockModal = ({ blockId, occurrenceDate, dentists, chairs, onClose, on
     else runSave('series');
   };
 
-  const handleDelete = () => setPendingAction('delete');
-
   const handleScopeChosen = (scope) => {
     const action = pendingAction;
     setPendingAction(null);
@@ -160,212 +202,161 @@ const EditBlockModal = ({ blockId, occurrenceDate, dentists, chairs, onClose, on
     else if (action === 'delete') runDelete(scope);
   };
 
+  const outlineBtn = 'w-full h-9 px-3 text-[13px] font-body font-body-medium border border-border rounded-spa hover:bg-background spa-transition-fast text-left';
+  const scopeOverride = pendingAction ? (
+    isRecurring ? (
+      <div role="alertdialog" aria-label={pendingAction === 'delete' ? 'Remove block' : 'Save changes'} className="space-y-2">
+        <p className="text-[13px] text-text-primary">
+          This block repeats. Which blocks should be {pendingAction === 'delete' ? 'removed' : 'changed'}?
+        </p>
+        <button type="button" className={outlineBtn} onClick={() => handleScopeChosen('this')}>This block only</button>
+        <button type="button" className={outlineBtn} onClick={() => handleScopeChosen('following')}>This and following</button>
+        <button type="button" className={outlineBtn} onClick={() => handleScopeChosen('series')}>All blocks in the series</button>
+        <button type="button" className="w-full h-9 text-[13px] font-body font-body-medium text-text-secondary hover:text-text-primary" onClick={() => setPendingAction(null)}>Cancel</button>
+      </div>
+    ) : (
+      <div role="alertdialog" aria-label="Remove block" className="flex items-center gap-3">
+        <p className="flex-1 min-w-0 text-[13px] text-text-primary">Remove this block?</p>
+        <button type="button" onClick={() => setPendingAction(null)} className="h-9 px-3 text-[13px] font-body font-body-medium border border-border rounded-spa hover:bg-background whitespace-nowrap">Keep</button>
+        <button type="button" onClick={() => handleScopeChosen('series')} className="h-9 px-3 text-[13px] font-body font-body-medium bg-error text-white rounded-spa hover:opacity-90 whitespace-nowrap">Remove</button>
+      </div>
+    )
+  ) : moveConfirm ? (
+    <div role="alertdialog" aria-label="Move block" className="flex items-center gap-3">
+      <p className="flex-1 min-w-0 text-[13px] text-text-primary">
+        Move this block to {[formatShortDate(moveConfirm.day), format12h(slotTime(moveConfirm))].filter(Boolean).join(' · ')}?
+      </p>
+      <button type="button" onClick={() => setMoveConfirm(null)} className="h-9 px-3 text-[13px] font-body font-body-medium border border-border rounded-spa hover:bg-background whitespace-nowrap">Keep here</button>
+      <button type="button" onClick={() => { applyRetarget(moveConfirm); setMoveConfirm(null); }} className="h-9 px-3 text-[13px] font-body font-body-medium bg-text-primary text-white rounded-spa hover:opacity-90 whitespace-nowrap">Move</button>
+    </div>
+  ) : null;
+
+  const reason = !date ? 'Pick a date' : !startTime ? 'Pick a start time'
+    : !(Number(durationMinutes) > 0) ? 'Enter a duration'
+    : assigneeType === 'dentist' && !dentistId ? 'Select a dentist' : '';
+
   return (
-    <div className="fixed inset-0 z-modal-overlay bg-black/50 flex items-center justify-center p-4" onClick={() => !submitting && !deleting && onClose()}>
-      <div className="bg-surface rounded-spa-lg shadow-spa-modal max-w-md w-full p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h3 className="font-heading font-heading-medium text-lg text-text-primary">Edit Block</h3>
-          <button onClick={() => !submitting && !deleting && onClose()} className="p-1 rounded hover:bg-background">
-            <Icon name="X" size={18} className="text-text-secondary" />
-          </button>
+    <PanelShell
+      variant={variant}
+      title="Edit block"
+      onClose={onClose}
+      dirty={dirty}
+      guardRef={guardRef}
+      busy={submitting || deleting}
+      reason={reason}
+      footerOverride={scopeOverride}
+      hideFooter={loading}
+      footerLeft={!loading && (
+        <button
+          type="button"
+          onClick={() => setPendingAction('delete')}
+          disabled={submitting || deleting}
+          className="flex items-center gap-1.5 h-9 px-1 text-[13px] font-body font-body-medium text-error hover:underline whitespace-nowrap disabled:opacity-50"
+        >
+          <Icon name="Trash2" size={14} />
+          Delete
+        </button>
+      )}
+      primary={{ label: submitting ? 'Saving…' : 'Save', onClick: handleSave, disabled: !isFormComplete || deleting, loading: submitting }}
+    >
+      {loading ? (
+        <div className="py-12 flex items-center justify-center">
+          <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full" />
         </div>
-
-        {loading ? (
-          <div className="py-8 flex items-center justify-center">
-            <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full" />
-          </div>
-        ) : (
-          <>
-            <div className="flex gap-1 border-b border-border">
-              {TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`px-3 py-2 text-[13px] font-body font-body-medium spa-transition-fast border-b-2 -mb-[1px] ${
-                    activeTab === tab.id
-                      ? 'border-text-primary text-text-primary'
-                      : 'border-transparent text-text-secondary hover:text-text-primary'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {error && (
-              <div className="flex items-center gap-2 p-3 bg-error/10 border border-error/20 rounded-spa text-error text-sm">
-                <Icon name="AlertCircle" size={16} />
-                <span>{error}</span>
-              </div>
-            )}
+      ) : (
+        <>
+          <TabBar tabs={TABS} value={activeTab} onChange={setActiveTab} />
+          <FormBody>
+            <InlineError message={error} />
+            <InlineWarning message={bookingWarning} icon="CalendarClock" />
 
             {activeTab === 'details' && (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-sm text-text-primary">
-                  <Icon name="MapPin" size={15} className="text-text-secondary flex-shrink-0" />
-                  <span>{branchName || 'This branch'}</span>
-                </div>
-
-                <div className="flex items-center gap-2 text-sm text-text-primary">
-                  <Icon name="Calendar" size={15} className="text-text-secondary flex-shrink-0" />
-                  {editingDate ? (
-                    <input
-                      type="date"
-                      value={date}
-                      onChange={(e) => setDate(e.target.value)}
-                      autoFocus
-                      onBlur={() => setEditingDate(false)}
-                      className="px-2 py-1 rounded-spa border border-border bg-surface font-data text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-text-primary/20"
-                    />
-                  ) : (
-                    <>
-                      <span>{new Date(`${date}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span>
-                      <button type="button" onClick={() => setEditingDate(true)} className="p-0.5 rounded hover:bg-background">
-                        <Icon name="Pencil" size={13} className="text-text-secondary" />
-                      </button>
-                    </>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Icon name="Timer" size={15} className="text-text-secondary flex-shrink-0" />
-                  <Input
-                    type="number"
-                    min="5"
-                    step="5"
-                    value={durationMinutes}
-                    onChange={(e) => setDurationMinutes(e.target.value)}
-                    className="w-24"
-                  />
-                  <span className="text-sm text-text-secondary">from</span>
-                  <input
-                    type="time"
-                    value={startTime}
-                    onChange={(e) => setStartTime(e.target.value)}
-                    className="flex-1 px-2 py-1.5 rounded-spa border border-border bg-surface font-data font-data-normal text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-text-primary/20"
-                  />
-                </div>
-                {startTime && Number(durationMinutes) > 0 && (
-                  <p className="text-xs text-text-secondary pl-[23px]">
-                    Opens back up at <span className="font-data font-data-medium text-text-primary">{to12h(addMinutesToTime(startTime, Number(durationMinutes)))}</span>
-                  </p>
-                )}
-
-                <div className="flex rounded-spa border border-border p-0.5 bg-background w-fit">
-                  <button
-                    type="button"
-                    onClick={() => setAssigneeType('dentist')}
-                    className={`px-3 py-1.5 rounded text-sm font-body font-body-medium transition-colors ${
-                      assigneeType === 'dentist' ? 'bg-text-primary text-white' : 'text-text-secondary hover:text-text-primary'
-                    }`}
-                  >
-                    Dentist
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAssigneeType('location')}
-                    className={`px-3 py-1.5 rounded text-sm font-body font-body-medium transition-colors ${
-                      assigneeType === 'location' ? 'bg-text-primary text-white' : 'text-text-secondary hover:text-text-primary'
-                    }`}
-                  >
-                    Whole clinic
-                  </button>
-                </div>
+              <>
+                <Segmented
+                  options={[['dentist', 'Dentist'], ['location', 'Whole clinic']]}
+                  value={assigneeType}
+                  onChange={setAssigneeType}
+                />
 
                 {assigneeType === 'dentist' && (
-                  <Select
-                    placeholder="Select dentist..."
-                    options={(dentists || []).map(t => ({ value: t.id, label: t.name }))}
-                    value={dentistId}
-                    onChange={setDentistId}
-                  />
+                  <Field label="Dentist" required>
+                    <SelectField
+                      placeholder="Select dentist..."
+                      options={(dentists || []).map((t) => ({ value: t.id, label: t.name }))}
+                      value={dentistId}
+                      onChange={setDentistId}
+                    />
+                  </Field>
                 )}
 
-                <Select
-                  label="Chair (optional)"
-                  placeholder="No specific chair..."
-                  options={(chairs || []).map(r => ({ value: r.id, label: r.name }))}
-                  value={chairId}
-                  onChange={setChairId}
-                />
+                <Field label="Chair (optional)">
+                  <SelectField
+                    placeholder="No specific chair..."
+                    options={[{ value: '', label: 'No specific chair' }, ...(chairs || []).map((r) => ({ value: r.id, label: r.name }))]}
+                    value={chairId}
+                    onChange={setChairId}
+                  />
+                </Field>
 
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="e.g. Lunch break, chair sterilisation..."
-                  rows={3}
-                  className="w-full px-2.5 py-2 rounded-spa border border-border bg-surface font-body text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-text-primary/20 resize-y"
-                />
+                <div className="grid grid-cols-2 gap-3">
+                  <DateField label="Date" required value={date} onChange={setDate} />
+                  <TimeField
+                    label="Start time"
+                    required
+                    value={startTime}
+                    onChange={setStartTime}
+                    fromTime={(branchHours?.openTime || '06:00').slice(0, 5)}
+                    toTime="23:50"
+                  />
+                </div>
 
-                <label className="flex items-center gap-2 text-sm font-body text-text-primary cursor-pointer">
+                <Field
+                  label="Duration (minutes)"
+                  required
+                  hint={startTime && dur ? `Opens back up at ${format12h(addMinutes(startTime, dur))}` : undefined}
+                >
+                  <NumberInput min="5" step="5" value={durationMinutes} onChange={(e) => setDurationMinutes(e.target.value)} />
+                </Field>
+
+                <Field label="Description (optional)">
+                  <TextInput value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. Lunch break, chair sterilisation..." />
+                </Field>
+
+                <label className="flex items-center gap-2 text-[13px] font-body text-text-primary cursor-pointer">
                   <input
                     type="checkbox"
                     checked={preventOnlineBooking}
                     onChange={(e) => setPreventOnlineBooking(e.target.checked)}
-                    className="rounded border-border"
+                    className="w-4 h-4 rounded border-border text-primary focus:ring-primary/30"
                   />
-                  Prevent online bookings during this time?
+                  Prevent online bookings during this time
                 </label>
-              </div>
+              </>
             )}
 
             {activeTab === 'recurrence' && (
-              <div className="space-y-3">
-                <Select label="Repeat" options={REPEAT_OPTIONS} value={repeat} onChange={setRepeat} disabled />
-                <p className="font-caption text-xs text-text-tertiary">
-                  Recurrence can't be changed once a block exists — remove it and create a new recurring block instead.
-                </p>
+              <>
+                <Field label="Repeat" hint="Recurrence can't be changed once a block exists — remove it and create a new recurring block instead.">
+                  <SelectField options={REPEAT_OPTIONS} value={repeat} onChange={() => {}} disabled />
+                </Field>
                 {repeat && (
                   <>
-                    <div className="space-y-1">
-                      <label className="block font-body font-body-medium text-sm text-text-primary">
-                        Every {recurrenceIntervalInput || 1} {repeat === 'daily' ? 'day(s)' : repeat === 'weekly' ? 'week(s)' : 'month(s)'}
-                      </label>
-                    </div>
-                    <Select label="Ends" options={END_CONDITION_OPTIONS} value={endCondition} onChange={() => {}} disabled />
-                    {endCondition === 'date' && (
-                      <p className="font-body text-sm text-text-secondary">Ends on {endDate}</p>
-                    )}
-                    {endCondition === 'count' && (
-                      <p className="font-body text-sm text-text-secondary">Ends after {endCount} occurrences</p>
-                    )}
+                    <p className="text-[13px] text-text-primary">
+                      Every {recurrenceIntervalInput || 1} {repeat === 'daily' ? 'day(s)' : repeat === 'weekly' ? 'week(s)' : 'month(s)'}
+                    </p>
+                    <Field label="Ends">
+                      <SelectField options={END_CONDITION_OPTIONS} value={endCondition} onChange={() => {}} disabled />
+                    </Field>
+                    {endCondition === 'date' && <p className="text-[13px] text-text-secondary">Ends on {formatShortDate(endDate, true)}</p>}
+                    {endCondition === 'count' && <p className="text-[13px] text-text-secondary">Ends after {endCount} occurrences</p>}
                   </>
                 )}
-              </div>
+              </>
             )}
-
-            <div className="flex items-center justify-between pt-2 border-t border-border">
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={submitting || deleting}
-                className="flex items-center gap-1.5 text-sm font-body font-body-medium text-error hover:underline"
-              >
-                <Icon name="Trash2" size={15} />
-                Delete
-              </button>
-              <div className="flex gap-2">
-                <Button variant="ghost" size="sm" onClick={onClose} disabled={submitting || deleting}>Cancel</Button>
-                <Button variant="primary" size="sm" onClick={handleSave} loading={submitting} disabled={!isFormComplete || deleting}>
-                  Save
-                </Button>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      {pendingAction && (
-        <BlockScopeDialog
-          title={pendingAction === 'delete' ? 'Remove block' : 'Save changes'}
-          verb={pendingAction === 'delete' ? 'removed' : 'changed'}
-          recurring={isRecurring}
-          onChoose={handleScopeChosen}
-          onCancel={() => setPendingAction(null)}
-        />
+          </FormBody>
+        </>
       )}
-    </div>
+    </PanelShell>
   );
 };
 

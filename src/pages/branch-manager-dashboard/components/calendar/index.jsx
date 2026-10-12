@@ -1569,6 +1569,15 @@ const OperationalCalendar = ({ branchId }) => {
   const [transferModalTarget, setTransferModalTarget] = useState(null);   // create (from empty-slot menu)
   const [editingTransferDentist, setEditingTransferDentist] = useState(null); // manage (header badge / shading)
   const [transferCancelRequest, setTransferCancelRequest] = useState(null);   // { kind: 'scheduled'|'active', col }
+  // Block / transfer forms live in the docked SidePanel (one panel at a time, like quick-create and booking details).
+  const blockPanelOpen = !!(addBlockSlot || editingBlock || transferModalTarget || editingTransferDentist);
+  const blockPanelOpenRef = useRef(false);
+  blockPanelOpenRef.current = blockPanelOpen;
+  const blockGuardRef = useRef(null);
+  const [blockRetarget, setBlockRetarget] = useState(null); // { slot, nonce } — empty-slot click while a block form is open
+  const closeBlockPanels = useCallback(() => {
+    setAddBlockSlot(null); setEditingBlock(null); setTransferModalTarget(null); setEditingTransferDentist(null); setBlockRetarget(null);
+  }, []);
   const [treatmentsCache, setTreatmentsCache] = useState(null);
   const [treatmentsLoading, setTreatmentsLoading] = useState(false);
 
@@ -1688,7 +1697,7 @@ const OperationalCalendar = ({ branchId }) => {
   // Auto-refresh every 60s. Paused while any modal/panel/drag/confirm is active
   // (the tab-hidden skip lives in the hook). fetchData swaps calendarData in place,
   // so scroll position, popovers and the hover label are untouched.
-  const autoRefreshPaused = modalOpen || !!activeDragId || isRescheduling || !!quickCreateSlot
+  const autoRefreshPaused = modalOpen || blockPanelOpen || !!activeDragId || isRescheduling || !!quickCreateSlot
     || !!pendingReassign || !!rebookSource || !!choiceMenuSlot || !!addBlockSlot || !!editingBlock || !!blockDeleteRequest
     || !!transferModalTarget || !!editingTransferDentist || !!transferCancelRequest;
   useAutoRefresh(refreshCalendar, { intervalMs: 60000, enabled: !!branchId && !autoRefreshPaused });
@@ -2230,6 +2239,7 @@ const OperationalCalendar = ({ branchId }) => {
 
   // "Add booking" choice — opens the quick-create panel at the slot (the previous direct behaviour).
   const openQuickCreateForSlot = useCallback(async (slotInfo) => {
+    closeBlockPanels();
     setQuickCreateSlot(slotInfo);
     if (!treatmentsCache && !treatmentsLoading) {
       setTreatmentsLoading(true);
@@ -2237,7 +2247,7 @@ const OperationalCalendar = ({ branchId }) => {
       if (result.data) setTreatmentsCache(result.data);
       setTreatmentsLoading(false);
     }
-  }, [treatmentsCache, treatmentsLoading, branchId]);
+  }, [treatmentsCache, treatmentsLoading, branchId, closeBlockPanels]);
 
   // Toolbar "New booking" / N: quick-create at the selected date, next free 10-min slot >= now (or the open time on other days), no column.
   const handleNewBooking = useCallback(() => {
@@ -2334,6 +2344,13 @@ const OperationalCalendar = ({ branchId }) => {
       return;
     }
 
+    // Add/Edit block panel open: the click moves the block's start / column. Transfer panels aren't retargetable.
+    if (addBlockSlot || editingBlock) {
+      setBlockRetarget({ slot: slotInfo, nonce: Date.now() });
+      return;
+    }
+    if (transferModalTarget || editingTransferDentist) return;
+
     // Booking panel open: clicking an empty slot switches to quick-create there (through the panel's dirty guard).
     if (modalOpen) {
       runThroughPanelGuard(() => {
@@ -2351,7 +2368,7 @@ const OperationalCalendar = ({ branchId }) => {
       return;
     }
     setChoiceMenuSlot(slotInfo);
-  }, [rebookSource, branchId, refreshCalendar, calendarData, blocksAvailable, openQuickCreateForSlot, quickCreateSlot, modalOpen]);
+  }, [rebookSource, branchId, refreshCalendar, calendarData, blocksAvailable, openQuickCreateForSlot, quickCreateSlot, modalOpen, addBlockSlot, editingBlock, transferModalTarget, editingTransferDentist]);
 
   // Transfers: cancel a scheduled transfer / bring an active one back now, via an in-app confirm.
   const handleConfirmTransferCancel = useCallback(async () => {
@@ -2500,8 +2517,18 @@ const OperationalCalendar = ({ branchId }) => {
   // ── Event click → modal ────────────────────────────────────
 
   const runThroughPanelGuard = (action) => {
-    const guard = quickCreateSlotRef.current ? quickGuardRef.current : (modalOpenRef.current ? bookingGuardRef.current : null);
+    const guard = quickCreateSlotRef.current ? quickGuardRef.current
+      : (modalOpenRef.current ? bookingGuardRef.current : (blockPanelOpenRef.current ? blockGuardRef.current : null));
     if (guard) guard(action); else action();
+  };
+
+  // Open a block/transfer form panel: closes quick-create and the booking panel first (the caller has already run the guard).
+  const openOnlyPanel = (openFn) => {
+    setQuickCreateSlot(null); setRetargetRequest(null); setDraftGhost(null);
+    setModalOpen(false); setSelectedBooking(null); setPreviewBooking(null);
+    setChoiceMenuSlot(null);
+    closeBlockPanels();
+    openFn();
   };
 
   const openBookingPanel = useCallback(async (booking) => {
@@ -2509,6 +2536,7 @@ const OperationalCalendar = ({ branchId }) => {
     if (!bookingId) return;
 
     // The panel opens instantly with the card's known data (skeleton for the rest); one panel at a time.
+    closeBlockPanels();
     setQuickCreateSlot(null);
     setRetargetRequest(null);
     setDraftGhost(null);
@@ -3107,10 +3135,10 @@ const OperationalCalendar = ({ branchId }) => {
                   onDragCreate={handleDragCreate}
                   onDeleteManualBlock={setBlockDeleteRequest}
                   onResizeManualBlock={handleResizeManualBlock}
-                  draftGhost={quickCreateSlot && !draftGhost?.hidden ? draftGhost : null}
+                  draftGhost={(quickCreateSlot || blockPanelOpen) && !draftGhost?.hidden ? draftGhost : null}
                   selectedBookingId={modalOpen ? (selectedBooking?.bookingId || previewBooking?.bookingId || previewBooking?.id || null) : null}
-                  onEditManualBlock={(range) => setEditingBlock({ blockId: range.blockId, day: range.day })}
-                  onEditTransfer={transfersAvailable ? (col) => setEditingTransferDentist({ id: col.id, name: col.name }) : undefined}
+                  onEditManualBlock={(range) => runThroughPanelGuard(() => openOnlyPanel(() => setEditingBlock({ blockId: range.blockId, day: range.day })))}
+                  onEditTransfer={transfersAvailable ? (col) => runThroughPanelGuard(() => openOnlyPanel(() => setEditingTransferDentist({ id: col.id, name: col.name }))) : undefined}
                   onCancelScheduledTransfer={transfersAvailable ? (col) => setTransferCancelRequest({ kind: 'scheduled', col }) : undefined}
                   onCancelActiveTransfer={transfersAvailable ? (col) => setTransferCancelRequest({ kind: 'active', col }) : undefined}
                 />
@@ -3282,18 +3310,18 @@ const OperationalCalendar = ({ branchId }) => {
           onClose={() => setChoiceMenuSlot(null)}
           options={[
             { key: 'booking', label: 'Add booking', icon: 'CalendarPlus', onSelect: () => openQuickCreateForSlot(choiceMenuSlot) },
-            { key: 'block', label: 'Add block', icon: 'Ban', onSelect: () => setAddBlockSlot(choiceMenuSlot) },
+            { key: 'block', label: 'Add block', icon: 'Ban', onSelect: () => openOnlyPanel(() => setAddBlockSlot(choiceMenuSlot)) },
             // Transfer is a dentist-column action for managers/admins only (the RPC enforces it too).
             ...(transfersAvailable && choiceMenuSlot.colType === 'dentist' && ['manager', 'admin'].includes(profile?.role) ? [{
               key: 'transfer',
               label: 'Transfer dentist',
               icon: 'ArrowRightLeft',
-              onSelect: () => setTransferModalTarget({
+              onSelect: () => openOnlyPanel(() => setTransferModalTarget({
                 dentistId: choiceMenuSlot.colId,
                 dentistName: choiceMenuSlot.colName,
                 defaultDate: choiceMenuSlot.day,
                 defaultTime: `${String(choiceMenuSlot.hour).padStart(2, '0')}:${String(choiceMenuSlot.minute).padStart(2, '0')}`,
-              }),
+              })),
             }] : []),
           ]}
         />
@@ -3301,6 +3329,9 @@ const OperationalCalendar = ({ branchId }) => {
 
       {transferModalTarget && (
         <TransferFromCalendarModal
+          variant="panel"
+          guardRef={blockGuardRef}
+          onDraftChange={setDraftGhost}
           dentistId={transferModalTarget.dentistId}
           dentistName={transferModalTarget.dentistName}
           currentBranchId={branchId}
@@ -3320,6 +3351,9 @@ const OperationalCalendar = ({ branchId }) => {
 
       {editingTransferDentist && (
         <TransferManagementModal
+          variant="panel"
+          guardRef={blockGuardRef}
+          onDraftChange={setDraftGhost}
           dentistId={editingTransferDentist.id}
           dentistName={editingTransferDentist.name}
           currentBranchId={branchId}
@@ -3347,6 +3381,12 @@ const OperationalCalendar = ({ branchId }) => {
 
       {addBlockSlot && (
         <AddBlockModal
+          variant="panel"
+          guardRef={blockGuardRef}
+          onDraftChange={setDraftGhost}
+          retarget={blockRetarget}
+          bookings={calendarData?.bookings || []}
+          branchHours={calendarData?.branchHours}
           branchId={branchId}
           slotInfo={addBlockSlot}
           dentists={calendarData?.dentists || []}
@@ -3364,6 +3404,12 @@ const OperationalCalendar = ({ branchId }) => {
 
       {editingBlock && (
         <EditBlockModal
+          variant="panel"
+          guardRef={blockGuardRef}
+          onDraftChange={setDraftGhost}
+          retarget={blockRetarget}
+          bookings={calendarData?.bookings || []}
+          branchHours={calendarData?.branchHours}
           blockId={editingBlock.blockId}
           occurrenceDate={editingBlock.day}
           dentists={calendarData?.dentists || []}

@@ -1809,7 +1809,7 @@ const BookingActionModal = ({
                               <>
                                 <div className="flex items-center justify-between">
                                   <span className="font-body font-body-normal text-xs text-text-secondary">Paid Amount</span>
-                                  <span className="font-data text-sm text-success">- NPR {Number(booking.amountPaid || 0).toLocaleString('en-IN')}</span>
+                                  <span className="font-data text-sm text-text-primary tabular-nums">- NPR {Number(booking.amountPaid || 0).toLocaleString('en-IN')}</span>
                                 </div>
                                 <div className="flex items-center justify-between border-t border-border pt-2">
                                   <span className="font-body font-body-medium text-xs text-text-primary">Final Amount</span>
@@ -2176,7 +2176,7 @@ const BookingActionModal = ({
                     <>
                       <div className="flex items-center justify-between">
                         <span className="font-body font-body-normal text-xs text-text-secondary">Already Paid</span>
-                        <span className="font-data text-sm text-success">- NPR {Number(booking.amountPaid || 0).toLocaleString('en-IN')}</span>
+                        <span className="font-data text-sm text-text-primary tabular-nums">- NPR {Number(booking.amountPaid || 0).toLocaleString('en-IN')}</span>
                       </div>
                       <div className="flex items-center justify-between border-t border-border pt-2">
                         <span className="font-body font-body-medium text-xs text-text-primary">Balance Due</span>
@@ -2285,7 +2285,7 @@ const BookingActionModal = ({
 
                 {canPay && (
                   <Button
-                    variant="success"
+                    variant="primary"
                     onClick={() => setShowPaymentModal(true)}
                     iconName="CreditCard"
                     iconPosition="left"

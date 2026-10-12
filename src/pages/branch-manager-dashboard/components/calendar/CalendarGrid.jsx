@@ -1115,7 +1115,9 @@ const CalendarGrid = ({
   const [spacerActive, setSpacerActive] = useState(false);
   // Focus target: the quick-create ghost, or the booking card open in the details panel.
   const draftKey = draftGhost
-    ? `${draftGhost.date}|${draftGhost.dentistId || ''}|${draftGhost.chairId || ''}|${draftGhost.startTime}|${draftGhost.durationMinutes}`
+    ? (draftGhost.kind === 'transfer'
+      ? `tr|${draftGhost.dentistId}|${draftGhost.date}|${draftGhost.startTime}`
+      : `${draftGhost.kind || 'bk'}|${draftGhost.date}|${draftGhost.dentistId || ''}|${draftGhost.chairId || ''}|${draftGhost.startTime}|${draftGhost.durationMinutes}`)
     : (selectedBookingId ? `booking|${selectedBookingId}` : null);
   const focusSelector = draftGhost ? '[data-draft-ghost]' : `[data-booking-key="${selectedBookingId}"]`;
   // The panel's real width (it differs per content: quick-create 420, booking details up to 560); falls back to defaults.
@@ -1171,9 +1173,78 @@ const CalendarGrid = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftKey]);
 
+  // Live preview of the block being added/edited, in its final hatched neutral style; the edge turns red when it sits on
+  // existing bookings. Whole-clinic blocks show on every column; dentist/chair blocks only on their own column (dentist /
+  // chair view respectively), mirroring getManualBlockRanges.
+  const renderBlockPreview = (colId, day, colType) => {
+    const g = draftGhost;
+    const visible = g.wholeBranch
+      || (colType === 'dentist' && g.dentistId === colId)
+      || (colType === 'chair' && g.chairId === colId);
+    if (!visible) return null;
+    const startMin = Number(g.startTime.slice(0, 2)) * 60 + Number(g.startTime.slice(3, 5));
+    const endMin = startMin + (g.durationMinutes || 30);
+    const pad = (n) => String(n).padStart(2, '0');
+    const endStr = `${pad(Math.floor(endMin / 60) % 24)}:${pad(endMin % 60)}`;
+    const h = Math.max(timeToHeight(g.startTime, endStr), 20);
+    return (
+      <div
+        key={`block-preview-${colId}-${day}`}
+        data-draft-ghost="true"
+        data-block-preview="true"
+        className={`absolute inset-x-0.5 rounded-spa pointer-events-none overflow-hidden px-2 py-1 z-0 ${g.overlap ? 'border-[1.5px] border-error' : 'border border-text-tertiary/60'}`}
+        style={{
+          top: timeToTop(g.startTime),
+          height: h,
+          // Translucent and below booking cards (DOM order, z-0) so any booking it sits on stays visible and clickable.
+          backgroundColor: 'rgba(244,244,246,0.45)',
+          backgroundImage: 'repeating-linear-gradient(135deg, rgba(14,13,12,0.025) 0, rgba(14,13,12,0.025) 1px, transparent 1px, transparent 7px)',
+        }}
+      >
+        <div className={`font-body text-[11px] leading-tight truncate ${g.overlap ? 'text-error' : 'text-text-secondary'}`}>{g.label || 'Blocked'}</div>
+        {h >= 36 && <div className={`font-body text-[11px] leading-tight truncate ${g.overlap ? 'text-error/80' : 'text-text-tertiary'}`}>{to12h(g.startTime)}–{to12h(endStr)}</div>}
+      </div>
+    );
+  };
+
+  // Preview of the transfer window on the dentist's column: shaded from the start moment to the estimated return
+  // (or to the end of the open day for a permanent / not-yet-complete transfer).
+  const renderTransferPreview = (colId, day, colType) => {
+    const g = draftGhost;
+    if (colType !== 'dentist' || colId !== g.dentistId || !g.date || !g.startTime || day < g.date) return null;
+    if (g.endDate && day > g.endDate) return null;
+    if (!g.endDate && !g.permanent && day > g.date) return null;
+    const from = day === g.date ? (g.startTime > openHourStr ? g.startTime : openHourStr) : openHourStr;
+    let to = closeHourStr;
+    if (g.endDate && day === g.endDate && g.endTime) to = g.endTime < closeHourStr ? g.endTime : closeHourStr;
+    if (to <= from) return null;
+    const h = Math.max(timeToHeight(from, to), 20);
+    const back = g.endDate ? `back ${formatBackLabel(g.endDate, g.endTime)}` : g.permanent ? 'permanently' : '';
+    return (
+      <div
+        key={`transfer-preview-${colId}-${day}`}
+        data-draft-ghost="true"
+        data-transfer-preview="true"
+        className="absolute inset-x-0.5 rounded-spa pointer-events-none overflow-hidden px-2 py-1 z-[4] border-[1.5px] border-dashed border-primary/50"
+        style={{ top: timeToTop(from), height: h, backgroundColor: 'rgba(123,47,247,0.07)' }}
+      >
+        <div className="font-body text-[11px] leading-tight text-primary/80 truncate">Transferred{back ? ` · ${back}` : ''}</div>
+      </div>
+    );
+  };
+  const formatBackLabel = (ymd, hm) => {
+    const [h, m] = (hm || '00:00').split(':').map(Number);
+    const t = `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')}${h >= 12 ? 'pm' : 'am'}`;
+    if (ymd === todayStr) return t;
+    return `${new Date(`${ymd}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}, ${t}`;
+  };
+
   // Dashed "New booking" ghost for the quick-create draft (follows the panel's date / time / dentist / treatment).
-  const renderDraftGhost = (colId, day) => {
-    if (!draftGhost || !draftGhost.startTime || draftGhost.date !== day) return null;
+  const renderDraftGhost = (colId, day, colType) => {
+    if (!draftGhost) return null;
+    if (draftGhost.kind === 'transfer') return renderTransferPreview(colId, day, colType);
+    if (!draftGhost.startTime || draftGhost.date !== day) return null;
+    if (draftGhost.kind === 'block') return renderBlockPreview(colId, day, colType);
     const ghostColId = colId === 'all'
       ? 'all'
       : (columnMode === 'chair' ? (draftGhost.chairId || 'unassigned') : (draftGhost.dentistId || 'unassigned'));
@@ -1278,7 +1349,9 @@ const CalendarGrid = ({
   }, [onDeleteManualBlock]);
 
   const renderManualBlocks = (col, day) =>
-    getManualBlockRanges(col, day, blockOccurrences).map((range, i) => {
+    getManualBlockRanges(col, day, blockOccurrences)
+      .filter((range) => !(draftGhost?.hideBlock && draftGhost.hideBlock.blockId === range.blockId && draftGhost.hideBlock.day === range.day))
+      .map((range, i) => {
       const isResizingThis = resizingBlock?.blockId === range.blockId && resizingBlock?.day === range.day;
       const blockHeight = isResizingThis
         ? resizingBlock.previewHeight
@@ -1729,7 +1802,7 @@ const CalendarGrid = ({
 
         {/* Manual blocks (time off) */}
         {renderManualBlocks(col, day)}
-        {renderDraftGhost(col.id, day)}
+        {renderDraftGhost(col.id, day, col.type)}
 
         {/* Booking cards with overlap handling */}
         {(() => {
@@ -1955,7 +2028,7 @@ const CalendarGrid = ({
                   isActive={!!activeDragId}
                 />
                 {renderManualBlocks(unassignedCol, currentDate)}
-                {renderDraftGhost(unassignedCol.id, currentDate)}
+                {renderDraftGhost(unassignedCol.id, currentDate, 'unassigned')}
                 {/* Compact overlap rendering for unassigned column */}
                 {(() => {
                   const clusters = clusterOverlapping(colBookings);
@@ -2155,7 +2228,7 @@ const CalendarGrid = ({
                   {renderNowIndicator(day, di === 0)}
 
                   {renderManualBlocks({ id: 'all', type: 'day' }, day)}
-                  {renderDraftGhost('all', day)}
+                  {renderDraftGhost('all', day, 'day')}
 
                   {/* Booking cards rendered as siblings to droppable */}
                   {dayBookings.map(booking => (
