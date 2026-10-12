@@ -8,6 +8,7 @@ import EmptySlotChoiceMenu from './EmptySlotChoiceMenu';
 import AddBlockModal from './AddBlockModal';
 import EditBlockModal from './EditBlockModal';
 import BlockScopeDialog from './BlockScopeDialog';
+import SidePanel from '../../../../components/ui/SidePanel';
 import TransferFromCalendarModal from './TransferFromCalendarModal';
 import TransferManagementModal from '../../../../components/ui/TransferManagementModal';
 import BlockOverlapWarning from '../../../../components/ui/BlockOverlapWarning';
@@ -140,7 +141,7 @@ function formatTimeDisplay(time) {
 
 // ── Quick Create Panel ────────────────────────────────────────
 
-const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, chairs, bookings = [], onClose, onSubmit, branchId, branchHours }) => {
+const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, chairs, bookings = [], onClose, onSubmit, branchId, branchHours, retarget, onDraftChange, columnMode = 'dentist', allDentists = [] }) => {
   const [treatmentId, setTreatmentId] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -170,6 +171,9 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
   const [dentistSearch, setDentistSearch] = useState('');
   const [timeDropdownOpen, setTimeDropdownOpen] = useState(false);
   const nameRef = useRef(null);
+  const initialDraftRef = useRef({ date: '', time: '', dentist: '', chair: '' });
+  // Inline confirm in the footer: { type: 'discard' } or { type: 'move', slot }. Replaces window.confirm.
+  const [confirm, setConfirm] = useState(null);
   const timeDropdownRef = useRef(null);
   const timeListRef = useRef(null);
 
@@ -281,6 +285,13 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
     setSubmitting(false);
     submitInFlightRef.current = false;
     setPreviousDue(null);
+    setConfirm(null);
+    initialDraftRef.current = {
+      date: slotInfo?.day || '',
+      time: slotTime,
+      dentist: slotInfo?.colType === 'dentist' && slotInfo.colId ? slotInfo.colId : '',
+      chair: slotInfo?.colType === 'chair' ? slotInfo.colId : '',
+    };
   }, [slotInfo]);
 
   // Compute which dentists & chairs are busy during the selected time slot
@@ -360,12 +371,12 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
     return { dentistIds: busyDentists, chairBookingCounts };
   }, [bookings, bookingDate, bookingTime, selectedTreatment, treatments]);
 
-  // Autofocus name field when panel opens
+  // Autofocus the name field once the panel is in place. preventScroll: focusing must never scroll an
+  // ancestor (a horizontal page shift was reported when focus fired while the panel was still sliding in).
   useEffect(() => {
-    if (slotInfo && nameRef.current) {
-      const timer = setTimeout(() => nameRef.current?.focus(), 350);
-      return () => clearTimeout(timer);
-    }
+    if (!slotInfo) return undefined;
+    const timer = setTimeout(() => nameRef.current?.focus({ preventScroll: true }), 260);
+    return () => clearTimeout(timer);
   }, [slotInfo]);
 
   // How many people the group has (Couple is always 2)
@@ -561,111 +572,217 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
     return () => document.body.classList.remove('mobile-panel-open');
   }, [isOpen]);
 
-  return (
-    <>
-      {/* Backdrop */}
-      <div
-        className={`fixed inset-0 bg-text-primary/20 z-sidebar transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-        onClick={onClose}
-      />
-      {/* Panel */}
-      <div
-        className={`fixed top-0 right-0 h-full w-full sm:w-[400px] max-w-full z-modal bg-surface border-l border-border shadow-2xl flex flex-col transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-background/50">
-          <div className="flex items-center gap-2">
-            <Icon name="CalendarPlus" size={20} className="text-primary" />
-            <h3 className="font-heading font-heading-semibold text-base text-text-primary">Quick Booking</h3>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-spa hover:bg-background spa-transition-fast">
-            <Icon name="X" size={18} className="text-text-secondary" />
-          </button>
-        </div>
+  // ── Dirty-draft guard ─────────────────────────────────────────────────────────────────
+  const peopleEdited = people.some((p) => p.name || p.phone || p.email || p.gender || p.dentistId || p.treatmentId || p.chairId);
+  // "Dirty" = the user edited something that is NOT the slot itself. Date, time and column come from the slot (and are
+  // moved silently by retargeting); treatment, customer, contact, notes, group members, referral, and a dentist/chair
+  // choice that differs from what the slot set all count as an edit.
+  const isDirty = isOpen && (
+    !!(treatmentId || customerName.trim() || customerPhone.trim() || customerEmail.trim() || customerGender || specialRequests.trim()
+      || groupTreatmentId || peopleEdited || referringCustomerName)
+    || selectedDentistIds.join(',') !== (initialDraftRef.current.dentist ? initialDraftRef.current.dentist : '')
+    || (chairId || '') !== initialDraftRef.current.chair
+  );
+  const requestClose = useCallback(() => {
+    if (isDirty) setConfirm({ type: 'discard' });
+    else onClose();
+  }, [isDirty, onClose]);
 
-        {/* Context banner */}
-        {slotInfo && (
-          <div className="px-5 py-3 bg-primary/5 border-b border-border">
-            <div className="flex items-center gap-4 text-sm">
-              <div className="flex items-center gap-1.5">
-                <Icon name="Calendar" size={14} className="text-primary" />
-                <input
-                  type="date"
-                  value={bookingDate}
-                  onChange={(e) => setBookingDate(e.target.value)}
-                  className="font-body font-body-medium text-sm text-text-primary bg-transparent border border-border rounded-spa px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-              <div className="relative flex items-center gap-1.5" ref={timeDropdownRef}>
-                <Icon name="Clock" size={14} className="text-primary" />
-                <input
-                  type="text"
-                  value={timeText}
-                  onChange={(e) => {
-                    // Let the field reflect whatever is typed; commit to
-                    // bookingTime only once it parses to a valid time.
-                    const raw = e.target.value;
-                    setTimeText(raw);
-                    setBookingTime(parseTimeInput(raw) ?? '');
-                  }}
-                  onFocus={(e) => { e.target.select(); setTimeDropdownOpen(true); }}
-                  onBlur={() => {
-                    // Normalize to the canonical 12h display once editing ends.
-                    setTimeText(bookingTime ? format12h(bookingTime) : '');
-                  }}
-                  placeholder="--:--"
-                  autoComplete="off"
-                  className="font-body font-body-medium text-sm text-text-primary bg-transparent border border-border rounded-spa px-2 py-0.5 w-20 focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-                <button
-                  type="button"
-                  onClick={() => setTimeDropdownOpen((v) => !v)}
-                  className="text-text-secondary hover:text-primary transition-colors"
-                >
-                  <Icon name="ChevronDown" size={14} />
-                </button>
-                {timeDropdownOpen && (
-                  <div
-                    ref={timeListRef}
-                    className="absolute top-full left-0 mt-1 w-28 max-h-48 overflow-y-auto bg-surface border border-border rounded-spa shadow-spa-elevated z-dropdown"
-                  >
-                    {timeOptions.map((t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        data-selected={t === bookingTime}
-                        onClick={() => { setBookingTime(t); setTimeText(format12h(t)); setTimeDropdownOpen(false); }}
-                        className={`w-full text-left px-3 py-1.5 text-sm font-body cursor-pointer hover:bg-primary/10 ${t === bookingTime ? 'bg-primary/10 font-body-medium text-primary' : 'text-text-primary'}`}
-                      >
-                        {format12h(t)}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 mt-1.5">
-              <Icon name={slotInfo.colType === 'chair' ? 'DoorOpen' : slotInfo.colType === 'dentist' ? 'User' : 'LayoutGrid'} size={14} className="text-text-secondary" />
-              <span className="font-body text-sm text-text-secondary">{slotInfo.colName}</span>
-            </div>
+  // ── Ghost block on the grid: report the draft (date, time, length, column) to the calendar ──
+  const draftDuration = (treatments || []).find((t) => t.id === (bookingMode === 'group' ? groupTreatmentId : treatmentId))?.duration_minutes || 30;
+  useEffect(() => {
+    if (!isOpen) { onDraftChange?.(null); return; }
+    onDraftChange?.({
+      date: bookingDate,
+      startTime: bookingTime,
+      durationMinutes: draftDuration,
+      dentistId: selectedDentistIds[0] || null,
+      chairId: chairId || null,
+      overlap: !!blockOverlapMsg,
+    });
+  }, [isOpen, bookingDate, bookingTime, draftDuration, selectedDentistIds, chairId, blockOverlapMsg, onDraftChange]);
+
+  // ── Retarget: clicking another empty slot while the panel is open moves the draft there ──
+  const lastRetargetRef = useRef(null);
+  const applyRetarget = (s) => {
+    setBookingDate(s.day);
+    const t = `${String(s.hour).padStart(2, '0')}:${String(s.minute).padStart(2, '0')}`;
+    setBookingTime(t);
+    setTimeText(format12h(t));
+    if (s.colType === 'dentist' && s.colId) setSelectedDentistIds([s.colId]);
+    if (s.colType === 'chair' && s.colId) { setChairId(s.colId); setGroupChairId(s.colId); }
+    // The retargeted slot is the new baseline for "did the user change the dentist/chair?"
+    initialDraftRef.current = {
+      date: s.day,
+      time: t,
+      dentist: s.colType === 'dentist' && s.colId ? s.colId : initialDraftRef.current.dentist,
+      chair: s.colType === 'chair' && s.colId ? s.colId : initialDraftRef.current.chair,
+    };
+  };
+  useEffect(() => {
+    if (!retarget || retarget.nonce === lastRetargetRef.current || !isOpen) return;
+    lastRetargetRef.current = retarget.nonce;
+    const s = retarget.slot;
+    const curCol = s.colType === 'chair' ? (chairId || '') : s.colType === 'dentist' ? (selectedDentistIds[0] || '') : '';
+    const changesColumnOrDate = s.day !== bookingDate || ((s.colType === 'chair' || s.colType === 'dentist') && (s.colId || '') !== curCol);
+    if (isDirty && changesColumnOrDate) setConfirm({ type: 'move', slot: s });
+    else applyRetarget(s);
+  }, [retarget]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Footer: why Create is disabled, or the inline confirm ──────────────────────────────
+  const disabledReason = submitting ? '' : blockOverlapMsg
+    ? (/^Overlaps '(Transferred|Visiting)/.test(blockOverlapMsg) ? 'Dentist unavailable' : 'Overlaps a block')
+    : bookingMode === 'group'
+      ? (groupValid ? '' : 'Complete the group details')
+      : !treatmentId ? 'Pick a treatment' : !customerName.trim() ? 'Enter the customer name' : '';
+  const createDisabled = submitting || !!blockOverlapMsg || (bookingMode === 'group' ? !groupValid : (!treatmentId || !customerName.trim()));
+  const confirmSlotLabel = confirm?.type === 'move'
+    ? [dentists.find((d) => d.id === confirm.slot.colId)?.name || chairs.find((c) => c.id === confirm.slot.colId)?.name || confirm.slot.colName,
+       confirm.slot.day,
+       format12h(`${String(confirm.slot.hour).padStart(2, '0')}:${String(confirm.slot.minute).padStart(2, '0')}`)].filter(Boolean).join(' · ')
+    : '';
+
+  const footerNode = confirm ? (
+    // Distinct keys: without them React reuses the same <button> DOM nodes between the confirm and the normal footer,
+    // flipping a `type="button"` into the `type="submit"` Create button mid-click — which then submits the form.
+    <div key="confirm" role="alertdialog" aria-label={confirm.type === 'move' ? 'Move draft' : 'Discard draft'} className="flex items-center gap-3">
+      <p className="flex-1 min-w-0 text-[13px] text-text-primary">
+        {confirm.type === 'move' ? `Move this draft to ${confirmSlotLabel}?` : 'Discard this draft?'}
+      </p>
+      <button
+        type="button"
+        onClick={() => setConfirm(null)}
+        className="h-9 px-3 text-[13px] font-body font-body-medium border border-border rounded-spa hover:bg-background spa-transition-fast whitespace-nowrap"
+      >
+        {confirm.type === 'move' ? 'Keep here' : 'Keep editing'}
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          const c = confirm;
+          setConfirm(null);
+          if (c.type === 'move') applyRetarget(c.slot); else onClose();
+        }}
+        className="h-9 px-3 text-[13px] font-body font-body-medium bg-text-primary text-white rounded-spa hover:opacity-90 spa-transition-fast whitespace-nowrap"
+      >
+        {confirm.type === 'move' ? 'Move' : 'Discard'}
+      </button>
+    </div>
+  ) : (
+    <div key="actions" className="flex items-center gap-3">
+      <p className="flex-1 min-w-0 text-xs text-text-secondary" aria-live="polite">{createDisabled ? disabledReason : ''}</p>
+      <button
+        type="button"
+        onClick={requestClose}
+        className="h-9 px-3 text-[13px] font-body font-body-medium border border-border rounded-spa hover:bg-background spa-transition-fast"
+      >
+        Cancel
+      </button>
+      <button
+        type="submit"
+        form="quick-create-form"
+        disabled={createDisabled}
+        className="h-9 px-4 text-[13px] font-body font-body-medium bg-primary text-white rounded-spa hover:bg-primary/90 spa-transition-fast disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
+      >
+        {submitting && <div className="animate-spin w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full" />}
+        {submitting ? 'Creating...' : bookingMode === 'group' ? `Create ${peopleCount} bookings` : 'Create booking'}
+      </button>
+    </div>
+  );
+
+  // Neutral summary row: date + time (the dentist is chosen in the checklist below).
+  const [dateOpen, setDateOpen] = useState(false);
+  const dateRef = useRef(null);
+  useEffect(() => {
+    if (!dateOpen) return undefined;
+    const onDown = (e) => { if (dateRef.current && !dateRef.current.contains(e.target)) setDateOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); setDateOpen(false); } };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [dateOpen]);
+  const dateLabel = bookingDate
+    ? new Date(`${bookingDate}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '')
+    : 'Pick a date';
+  const summaryRow = (
+    <div className="grid grid-cols-2 gap-2">
+      <div className="relative" ref={dateRef}>
+        <button
+          type="button"
+          onClick={() => setDateOpen((v) => !v)}
+          aria-haspopup="dialog"
+          aria-expanded={dateOpen}
+          className="w-full h-9 pl-8 pr-2 flex items-center text-[13px] font-body text-text-primary bg-surface border border-border rounded-spa hover:bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 text-left"
+        >
+          <Icon name="Calendar" size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none" />
+          <span className="truncate">{dateLabel}</span>
+        </button>
+        {dateOpen && (
+          <div className="absolute left-0 top-full mt-1 bg-surface border border-border rounded-spa-lg shadow-spa-elevated z-dropdown p-3">
+            <MiniMonthCalendar
+              selectedDate={bookingDate || todayStr()}
+              onDateSelect={(d) => { setBookingDate(d); setDateOpen(false); }}
+            />
           </div>
         )}
+      </div>
+      <div className="relative" ref={timeDropdownRef}>
+        <Icon name="Clock" size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none" />
+        <input
+          type="text"
+          aria-label="Time"
+          value={timeText}
+          onChange={(e) => {
+            // Let the field reflect whatever is typed; commit to bookingTime only once it parses to a valid time.
+            const raw = e.target.value;
+            setTimeText(raw);
+            setBookingTime(parseTimeInput(raw) ?? '');
+          }}
+          onFocus={(e) => { e.target.select(); setTimeDropdownOpen(true); }}
+          onBlur={() => { setTimeText(bookingTime ? format12h(bookingTime) : ''); }}
+          placeholder="--:--"
+          autoComplete="off"
+          className="w-full h-9 pl-8 pr-2 text-[13px] font-body text-text-primary bg-surface border border-border rounded-spa focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+        />
+        {timeDropdownOpen && (
+          <div
+            ref={timeListRef}
+            className="absolute top-full left-0 mt-1 w-28 max-h-48 overflow-y-auto bg-surface border border-border rounded-spa shadow-spa-elevated z-dropdown"
+          >
+            {timeOptions.map((t) => (
+              <button
+                key={t}
+                type="button"
+                data-selected={t === bookingTime}
+                onClick={() => { setBookingTime(t); setTimeText(format12h(t)); setTimeDropdownOpen(false); }}
+                className={`w-full text-left px-3 py-1.5 text-[13px] font-body cursor-pointer hover:bg-background ${t === bookingTime ? 'bg-background font-body-medium text-text-primary' : 'text-text-primary'}`}
+              >
+                {format12h(t)}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-y-auto">
-          <div className="px-5 py-4 space-y-4 flex-1">
-            <BlockOverlapWarning message={blockOverlapMsg} />
+  return (
+    <SidePanel isOpen={isOpen} title="New booking" onClose={requestClose} footer={footerNode}>
+      <form id="quick-create-form" onSubmit={handleSubmit} className="px-5 py-5 space-y-4">
+        {summaryRow}
+
+        <BlockOverlapWarning message={blockOverlapMsg} />
 
             {/* Booking mode: Individual | Group */}
-            <div className="grid grid-cols-2 gap-2 p-1 bg-background border border-border rounded-spa">
+            <div className="grid grid-cols-2 gap-0.5 p-0.5 h-9 bg-background border border-border rounded-spa">
               {[['individual', 'Individual'], ['group', 'Group']].map(([val, label]) => (
                 <button
                   key={val}
                   type="button"
                   onClick={() => setBookingMode(val)}
-                  className={`px-3 py-1.5 text-sm font-body font-body-medium rounded-spa transition-colors ${
+                  className={`px-3 text-[13px] font-body font-body-medium rounded-[4px] transition-colors ${
                     bookingMode === val
-                      ? 'bg-surface text-primary shadow-spa-resting'
+                      ? 'bg-text-primary text-white'
                       : 'text-text-secondary hover:text-text-primary'
                   }`}
                 >
@@ -678,7 +795,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
             <>
             {/* Treatment */}
             <div>
-              <label className="block font-body font-body-medium text-sm text-text-primary mb-1.5">
+              <label className="block font-body font-body-medium text-[13px] text-text-primary mb-1.5">
                 Treatment <span className="text-error">*</span>
               </label>
               {treatmentsLoading ? (
@@ -707,7 +824,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
             {/* Chair */}
             {chairs && chairs.length > 0 && (
               <div>
-                <label className="block font-body font-body-medium text-sm text-text-primary mb-1.5">
+                <label className="block font-body font-body-medium text-[13px] text-text-primary mb-1.5">
                   Chair
                 </label>
                 <CustomSelect
@@ -762,7 +879,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
 
             {/* Dentist(s) */}
             <div>
-              <label className="block font-body font-body-medium text-sm text-text-primary mb-1.5">
+              <label className="block font-body font-body-medium text-[13px] text-text-primary mb-1.5">
                 Dentist{selectedDentistIds.length > 1 ? 's' : ''}
                 {selectedDentistIds.length > 0 && (
                   <span className="ml-2 text-xs text-text-secondary font-normal">({selectedDentistIds.length} selected)</span>
@@ -780,12 +897,21 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
                   />
                 </div>
                 <div className="space-y-1 max-h-[140px] overflow-y-auto p-2">
-                  {(dentists || [])
-                    .filter(t => {
-                      if (!dentistSearch.trim()) return true;
-                      const name = (t.full_name || t.name).toLowerCase();
-                      return name.includes(dentistSearch.toLowerCase());
-                    })
+                  {(() => {
+                    // Selected dentists are pinned to the top and always listed (even when the list filter, e.g.
+                    // "treatment staff only", would otherwise hide the dentist whose column was clicked).
+                    const pool = [...(dentists || [])];
+                    selectedDentistIds.forEach((id) => {
+                      if (!pool.some((d) => d.id === id)) {
+                        const extra = (allDentists || []).find((d) => d.id === id);
+                        if (extra) pool.push(extra);
+                      }
+                    });
+                    const sel = (id) => (selectedDentistIds.includes(id) ? 0 : 1);
+                    return pool
+                      .filter(t => sel(t.id) === 0 || !dentistSearch.trim() || (t.full_name || t.name).toLowerCase().includes(dentistSearch.toLowerCase()))
+                      .sort((a, b) => sel(a.id) - sel(b.id));
+                  })()
                     .map((t) => {
                       const isBusy = busyResources.dentistIds.has(t.id);
                       const isChecked = selectedDentistIds.includes(t.id);
@@ -817,7 +943,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
 
             {/* Customer name */}
             <div>
-              <label className="block font-body font-body-medium text-sm text-text-primary mb-1.5">
+              <label className="block font-body font-body-medium text-[13px] text-text-primary mb-1.5">
                 Customer Name <span className="text-error">*</span>
               </label>
               <CustomerAutocomplete
@@ -832,7 +958,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
 
             {/* Phone */}
             <div>
-              <label className="block font-body font-body-medium text-sm text-text-primary mb-1.5">
+              <label className="block font-body font-body-medium text-[13px] text-text-primary mb-1.5">
                 Phone
               </label>
               <div className="flex">
@@ -863,7 +989,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
 
             {/* Email */}
             <div>
-              <label className="block font-body font-body-medium text-sm text-text-primary mb-1.5">
+              <label className="block font-body font-body-medium text-[13px] text-text-primary mb-1.5">
                 Email
               </label>
               <input
@@ -877,7 +1003,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
 
             {/* Gender */}
             <div>
-              <label className="block font-body font-body-medium text-sm text-text-primary mb-1.5">
+              <label className="block font-body font-body-medium text-[13px] text-text-primary mb-1.5">
                 Gender
               </label>
               <div className="flex gap-2">
@@ -904,7 +1030,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
             <>
             {/* Couple | Separate */}
             <div>
-              <label className="block font-body font-body-medium text-sm text-text-primary mb-1.5">
+              <label className="block font-body font-body-medium text-[13px] text-text-primary mb-1.5">
                 Group type
               </label>
               <div className="flex gap-2">
@@ -969,7 +1095,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
 
             {/* Same | Different treatment */}
             <div>
-              <label className="block font-body font-body-medium text-sm text-text-primary mb-1.5">
+              <label className="block font-body font-body-medium text-[13px] text-text-primary mb-1.5">
                 Treatment for the group
                 <span className="text-error"> *</span>
               </label>
@@ -1012,7 +1138,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
             {/* Shared chair for couple */}
             {groupType === 'couple' && chairs && chairs.length > 0 && (
               <div>
-                <label className="block font-body font-body-medium text-sm text-text-primary mb-1.5">
+                <label className="block font-body font-body-medium text-[13px] text-text-primary mb-1.5">
                   Chair <span className="text-xs text-text-secondary font-normal">(shared — needs capacity 2)</span>
                 </label>
                 <CustomSelect
@@ -1178,7 +1304,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
                   />
                 </div>
                 <div>
-                  <label className="block font-body font-body-medium text-sm text-text-primary mb-1.5">
+                  <label className="block font-body font-body-medium text-[13px] text-text-primary mb-1.5">
                     Phone
                   </label>
                   <div className="flex">
@@ -1196,7 +1322,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
 
                 {referringCustomerId && (
                   <div>
-                    <label className="block font-body font-body-medium text-sm text-text-primary mb-1.5">
+                    <label className="block font-body font-body-medium text-[13px] text-text-primary mb-1.5">
                       Reward (wallet credit)
                     </label>
                     <input
@@ -1220,7 +1346,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
 
             {/* Special requests */}
             <div>
-              <label className="block font-body font-body-medium text-sm text-text-primary mb-1.5">
+              <label className="block font-body font-body-medium text-[13px] text-text-primary mb-1.5">
                 Special Requests
               </label>
               <textarea
@@ -1239,33 +1365,8 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
                 <span className="font-body text-sm text-error">{error}</span>
               </div>
             )}
-          </div>
-
-          {/* Footer */}
-          <div className="px-5 py-4 border-t border-border bg-background/50 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-body font-body-medium border border-border rounded-spa hover:bg-background spa-transition-fast"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting || !!blockOverlapMsg || (bookingMode === 'group' ? !groupValid : (!treatmentId || !customerName.trim()))}
-              className="px-4 py-2 text-sm font-body font-body-medium bg-primary text-white rounded-spa hover:bg-primary/90 spa-transition-fast disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {submitting && <div className="animate-spin w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full" />}
-              {submitting
-                ? 'Creating...'
-                : bookingMode === 'group'
-                  ? `Create ${peopleCount} Bookings`
-                  : 'Create Booking'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </>
+      </form>
+    </SidePanel>
   );
 };
 
@@ -1428,6 +1529,8 @@ const OperationalCalendar = ({ branchId }) => {
 
   // Quick-create panel state
   const [quickCreateSlot, setQuickCreateSlot] = useState(null);
+  const [retargetRequest, setRetargetRequest] = useState(null); // { slot, nonce }: click-to-retarget while the panel is open
+  const [draftGhost, setDraftGhost] = useState(null);           // live draft reported by the panel, drawn on the grid
 
   // Manual blocks + empty-slot choice menu
   const [choiceMenuSlot, setChoiceMenuSlot] = useState(null);
@@ -2133,13 +2236,19 @@ const OperationalCalendar = ({ branchId }) => {
       return;
     }
 
+    // Quick-create panel already open: move the draft to the clicked slot instead of opening the menu.
+    if (quickCreateSlot) {
+      setRetargetRequest({ slot: slotInfo, nonce: Date.now() });
+      return;
+    }
+
     // Normal flow — offer a choice (Add booking / Add block); with only one option, skip the menu.
     if (!blocksAvailable) {
       openQuickCreateForSlot(slotInfo);
       return;
     }
     setChoiceMenuSlot(slotInfo);
-  }, [rebookSource, branchId, refreshCalendar, calendarData, blocksAvailable, openQuickCreateForSlot]);
+  }, [rebookSource, branchId, refreshCalendar, calendarData, blocksAvailable, openQuickCreateForSlot, quickCreateSlot]);
 
   // Transfers: cancel a scheduled transfer / bring an active one back now, via an in-app confirm.
   const handleConfirmTransferCancel = useCallback(async () => {
@@ -2179,6 +2288,8 @@ const OperationalCalendar = ({ branchId }) => {
 
   const handleQuickCreateClose = useCallback(() => {
     setQuickCreateSlot(null);
+    setRetargetRequest(null);
+    setDraftGhost(null);
   }, []);
 
   // Auto-open the Quick Booking panel when the mobile FAB navigates here with
@@ -2556,9 +2667,9 @@ const OperationalCalendar = ({ branchId }) => {
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className="bg-surface overflow-hidden flex flex-col h-full pb-2">
+        <div className="bg-surface overflow-clip flex flex-col h-full pb-2">
           {/* Top toolbar — wraps on narrow screens; 3-column grid on sm+ (left / center / right) */}
-          <div className="flex flex-wrap items-center justify-between gap-2 sm:grid sm:grid-cols-[1fr_auto_1fr] sm:gap-3 px-3 sm:px-4 py-2 border-b border-border bg-surface flex-shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-2 border-b border-border bg-surface flex-shrink-0 overflow-x-clip">
             {/* Left: Dentist/Chair toggle + away summary */}
             <div className="flex items-center gap-3 justify-self-start min-w-0">
               {enableChairs ? (
@@ -2699,7 +2810,7 @@ const OperationalCalendar = ({ branchId }) => {
             </div>
 
             {/* Right: tip + position filter + view toggle */}
-            <div className="flex items-center gap-2 justify-self-end">
+            <div className="flex items-center gap-2 ml-auto">
               <div className="relative" ref={tipRef}>
                 <button
                   type="button"
@@ -2796,9 +2907,9 @@ const OperationalCalendar = ({ branchId }) => {
           </div>
 
           {/* Main content area: Grid */}
-          <div className="flex flex-1 min-h-0">
+          <div className="flex flex-1 min-h-0 overflow-clip">
             {/* Calendar grid */}
-            <div className="flex-1 overflow-x-auto md:overflow-hidden">
+            <div className="flex-1 min-w-0 overflow-x-auto md:overflow-clip">
               {calendarData ? (
                 <CalendarGrid
                   dentists={filteredDentists}
@@ -2823,6 +2934,7 @@ const OperationalCalendar = ({ branchId }) => {
                   blockOccurrences={calendarData.blockOccurrences}
                   onDeleteManualBlock={setBlockDeleteRequest}
                   onResizeManualBlock={handleResizeManualBlock}
+                  draftGhost={quickCreateSlot ? draftGhost : null}
                   onEditManualBlock={(range) => setEditingBlock({ blockId: range.blockId, day: range.day })}
                   onEditTransfer={transfersAvailable ? (col) => setEditingTransferDentist({ id: col.id, name: col.name }) : undefined}
                   onCancelScheduledTransfer={transfersAvailable ? (col) => setTransferCancelRequest({ kind: 'scheduled', col }) : undefined}
@@ -2837,6 +2949,24 @@ const OperationalCalendar = ({ branchId }) => {
                 </div>
               )}
             </div>
+
+            {/* Quick-create: docked at lg+ (shrinks the calendar), overlay below */}
+            <QuickCreatePanel
+              slotInfo={quickCreateSlot}
+              treatments={treatmentsCache}
+              treatmentsLoading={treatmentsLoading}
+              dentists={(calendarData?.dentists || []).filter(t => t.is_treatment_staff !== false && !attendanceMap[t.id])}
+              chairs={calendarData?.chairs || []}
+              bookings={calendarData?.bookings || []}
+              onClose={handleQuickCreateClose}
+              onSubmit={handleQuickCreateSubmit}
+              branchId={branchId}
+              branchHours={calendarData?.branchHours}
+              retarget={retargetRequest}
+              onDraftChange={setDraftGhost}
+              columnMode={columnMode}
+              allDentists={calendarData?.dentists || []}
+            />
           </div>
         </div>
 
@@ -3091,20 +3221,6 @@ const OperationalCalendar = ({ branchId }) => {
           }}
         />
       )}
-
-      {/* Quick Create Panel */}
-      <QuickCreatePanel
-        slotInfo={quickCreateSlot}
-        treatments={treatmentsCache}
-        treatmentsLoading={treatmentsLoading}
-        dentists={(calendarData?.dentists || []).filter(t => t.is_treatment_staff !== false && !attendanceMap[t.id])}
-        chairs={calendarData?.chairs || []}
-        bookings={calendarData?.bookings || []}
-        onClose={handleQuickCreateClose}
-        onSubmit={handleQuickCreateSubmit}
-        branchId={branchId}
-        branchHours={calendarData?.branchHours}
-      />
 
       {/* Reassignment Confirmation Dialog */}
       {pendingReassign && (

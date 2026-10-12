@@ -6,6 +6,7 @@ import { useDroppable, useDraggable } from '@dnd-kit/core';
 import Icon from '../../../../components/AppIcon';
 import CalendarBookingCard, { canDragBooking, BookingHoverPreview } from './CalendarBookingCard';
 import { to12h as to12hSpaced } from '../../../../services/bookingTransformers';
+import { PANEL_WIDTH } from '../../../../components/ui/SidePanel';
 
 // Compact 12h ('2:00pm') to match the gutter and cards.
 const to12h = (t) => to12hSpaced(t).replace(' ', '');
@@ -659,6 +660,7 @@ const CalendarGrid = ({
   onDeleteManualBlock,
   onResizeManualBlock,
   onEditManualBlock,
+  draftGhost,
   onEditTransfer,
   onCancelScheduledTransfer,
   onCancelActiveTransfer,
@@ -1097,6 +1099,91 @@ const CalendarGrid = ({
     ));
   };
 
+  // ── Keep the draft ghost fully visible beside the open side panel ─────────────────────────────
+  // The panel overlays the right ~420px of the screen (nothing underneath moves). When it opens, and whenever the draft
+  // retargets, scroll the grid's OWN scroll container so the draft column sits fully inside [grid left, viewport − panel]
+  // (~24px margin), vertically too if the time is off screen; a column that is already visible isn't scrolled. While the
+  // panel is open a trailing spacer (= panel width) gives even the last column room to scroll clear of the panel; it covers
+  // the header row and the body so their scroll positions stay in sync. On close the previous scroll position is restored
+  // first and the spacer removed afterwards.
+  const draftScrollRestoreRef = useRef(null);
+  const [spacerActive, setSpacerActive] = useState(false);
+  const draftKey = draftGhost
+    ? `${draftGhost.date}|${draftGhost.dentistId || ''}|${draftGhost.chairId || ''}|${draftGhost.startTime}|${draftGhost.durationMinutes}`
+    : null;
+  const panelWidthNow = () => (window.innerWidth >= 1024 ? PANEL_WIDTH : window.innerWidth >= 640 ? 400 : 0);
+  const draftSpacer = spacerActive ? panelWidthNow() : 0;
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return undefined;
+    const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const behavior = smooth ? 'smooth' : 'auto';
+    if (!draftKey) {
+      const saved = draftScrollRestoreRef.current;
+      draftScrollRestoreRef.current = null;
+      if (saved) scroller.scrollTo({ left: saved.left, behavior });
+      const t = setTimeout(() => setSpacerActive(false), saved && smooth ? 450 : 0);
+      return () => clearTimeout(t);
+    }
+    if (!draftScrollRestoreRef.current) draftScrollRestoreRef.current = { left: scroller.scrollLeft };
+    setSpacerActive(true);
+    const panelW = panelWidthNow();
+    if (!panelW) return undefined; // phones: full-screen sheet, nothing to keep visible
+    const ensureVisible = () => {
+      const ghost = gridBodyRef.current?.querySelector('[data-draft-ghost]');
+      if (!ghost) return;
+      const g = ghost.getBoundingClientRect();
+      const sr = scroller.getBoundingClientRect();
+      const stickyLeft = TIME_COL_WIDTH + (!isMultiDay && freezeUnassigned ? minColWidth : 0);
+      const visLeft = sr.left + stickyLeft + 24;
+      const visRight = Math.min(sr.right, window.innerWidth - panelW) - 24;
+      let dx = 0;
+      if (g.left < visLeft) dx = g.left - visLeft;
+      else if (g.right > visRight) dx = g.right - visRight;
+      let dy = 0;
+      if (g.top < sr.top + 12) dy = g.top - sr.top - 48;
+      else if (g.bottom > sr.bottom - 12) dy = g.bottom - sr.bottom + 48;
+      if (dx || dy) scroller.scrollBy({ left: dx, top: dy, behavior });
+    };
+    const timer = setTimeout(ensureVisible, 80); // after the spacer has rendered
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+
+  // Dashed "New booking" ghost for the quick-create draft (follows the panel's date / time / dentist / treatment).
+  const renderDraftGhost = (colId, day) => {
+    if (!draftGhost || !draftGhost.startTime || draftGhost.date !== day) return null;
+    const ghostColId = colId === 'all'
+      ? 'all'
+      : (columnMode === 'chair' ? (draftGhost.chairId || 'unassigned') : (draftGhost.dentistId || 'unassigned'));
+    if (ghostColId !== colId) return null;
+    const startMin = Number(draftGhost.startTime.slice(0, 2)) * 60 + Number(draftGhost.startTime.slice(3, 5));
+    const endMin = startMin + (draftGhost.durationMinutes || 30);
+    const pad = (n) => String(n).padStart(2, '0');
+    const endStr = `${pad(Math.floor(endMin / 60) % 24)}:${pad(endMin % 60)}`;
+    const range = `${to12h(draftGhost.startTime)}–${to12h(endStr)}`;
+    const ghostHeight = Math.max(timeToHeight(draftGhost.startTime, endStr), 22);
+    const tone = draftGhost.overlap ? 'text-error' : 'text-primary';
+    return (
+      <div
+        data-draft-ghost="true"
+        className={`absolute inset-x-0.5 rounded-spa pointer-events-none px-2 py-1 overflow-hidden z-[4] border-[1.5px] border-dashed ${
+          draftGhost.overlap ? 'border-error bg-error/[0.06]' : 'border-primary bg-primary/[0.06]'
+        }`}
+        style={{ top: timeToTop(draftGhost.startTime), height: ghostHeight }}
+      >
+        {ghostHeight >= 36 ? (
+          <>
+            <span className={`font-body text-[11px] font-medium leading-tight truncate block ${tone}`}>New booking</span>
+            <span className={`font-body text-[11px] leading-tight truncate block ${tone}`}>{range}</span>
+          </>
+        ) : (
+          <span className={`font-body text-[11px] leading-tight truncate block ${tone}`}>{range}</span>
+        )}
+      </div>
+    );
+  };
+
   // Manual-block occurrences covering this column/day as renderable ranges. A block with neither
   // dentistId nor chairId is a whole-branch block and applies to every column (including
   // Unassigned and the 4-day day columns). Dentist/chair-scoped blocks only show in the matching
@@ -1506,6 +1593,7 @@ const CalendarGrid = ({
 
         {/* Manual blocks (time off) */}
         {renderManualBlocks(col, day)}
+        {renderDraftGhost(col.id, day)}
 
         {/* Booking cards with overlap handling */}
         {(() => {
@@ -1642,7 +1730,8 @@ const CalendarGrid = ({
         ref={headerScrollRef}
         className="flex-shrink-0 z-header bg-background border-b border-border overflow-hidden"
       >
-        <div className="flex" style={{ width: '100%', minWidth: TIME_COL_WIDTH + columnsMinWidth }}>
+        <div className="flex relative" style={{ width: '100%', minWidth: TIME_COL_WIDTH + columnsMinWidth }}>
+          {draftSpacer > 0 && <div aria-hidden="true" data-draft-spacer="true" style={{ position: 'absolute', top: 0, left: `calc(100% + ${draftSpacer}px)`, width: 1, height: 1 }} />}
           <div className="flex-shrink-0 border-r border-border px-2 h-11 flex items-center sticky left-0 z-header bg-background" style={{ width: TIME_COL_WIDTH }}>
             <Icon name="Clock" size={14} className="text-text-secondary" />
           </div>
@@ -1697,6 +1786,7 @@ const CalendarGrid = ({
           onMouseMove={handleGridMouseMove}
           onMouseLeave={hideHoverTime}
         >
+          {draftSpacer > 0 && <div aria-hidden="true" data-draft-spacer="true" style={{ position: 'absolute', top: 0, left: `calc(100% + ${draftSpacer}px)`, width: 1, height: 1 }} />}
           {renderHoverTime()}
           <SharedBookingLines containerRef={gridBodyRef} bookings={bookings} />
           {renderTimeLabels()}
@@ -1724,6 +1814,7 @@ const CalendarGrid = ({
                   isActive={!!activeDragId}
                 />
                 {renderManualBlocks(unassignedCol, currentDate)}
+                {renderDraftGhost(unassignedCol.id, currentDate)}
                 {/* Compact overlap rendering for unassigned column */}
                 {(() => {
                   const clusters = clusterOverlapping(colBookings);
@@ -1838,7 +1929,8 @@ const CalendarGrid = ({
         ref={headerScrollRef}
         className="flex-shrink-0 z-header bg-background border-b border-border overflow-hidden"
       >
-        <div className="flex" style={{ width: '100%', minWidth: TIME_COL_WIDTH + daysMinWidth }}>
+        <div className="flex relative" style={{ width: '100%', minWidth: TIME_COL_WIDTH + daysMinWidth }}>
+          {draftSpacer > 0 && <div aria-hidden="true" data-draft-spacer="true" style={{ position: 'absolute', top: 0, left: `calc(100% + ${draftSpacer}px)`, width: 1, height: 1 }} />}
           <div className="flex-shrink-0 border-r border-border sticky left-0 bg-background" style={{ width: TIME_COL_WIDTH }} />
           <div className="flex flex-1" style={{ minWidth: daysMinWidth }}>
             {days.map(day => {
@@ -1877,6 +1969,7 @@ const CalendarGrid = ({
           onMouseMove={handleGridMouseMove}
           onMouseLeave={hideHoverTime}
         >
+          {draftSpacer > 0 && <div aria-hidden="true" data-draft-spacer="true" style={{ position: 'absolute', top: 0, left: `calc(100% + ${draftSpacer}px)`, width: 1, height: 1 }} />}
           {renderHoverTime()}
           {renderTimeLabels()}
           <div className="flex flex-1 relative" style={{ minWidth: daysMinWidth }}>
@@ -1916,6 +2009,7 @@ const CalendarGrid = ({
                   {renderNowIndicator(day, di === 0)}
 
                   {renderManualBlocks({ id: 'all', type: 'day' }, day)}
+                  {renderDraftGhost('all', day)}
 
                   {/* Booking cards rendered as siblings to droppable */}
                   {dayBookings.map(booking => (
