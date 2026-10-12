@@ -21,7 +21,8 @@ function useMediaQuery(query) {
 //    Nothing underneath moves or reflows; pages keep the draft visible by scrolling their own content (see CalendarGrid).
 //  * below lg: a right-hand sheet (full-screen under 640px) with a light scrim covering the whole viewport.
 // `onClose` is called for ×, Esc and the scrim — callers put any dirty-draft guard behind it. Both variants are portalled to <body>.
-const SidePanel = ({ isOpen, title, onClose, children, footer, headerExtra, titleId: titleIdProp }) => {
+// `width`: any CSS width for the docked panel (default 420px), e.g. 'min(560px, max(420px, 100vw - 720px))'.
+const SidePanel = ({ isOpen, title, onClose, children, footer, headerExtra, titleId: titleIdProp, width = `${PANEL_WIDTH}px` }) => {
   const docked = useMediaQuery('(min-width: 1024px)');
   const autoId = useId();
   const titleId = titleIdProp || `side-panel-title-${autoId}`;
@@ -45,9 +46,16 @@ const SidePanel = ({ isOpen, title, onClose, children, footer, headerExtra, titl
   // Esc closes (through the caller's guard) unless an inner control already handled it.
   useEffect(() => {
     if (!isOpen) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape' && !e.defaultPrevented) onClose?.(); };
+    // Deferred a tick so an inner popover/menu that handles the same Esc (and calls preventDefault) closes first, regardless of
+    // listener registration order; the panel only closes on an Esc nothing else claimed.
+    let t;
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      clearTimeout(t);
+      t = setTimeout(() => { if (!e.defaultPrevented) onClose?.(); }, 0);
+    };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    return () => { clearTimeout(t); document.removeEventListener('keydown', onKey); };
   }, [isOpen, onClose]);
 
   const inner = (
@@ -56,7 +64,7 @@ const SidePanel = ({ isOpen, title, onClose, children, footer, headerExtra, titl
       aria-modal={docked ? 'false' : 'true'}
       aria-labelledby={titleId}
       className="h-full flex flex-col bg-surface"
-      style={{ width: docked ? PANEL_WIDTH : '100%' }}
+      style={{ width: '100%' }}
     >
       <div className="h-14 flex-shrink-0 flex items-center justify-between gap-2 px-5 border-b border-border bg-surface">
         <h3 id={titleId} className="font-heading font-heading-semibold text-[15px] text-text-primary truncate">{title}</h3>
@@ -83,9 +91,11 @@ const SidePanel = ({ isOpen, title, onClose, children, footer, headerExtra, titl
     return mounted ? createPortal(
       <aside
         aria-hidden={!isOpen}
+        data-side-panel="true"
         className="fixed top-0 right-0 h-screen z-modal bg-surface border-l border-border overflow-hidden transition-transform duration-200 ease-out motion-reduce:transition-none"
         style={{
-          width: PANEL_WIDTH,
+          width,
+          maxWidth: '100vw',
           transform: shown ? 'translateX(0)' : 'translateX(100%)',
           boxShadow: '-8px 0 24px rgba(14,13,12,0.06)',
         }}

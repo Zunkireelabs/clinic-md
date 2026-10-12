@@ -16,7 +16,7 @@ const EmptySlotChoiceMenu = ({ x, y, options, onClose }) => {
       if (ref.current && !ref.current.contains(e.target)) onClose();
     };
     const handleEscape = (e) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); }
     };
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleEscape);

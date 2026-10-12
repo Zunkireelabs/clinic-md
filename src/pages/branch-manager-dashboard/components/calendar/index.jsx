@@ -141,7 +141,7 @@ function formatTimeDisplay(time) {
 
 // ── Quick Create Panel ────────────────────────────────────────
 
-const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, chairs, bookings = [], onClose, onSubmit, branchId, branchHours, retarget, onDraftChange, columnMode = 'dentist', allDentists = [] }) => {
+const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, chairs, bookings = [], onClose, onSubmit, branchId, branchHours, retarget, onDraftChange, columnMode = 'dentist', allDentists = [], guardRef }) => {
   const [treatmentId, setTreatmentId] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -149,6 +149,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerGender, setCustomerGender] = useState('');
   const [specialRequests, setSpecialRequests] = useState('');
+  const [dragMinutes, setDragMinutes] = useState(0); // length of the range dragged on the grid; used until a treatment is picked
   const [selectedDentistIds, setSelectedDentistIds] = useState([]);
   const [chairId, setChairId] = useState('');
   const [bookingDate, setBookingDate] = useState('');
@@ -273,6 +274,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
       : '';
     setBookingTime(slotTime);
     setTimeText(slotTime ? format12h(slotTime) : '');
+    setDragMinutes(slotInfo?.dragMinutes || 0);
     setBookingMode('individual');
     setGroupType('couple');
     setSeparateCount(3);
@@ -307,7 +309,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
           chairId: groupType === 'couple' ? groupChairId : p.chairId,
           dur: durOf(treatmentMode === 'same' ? groupTreatmentId : p.treatmentId),
         }))
-      : [{ dentistIds: selectedDentistIds, chairId, dur: selectedTreatment?.duration_minutes || 60 }];
+      : [{ dentistIds: selectedDentistIds, chairId, dur: selectedTreatment?.duration_minutes || dragMinutes || 60 }];
     for (const p of participants) {
       const occ = findBlockOverlap(dayBlocks, {
         date: bookingDate, startTime: bookingTime, durationMinutes: p.dur, dentistIds: p.dentistIds, chairId: p.chairId,
@@ -315,7 +317,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
       if (occ) return describeBlockOverlap(occ);
     }
     return '';
-  }, [dayBlocks, bookingDate, bookingTime, bookingMode, people, groupType, groupChairId, treatmentMode, groupTreatmentId, selectedDentistIds, chairId, selectedTreatment, treatments]);
+  }, [dayBlocks, bookingDate, bookingTime, bookingMode, people, groupType, groupChairId, treatmentMode, groupTreatmentId, selectedDentistIds, chairId, selectedTreatment, treatments, dragMinutes]);
 
   // Parse chair capacity from amenities (e.g., "3 Chair" → 3, "1 Bed" → 1)
   const getChairCapacity = (chair) => {
@@ -583,13 +585,19 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
     || selectedDentistIds.join(',') !== (initialDraftRef.current.dentist ? initialDraftRef.current.dentist : '')
     || (chairId || '') !== initialDraftRef.current.chair
   );
+  // Lets the calendar run another panel action (open a booking, …) through this panel's dirty guard.
+  useEffect(() => {
+    if (!guardRef) return undefined;
+    guardRef.current = (action) => { if (isDirty) setConfirm({ type: 'switch', action }); else action(); };
+    return () => { guardRef.current = null; };
+  });
   const requestClose = useCallback(() => {
     if (isDirty) setConfirm({ type: 'discard' });
     else onClose();
   }, [isDirty, onClose]);
 
   // ── Ghost block on the grid: report the draft (date, time, length, column) to the calendar ──
-  const draftDuration = (treatments || []).find((t) => t.id === (bookingMode === 'group' ? groupTreatmentId : treatmentId))?.duration_minutes || 30;
+  const draftDuration = (treatments || []).find((t) => t.id === (bookingMode === 'group' ? groupTreatmentId : treatmentId))?.duration_minutes || dragMinutes || 30;
   useEffect(() => {
     if (!isOpen) { onDraftChange?.(null); return; }
     onDraftChange?.({
@@ -599,8 +607,10 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
       dentistId: selectedDentistIds[0] || null,
       chairId: chairId || null,
       overlap: !!blockOverlapMsg,
+      // Opened from the toolbar (no column): don't draw the ghost until a dentist/chair is chosen.
+      hidden: !slotInfo?.colType && !selectedDentistIds[0] && !chairId,
     });
-  }, [isOpen, bookingDate, bookingTime, draftDuration, selectedDentistIds, chairId, blockOverlapMsg, onDraftChange]);
+  }, [isOpen, bookingDate, bookingTime, draftDuration, selectedDentistIds, chairId, blockOverlapMsg, onDraftChange, slotInfo?.colType]);
 
   // ── Retarget: clicking another empty slot while the panel is open moves the draft there ──
   const lastRetargetRef = useRef(null);
@@ -609,6 +619,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
     const t = `${String(s.hour).padStart(2, '0')}:${String(s.minute).padStart(2, '0')}`;
     setBookingTime(t);
     setTimeText(format12h(t));
+    setDragMinutes(s.dragMinutes || 0);
     if (s.colType === 'dentist' && s.colId) setSelectedDentistIds([s.colId]);
     if (s.colType === 'chair' && s.colId) { setChairId(s.colId); setGroupChairId(s.colId); }
     // The retargeted slot is the new baseline for "did the user change the dentist/chair?"
@@ -661,7 +672,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
         onClick={() => {
           const c = confirm;
           setConfirm(null);
-          if (c.type === 'move') applyRetarget(c.slot); else onClose();
+          if (c.type === 'move') applyRetarget(c.slot); else if (c.type === 'switch') c.action?.(); else onClose();
         }}
         className="h-9 px-3 text-[13px] font-body font-body-medium bg-text-primary text-white rounded-spa hover:opacity-90 spa-transition-fast whitespace-nowrap"
       >
@@ -1472,6 +1483,7 @@ const OperationalCalendar = ({ branchId }) => {
     };
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
+      e.preventDefault(); // claimed: the panel / rebook handlers must not also act on this Esc
       setDateDropdownOpen(false);
       setTipOpen(false);
       setAwayOpen(false);
@@ -1491,7 +1503,7 @@ const OperationalCalendar = ({ branchId }) => {
     const handle = (e) => {
       if (positionDropdownRef.current && !positionDropdownRef.current.contains(e.target)) setPositionDropdownOpen(false);
     };
-    const onKey = (e) => { if (e.key === 'Escape') setPositionDropdownOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); setPositionDropdownOpen(false); } };
     document.addEventListener('mousedown', handle);
     document.addEventListener('keydown', onKey);
     return () => {
@@ -1512,6 +1524,14 @@ const OperationalCalendar = ({ branchId }) => {
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
+  const [previewBooking, setPreviewBooking] = useState(null); // calendar card data shown instantly while the full booking loads
+  // Guards: each open panel registers a function here; callers run "switch panel / open another booking" through it so
+  // unsaved edits are never lost silently. Only one panel (booking details OR quick-create) is open at a time.
+  const quickGuardRef = useRef(null);
+  const bookingGuardRef = useRef(null);
+  const modalOpenRef = useRef(false);
+  const previewBookingRef = useRef(null);
+  const quickCreateSlotRef = useRef(null);
   const [actionToast, setActionToast] = useState(null);
 
   // Drag state
@@ -1529,6 +1549,9 @@ const OperationalCalendar = ({ branchId }) => {
 
   // Quick-create panel state
   const [quickCreateSlot, setQuickCreateSlot] = useState(null);
+  modalOpenRef.current = modalOpen;
+  previewBookingRef.current = previewBooking;
+  quickCreateSlotRef.current = quickCreateSlot;
   const [retargetRequest, setRetargetRequest] = useState(null); // { slot, nonce }: click-to-retarget while the panel is open
   const [draftGhost, setDraftGhost] = useState(null);           // live draft reported by the panel, drawn on the grid
 
@@ -1583,7 +1606,7 @@ const OperationalCalendar = ({ branchId }) => {
     };
 
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && rebookSource) {
+      if (e.key === 'Escape' && rebookSource && !e.defaultPrevented) {
         // Reopen modal with rebook inline form
         setSelectedBooking(rebookSource.booking);
         setModalOpen(true);
@@ -1672,6 +1695,7 @@ const OperationalCalendar = ({ branchId }) => {
 
   // ── Navigation ─────────────────────────────────────────────
 
+  const overlapOccurrences = useMemo(() => [...(calendarData?.blockOccurrences || []), ...(calendarData?.transferOccurrences || [])], [calendarData]);
   const goToday = () => setCurrentDate(todayStr());
   const goPrev = () => setCurrentDate(addDays(currentDate, -getStepDays(viewMode)));
   const goNext = () => setCurrentDate(addDays(currentDate, getStepDays(viewMode)));
@@ -1682,6 +1706,36 @@ const OperationalCalendar = ({ branchId }) => {
         : addMonths(currentDate, sign * amount * (unit === 'year' ? 12 : 1))
     );
   };
+
+  // ── Keyboard shortcuts (calendar view only; ignored while typing or when a modal dialog is open) ──
+  // The handler is re-pointed every render so the single document listener always sees current state.
+  const shortcutRef = useRef(null);
+  shortcutRef.current = (e) => {
+    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target;
+    const tag = t?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) return;
+    // A modal dialog (add block, transfers, payment…) owns the keyboard; the docked side panel is aria-modal="false".
+    if (document.querySelector('[aria-modal="true"]')) return;
+    const k = e.key;
+    const kl = k.length === 1 ? k.toLowerCase() : k;
+    const act = (fn) => { e.preventDefault(); fn(); };
+    switch (kl) {
+      case 't': return act(goToday);
+      case 'j': case 'ArrowLeft': return act(goPrev);
+      case 'k': case 'ArrowRight': return act(goNext);
+      case 'd': return act(() => setViewMode('day'));
+      case 'f': return act(() => setViewMode('4day'));
+      case 'n': return act(handleNewBooking);
+      case '?': return act(() => setTipOpen((o) => !o));
+      default:
+    }
+  };
+  useEffect(() => {
+    const onKey = (e) => shortcutRef.current?.(e);
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
   // Ref to track current pointer Y position during drag (synchronous updates)
   const pointerYRef = useRef(null);
@@ -2185,6 +2239,44 @@ const OperationalCalendar = ({ branchId }) => {
     }
   }, [treatmentsCache, treatmentsLoading, branchId]);
 
+  // Toolbar "New booking" / N: quick-create at the selected date, next free 10-min slot >= now (or the open time on other days), no column.
+  const handleNewBooking = useCallback(() => {
+    if (quickCreateSlotRef.current) return;
+    const toMin = (t, d) => { const [h, m] = (t || d).split(':').map(Number); return h * 60 + (m || 0); };
+    const openMin = toMin(calendarData?.branchHours?.openTime, '09:00');
+    const lastMin = Math.max(openMin, toMin(calendarData?.branchHours?.closeTime, '21:00') - 10);
+    let startMin = openMin;
+    if (currentDate === toKathmanduParts(new Date().toISOString()).date) {
+      const nowMin = toMin(toKathmanduParts(new Date().toISOString()).time, '00:00');
+      startMin = Math.min(Math.max(Math.ceil(nowMin / 10) * 10, openMin), lastMin);
+    }
+    runThroughPanelGuard(() => {
+      setModalOpen(false);
+      setSelectedBooking(null);
+      setPreviewBooking(null);
+      setChoiceMenuSlot(null);
+      openQuickCreateForSlot({ day: currentDate, colType: null, colId: null, hour: Math.floor(startMin / 60), minute: startMin % 60 });
+    });
+  }, [calendarData, currentDate, openQuickCreateForSlot]);
+
+  // Drag-to-create release: same routing as a click on an empty slot, minus the choice menu (the user already chose "new booking").
+  const handleDragCreate = useCallback((slotInfo) => {
+    if (rebookSource) return;
+    if (slotInfo.colType === 'dentist' && isCheckedOutBlockedSlot(calendarData?.checkedOutByDentistAndDate, slotInfo.colId, slotInfo.day, slotInfo.hour, slotInfo.minute)) {
+      showToast('This dentist has already checked out for the day and is not bookable after their check-out time.', 'error');
+      return;
+    }
+    // Starting inside a block is already prevented (blocks swallow the press); a range that runs into one opens with the warning.
+    if (quickCreateSlotRef.current) { setRetargetRequest({ slot: slotInfo, nonce: Date.now() }); return; }
+    setChoiceMenuSlot(null);
+    runThroughPanelGuard(() => {
+      setModalOpen(false);
+      setSelectedBooking(null);
+      setPreviewBooking(null);
+      openQuickCreateForSlot(slotInfo);
+    });
+  }, [rebookSource, calendarData, openQuickCreateForSlot]);
+
   const handleEmptySlotClick = useCallback(async (slotInfo) => {
     // Refuse new bookings/blocks on any slot covered by a manual block.
     const manualBlock = findBlockOverlap([...(calendarData?.blockOccurrences || []), ...(calendarData?.transferOccurrences || [])], {
@@ -2242,13 +2334,24 @@ const OperationalCalendar = ({ branchId }) => {
       return;
     }
 
+    // Booking panel open: clicking an empty slot switches to quick-create there (through the panel's dirty guard).
+    if (modalOpen) {
+      runThroughPanelGuard(() => {
+        setModalOpen(false);
+        setSelectedBooking(null);
+        setPreviewBooking(null);
+        openQuickCreateForSlot(slotInfo);
+      });
+      return;
+    }
+
     // Normal flow — offer a choice (Add booking / Add block); with only one option, skip the menu.
     if (!blocksAvailable) {
       openQuickCreateForSlot(slotInfo);
       return;
     }
     setChoiceMenuSlot(slotInfo);
-  }, [rebookSource, branchId, refreshCalendar, calendarData, blocksAvailable, openQuickCreateForSlot, quickCreateSlot]);
+  }, [rebookSource, branchId, refreshCalendar, calendarData, blocksAvailable, openQuickCreateForSlot, quickCreateSlot, modalOpen]);
 
   // Transfers: cancel a scheduled transfer / bring an active one back now, via an in-app confirm.
   const handleConfirmTransferCancel = useCallback(async () => {
@@ -2396,10 +2499,21 @@ const OperationalCalendar = ({ branchId }) => {
 
   // ── Event click → modal ────────────────────────────────────
 
-  const handleBookingClick = useCallback(async (booking) => {
+  const runThroughPanelGuard = (action) => {
+    const guard = quickCreateSlotRef.current ? quickGuardRef.current : (modalOpenRef.current ? bookingGuardRef.current : null);
+    if (guard) guard(action); else action();
+  };
+
+  const openBookingPanel = useCallback(async (booking) => {
     const bookingId = booking.bookingId || booking.id;
     if (!bookingId) return;
 
+    // The panel opens instantly with the card's known data (skeleton for the rest); one panel at a time.
+    setQuickCreateSlot(null);
+    setRetargetRequest(null);
+    setDraftGhost(null);
+    setSelectedBooking(null);
+    setPreviewBooking(booking);
     setModalLoading(true);
     setModalOpen(true);
 
@@ -2408,10 +2522,13 @@ const OperationalCalendar = ({ branchId }) => {
     if (result.error) {
       setModalOpen(false);
       setModalLoading(false);
+      setPreviewBooking(null);
       showToast(result.error.message || 'Failed to load booking.', 'error');
       return;
     }
 
+    // Ignore a stale response if the user already clicked another booking.
+    if (previewBookingRef.current && (previewBookingRef.current.bookingId || previewBookingRef.current.id) !== bookingId) return;
     setSelectedBooking(transformBooking(result.data));
     setModalLoading(false);
 
@@ -2422,11 +2539,26 @@ const OperationalCalendar = ({ branchId }) => {
       if (svcResult.data) setTreatmentsCache(svcResult.data);
       setTreatmentsLoading(false);
     }
-  }, [treatmentsCache, treatmentsLoading]);
+  }, [treatmentsCache, treatmentsLoading, branchId]);
+
+  // Clicking a card: same booking → no-op; otherwise switch (through the open panel's dirty guard).
+  const handleBookingClick = useCallback((booking) => {
+    const bookingId = booking.bookingId || booking.id;
+    if (modalOpenRef.current && previewBookingRef.current && (previewBookingRef.current.bookingId || previewBookingRef.current.id) === bookingId) return;
+    runThroughPanelGuard(() => openBookingPanel(booking));
+  }, [openBookingPanel]);
+
+  // Re-fetch the open booking after an in-place panel action (status change).
+  const refreshOpenBooking = useCallback(async (bookingId) => {
+    const refreshed = await fetchBookingById(bookingId);
+    if (!refreshed.error) setSelectedBooking(transformBooking(refreshed.data));
+    refreshCalendar();
+  }, [refreshCalendar]);
 
   const handleModalClose = useCallback(() => {
     setModalOpen(false);
     setSelectedBooking(null);
+    setPreviewBooking(null);
     setRebookFallback(false);
     refreshCalendar();
   }, [refreshCalendar]);
@@ -2748,11 +2880,15 @@ const OperationalCalendar = ({ branchId }) => {
                 onClick={goPrev}
                 className="h-9 w-9 flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
                 aria-label="Previous"
+                title={viewMode === '4day' ? 'Previous 4 days (J or ←)' : 'Previous day (J or ←)'}
+                aria-keyshortcuts="j ArrowLeft"
               >
                 <Icon name="ChevronLeft" size={16} className="text-text-secondary" />
               </button>
               <button
                 onClick={goToday}
+                title="Today (T)"
+                aria-keyshortcuts="t"
                 className="h-9 px-3 text-[13px] font-body font-body-medium text-text-primary border border-border rounded-spa hover:bg-background spa-transition-fast"
               >
                 Today
@@ -2782,6 +2918,8 @@ const OperationalCalendar = ({ branchId }) => {
                 onClick={goNext}
                 className="h-9 w-9 flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
                 aria-label="Next"
+                title={viewMode === '4day' ? 'Next 4 days (K or →)' : 'Next day (K or →)'}
+                aria-keyshortcuts="k ArrowRight"
               >
                 <Icon name="ChevronRight" size={16} className="text-text-secondary" />
               </button>
@@ -2816,14 +2954,35 @@ const OperationalCalendar = ({ branchId }) => {
                   type="button"
                   onClick={() => setTipOpen(prev => !prev)}
                   className="h-9 w-9 flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
-                  aria-label="Drag and drop tip"
+                  aria-label="Shortcuts and drag-and-drop tips"
+                  title="Shortcuts (?)"
+                  aria-keyshortcuts="?"
                 >
                   <Icon name="Info" size={16} className="text-text-secondary" />
                 </button>
                 {tipOpen && (
-                  <div className="absolute right-0 top-full mt-1 w-64 bg-surface border border-border rounded-spa-lg shadow-spa-elevated z-dropdown p-3 text-[13px] text-text-secondary leading-relaxed text-left">
-                    Drag a booking to reschedule it. Bookings that are paid, in progress, completed, no-show or
-                    cancelled, or day-closed, can't be moved. Once the start time has passed, only Pending bookings can.
+                  <div role="dialog" aria-label="Keyboard shortcuts" className="absolute right-0 top-full mt-1 w-72 bg-surface border border-border rounded-spa-lg shadow-spa-elevated z-dropdown p-4 text-[13px] text-text-secondary leading-relaxed text-left">
+                    <p className="font-body font-medium text-xs uppercase tracking-wider text-text-tertiary mb-2">Keyboard shortcuts</p>
+                    <dl className="space-y-1.5">
+                      {[
+                        ['T', 'Today'],
+                        ['J / ←', viewMode === '4day' ? 'Previous 4 days' : 'Previous day'],
+                        ['K / →', viewMode === '4day' ? 'Next 4 days' : 'Next day'],
+                        ['D', 'Day view'],
+                        ['F', '4-Day view'],
+                        ['N', 'New booking'],
+                        ['Esc', 'Close popover, menu or panel'],
+                        ['?', 'Show / hide this list'],
+                      ].map(([key, label]) => (
+                        <div key={key} className="flex items-center justify-between gap-3">
+                          <dt>{label}</dt>
+                          <dd><kbd className="px-1.5 py-0.5 rounded-[4px] border border-border bg-background font-data text-[11px] text-text-primary">{key}</kbd></dd>
+                        </div>
+                      ))}
+                    </dl>
+                    <p className="mt-3 pt-3 border-t border-border text-xs text-text-tertiary">
+                      Drag a booking to reschedule it (Pending, or before its start time; not paid, in progress or closed). Drag on an empty column to start a new booking.
+                    </p>
                   </div>
                 )}
               </div>
@@ -2893,6 +3052,8 @@ const OperationalCalendar = ({ branchId }) => {
                   <button
                     key={v.key}
                     onClick={() => setViewMode(v.key)}
+                    title={v.key === 'day' ? 'Day view (D)' : '4-Day view (F)'}
+                    aria-keyshortcuts={v.key === 'day' ? 'd' : 'f'}
                     className={`px-3 h-full text-[13px] rounded-[4px] font-body font-body-medium spa-transition-fast whitespace-nowrap ${
                       viewMode === v.key
                         ? 'bg-text-primary text-white'
@@ -2903,6 +3064,16 @@ const OperationalCalendar = ({ branchId }) => {
                   </button>
                 ))}
               </div>
+              <button
+                type="button"
+                onClick={handleNewBooking}
+                title="New booking (N)"
+                aria-keyshortcuts="n"
+                className="h-9 flex items-center gap-1.5 px-3.5 text-[13px] font-body font-body-medium text-white bg-primary hover:bg-primary/90 rounded-spa spa-transition-fast whitespace-nowrap"
+              >
+                <Icon name="Plus" size={14} />
+                New booking
+              </button>
             </div>
           </div>
 
@@ -2932,9 +3103,12 @@ const OperationalCalendar = ({ branchId }) => {
                   onDentistReorder={canReorderDentists ? handleDentistReorder : undefined}
                   onChairReorder={canReorderDentists ? handleChairReorder : undefined}
                   blockOccurrences={calendarData.blockOccurrences}
+                  overlapOccurrences={overlapOccurrences}
+                  onDragCreate={handleDragCreate}
                   onDeleteManualBlock={setBlockDeleteRequest}
                   onResizeManualBlock={handleResizeManualBlock}
-                  draftGhost={quickCreateSlot ? draftGhost : null}
+                  draftGhost={quickCreateSlot && !draftGhost?.hidden ? draftGhost : null}
+                  selectedBookingId={modalOpen ? (selectedBooking?.bookingId || previewBooking?.bookingId || previewBooking?.id || null) : null}
                   onEditManualBlock={(range) => setEditingBlock({ blockId: range.blockId, day: range.day })}
                   onEditTransfer={transfersAvailable ? (col) => setEditingTransferDentist({ id: col.id, name: col.name }) : undefined}
                   onCancelScheduledTransfer={transfersAvailable ? (col) => setTransferCancelRequest({ kind: 'scheduled', col }) : undefined}
@@ -2966,6 +3140,7 @@ const OperationalCalendar = ({ branchId }) => {
               onDraftChange={setDraftGhost}
               columnMode={columnMode}
               allDentists={calendarData?.dentists || []}
+              guardRef={quickGuardRef}
             />
           </div>
         </div>
@@ -3063,19 +3238,13 @@ const OperationalCalendar = ({ branchId }) => {
         </div>
       )}
 
-      {/* Modal loading overlay */}
-      {modalOpen && modalLoading && (
-        <div className="fixed inset-0 bg-text-primary/50 backdrop-blur-sm z-modal flex items-center justify-center p-4">
-          <div className="bg-surface rounded-spa-lg spa-shadow-modal p-12 text-center animate-fade-in">
-            <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
-            <p className="font-body font-body-normal text-text-secondary">Loading booking...</p>
-          </div>
-        </div>
-      )}
-
       {/* Booking Action Modal */}
       <BookingActionModal
-        isOpen={modalOpen && !modalLoading && !!selectedBooking}
+        variant="panel"
+        isOpen={modalOpen}
+        previewBooking={previewBooking}
+        onRefreshBooking={refreshOpenBooking}
+        guardRef={bookingGuardRef}
         onClose={handleModalClose}
         booking={selectedBooking}
         dentists={dentistsForModal}

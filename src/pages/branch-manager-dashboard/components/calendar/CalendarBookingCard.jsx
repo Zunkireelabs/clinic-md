@@ -67,7 +67,7 @@ export function canDragBooking(booking) {
   return true;
 }
 
-const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', onResize, isSelected = false, onSelect }) => {
+const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', onResize, isSelected = false, onSelect, isPanelSelected = false }) => {
   const colors = getBookingStatusColors(booking.status);
   const isUnpaid = booking.paymentStatus === 'unpaid';
   const isPaid = booking.paymentStatus === 'paid';
@@ -199,8 +199,9 @@ const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', 
       }}
       className={`absolute left-1 right-1 rounded-spa overflow-visible transition-colors duration-150 ease-out hover:z-dropdown hover:brightness-[0.97] ${
         isDraggable && !isResizing ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
-      } ${isSelected ? 'ring-2 ring-violet-500 ring-offset-1' : ''}`}
+      } ${isSelected ? 'ring-2 ring-violet-500 ring-offset-1' : ''} ${isPanelSelected ? 'ring-2 ring-primary z-[3]' : ''}`}
       data-booking-card="true"
+      data-booking-key={booking.bookingId || booking.id}
       data-booking-id={booking.isShared ? booking.bookingId : undefined}
       data-shared={booking.isShared ? 'true' : undefined}
       style={{

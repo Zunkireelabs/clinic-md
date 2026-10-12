@@ -7,6 +7,7 @@ import Icon from '../../../../components/AppIcon';
 import CalendarBookingCard, { canDragBooking, BookingHoverPreview } from './CalendarBookingCard';
 import { to12h as to12hSpaced } from '../../../../services/bookingTransformers';
 import { PANEL_WIDTH } from '../../../../components/ui/SidePanel';
+import { findBlockOverlap, formatBlockRange } from '../../../../utils/blockOverlap';
 
 // Compact 12h ('2:00pm') to match the gutter and cards.
 const to12h = (t) => to12hSpaced(t).replace(' ', '');
@@ -113,6 +114,7 @@ const SharedBookingLines = ({ containerRef, bookings }) => {
 export const SLOT_HEIGHT = 36; // px per 30-min slot (72px per hour) - for visual grid lines
 export const HOUR_HEIGHT = SLOT_HEIGHT * 2; // 72px per hour
 const TIME_COL_WIDTH = 64;
+const PINNED_SHADOW = '6px 0 8px -6px rgba(14,13,12,0.16)'; // right shadow on the pinned Unassigned column while the grid is scrolled
 
 // Pinch-to-zoom bounds (mobile/touch only) — effective hour height 40px–320px
 const MIN_ZOOM = 40 / HOUR_HEIGHT;
@@ -661,6 +663,9 @@ const CalendarGrid = ({
   onResizeManualBlock,
   onEditManualBlock,
   draftGhost,
+  selectedBookingId,
+  onDragCreate,
+  overlapOccurrences,
   onEditTransfer,
   onCancelScheduledTransfer,
   onCancelActiveTransfer,
@@ -1108,11 +1113,22 @@ const CalendarGrid = ({
   // first and the spacer removed afterwards.
   const draftScrollRestoreRef = useRef(null);
   const [spacerActive, setSpacerActive] = useState(false);
+  // Focus target: the quick-create ghost, or the booking card open in the details panel.
   const draftKey = draftGhost
     ? `${draftGhost.date}|${draftGhost.dentistId || ''}|${draftGhost.chairId || ''}|${draftGhost.startTime}|${draftGhost.durationMinutes}`
-    : null;
-  const panelWidthNow = () => (window.innerWidth >= 1024 ? PANEL_WIDTH : window.innerWidth >= 640 ? 400 : 0);
-  const draftSpacer = spacerActive ? panelWidthNow() : 0;
+    : (selectedBookingId ? `booking|${selectedBookingId}` : null);
+  const focusSelector = draftGhost ? '[data-draft-ghost]' : `[data-booking-key="${selectedBookingId}"]`;
+  // The panel's real width (it differs per content: quick-create 420, booking details up to 560); falls back to defaults.
+  const panelWidthNow = () => {
+    if (window.innerWidth < 640) return 0;
+    const el = document.querySelector('[data-side-panel]');
+    if (el && el.getBoundingClientRect().width > 0) return Math.round(el.getBoundingClientRect().width);
+    return window.innerWidth >= 1024 ? PANEL_WIDTH : 400;
+  };
+  const [spacerW, setSpacerW] = useState(0);
+  const gridScrolledRef = useRef(false);
+  const [gridScrolled, setGridScrolled] = useState(false); // drives the pinned Unassigned column's right shadow
+  const draftSpacer = spacerActive ? spacerW : 0;
   useEffect(() => {
     const scroller = scrollRef.current;
     if (!scroller) return undefined;
@@ -1127,10 +1143,10 @@ const CalendarGrid = ({
     }
     if (!draftScrollRestoreRef.current) draftScrollRestoreRef.current = { left: scroller.scrollLeft };
     setSpacerActive(true);
-    const panelW = panelWidthNow();
-    if (!panelW) return undefined; // phones: full-screen sheet, nothing to keep visible
+    if (!panelWidthNow() && window.innerWidth < 640) return undefined; // phones: full-screen sheet, nothing to keep visible
     const ensureVisible = () => {
-      const ghost = gridBodyRef.current?.querySelector('[data-draft-ghost]');
+      const panelW = panelWidthNow();
+      const ghost = gridBodyRef.current?.querySelector(focusSelector);
       if (!ghost) return;
       const g = ghost.getBoundingClientRect();
       const sr = scroller.getBoundingClientRect();
@@ -1145,8 +1161,13 @@ const CalendarGrid = ({
       else if (g.bottom > sr.bottom - 12) dy = g.bottom - sr.bottom + 48;
       if (dx || dy) scroller.scrollBy({ left: dx, top: dy, behavior });
     };
-    const timer = setTimeout(ensureVisible, 80); // after the spacer has rendered
-    return () => clearTimeout(timer);
+    // Measure the real panel, size the spacer to it, then (after the spacer rendered) scroll into view.
+    let timer2;
+    const timer = setTimeout(() => {
+      setSpacerW(panelWidthNow());
+      timer2 = setTimeout(ensureVisible, 60);
+    }, 80);
+    return () => { clearTimeout(timer); clearTimeout(timer2); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftKey]);
 
@@ -1472,18 +1493,22 @@ const CalendarGrid = ({
   const HOVER_SNAP_MIN = 10;
   const hoverLineRef = useRef(null);
   const hoverPillRef = useRef(null);
+  const dragCreateRef = useRef(null); // drag-to-create session (see handleGridPointerDown)
 
   const hideHoverTime = useCallback(() => {
     if (hoverLineRef.current) hoverLineRef.current.style.display = 'none';
     if (hoverPillRef.current) hoverPillRef.current.style.display = 'none';
   }, []);
 
+  // A dnd-kit drag (booking/block) hides the label immediately, not just on the next mousemove.
+  useEffect(() => { if (activeDragId) hideHoverTime(); }, [activeDragId, hideHoverTime]);
+
   const handleGridMouseMove = (e) => {
     const line = hoverLineRef.current;
     const pill = hoverPillRef.current;
     if (!line || !pill) return;
     const col = e.target.closest ? e.target.closest('[data-cal-column]') : null;
-    if (activeDragId || !col || e.target.closest('[data-booking-card]') || e.target.closest('[data-block-overlay]')) {
+    if (activeDragId || dragCreateRef.current?.dragging || !col || e.target.closest('[data-booking-card]') || e.target.closest('[data-block-overlay]')) {
       hideHoverTime();
       return;
     }
@@ -1532,6 +1557,116 @@ const CalendarGrid = ({
     onBookingResize(booking, deltaMinutes, direction);
   }, [onBookingResize, eHH]);
 
+  // ── Drag-to-create ────────────────────────────────────────
+  // Press on empty column space and drag vertically: a live dashed ghost (snapped to 10 min) is drawn straight into the
+  // column's DOM (no React state, so no re-render per move). On release `onDragCreate` opens quick-create there.
+  // < 5px of movement stays a plain click (existing menu / retarget behaviour). Mouse only; Esc cancels.
+  const handleGridPointerDown = (e) => {
+    if (!onDragCreate || activeDragId || e.button !== 0 || e.pointerType !== 'mouse' || dragCreateRef.current) return;
+    const t = e.target;
+    if (!t.closest) return;
+    const colEl = t.closest('[data-cal-column]');
+    if (!colEl || t.closest('[data-booking-card],[data-block-overlay],button,a,input,textarea,select,[data-no-drag-create]')) return;
+    dragCreateRef.current = { colEl, startY: e.clientY, dragging: false };
+    const st = dragCreateRef.current;
+
+    const toMinutes = (clientY) => openHour * 60 + ((clientY - colEl.getBoundingClientRect().top - TOP_PAD) / eHH) * 60;
+    const range = (clientY) => {
+      const lo = openHour * 60;
+      const hi = closeHour * 60;
+      const a = Math.floor(toMinutes(st.startY) / HOVER_SNAP_MIN) * HOVER_SNAP_MIN;
+      const b = Math.floor(toMinutes(clientY) / HOVER_SNAP_MIN) * HOVER_SNAP_MIN;
+      let s0 = clientY >= st.startY ? a : b;
+      let e0 = (clientY >= st.startY ? b : a) + HOVER_SNAP_MIN;
+      s0 = Math.max(lo, Math.min(s0, hi - HOVER_SNAP_MIN));
+      e0 = Math.max(s0 + HOVER_SNAP_MIN, Math.min(e0, hi));
+      return { s0, e0 };
+    };
+    const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const day = colEl.dataset.day;
+    const colId = colEl.dataset.colId;
+    const colType = colEl.dataset.colType;
+
+    const paint = (clientY) => {
+      const { s0, e0 } = range(clientY);
+      st.range = { s0, e0 };
+      if (!st.ghost) {
+        st.ghost = document.createElement('div');
+        st.ghost.setAttribute('data-drag-create-ghost', 'true');
+        st.ghost.className = 'absolute inset-x-0.5 rounded-spa pointer-events-none px-2 py-1 overflow-hidden border-[1.5px] border-dashed';
+        st.ghost.style.zIndex = '7';
+        colEl.appendChild(st.ghost);
+      }
+      const overlap = findBlockOverlap(overlapOccurrences || [], {
+        date: day, startTime: hhmm(s0), durationMinutes: e0 - s0,
+        dentistId: colType === 'dentist' ? colId : null, chairId: colType === 'chair' ? colId : null,
+      });
+      const color = overlap ? '#C0392B' : '#7B2FF7';
+      const g = st.ghost;
+      g.style.top = `${TOP_PAD + ((s0 - openHour * 60) / 60) * eHH}px`;
+      g.style.height = `${Math.max(((e0 - s0) / 60) * eHH, 16)}px`;
+      g.style.borderColor = color;
+      g.style.backgroundColor = overlap ? 'rgba(192,57,43,0.06)' : 'rgba(123,47,247,0.06)';
+      g.style.color = color;
+      g.innerHTML = '';
+      const label = document.createElement('span');
+      label.className = 'font-body text-[11px] leading-tight truncate block';
+      label.textContent = formatBlockRange(hhmm(s0), hhmm(e0));
+      g.appendChild(label);
+    };
+
+    const cleanup = () => {
+      document.removeEventListener('pointermove', onMove, true);
+      document.removeEventListener('pointerup', onUp, true);
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('pointercancel', onCancel, true);
+      if (st.ghost) st.ghost.remove();
+      document.body.style.userSelect = st.prevUserSelect ?? '';
+      dragCreateRef.current = null;
+    };
+    const swallowNextClick = () => {
+      const stop = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+      document.addEventListener('click', stop, true);
+      setTimeout(() => document.removeEventListener('click', stop, true), 0);
+    };
+    function onMove(ev) {
+      if (!st.dragging) {
+        if (Math.abs(ev.clientY - st.startY) < 5) return;
+        st.dragging = true;
+        st.prevUserSelect = document.body.style.userSelect;
+        document.body.style.userSelect = 'none';
+        window.getSelection?.()?.removeAllRanges?.();
+        hideHoverTime();
+      }
+      hideHoverTime();
+      paint(ev.clientY);
+    }
+    function onUp() {
+      const dragged = st.dragging;
+      const r = st.range;
+      cleanup();
+      if (!dragged || !r) return; // a click: normal handlers run
+      swallowNextClick();
+      onDragCreate({
+        day, colId, colName: colEl.dataset.colName, colType,
+        hour: Math.floor(r.s0 / 60), minute: r.s0 % 60, dragMinutes: r.e0 - r.s0,
+      });
+    }
+    function onCancel() { const d = st.dragging; cleanup(); if (d) swallowNextClick(); }
+    function onKey(ev) {
+      if (ev.key !== 'Escape') return;
+      ev.preventDefault(); ev.stopPropagation();
+      const d = st.dragging;
+      cleanup();
+      // The button is still down: swallow the click its release will generate.
+      if (d) document.addEventListener('pointerup', swallowNextClick, { once: true, capture: true });
+    }
+    document.addEventListener('pointermove', onMove, true);
+    document.addEventListener('pointerup', onUp, true);
+    document.addEventListener('pointercancel', onCancel, true);
+    document.addEventListener('keydown', onKey, true);
+  };
+
   const handleColumnClick = (e, day, col) => {
     if (activeDragId || !onEmptySlotClick) return;
     const relativeY = e.clientY - e.currentTarget.getBoundingClientRect().top - TOP_PAD;
@@ -1552,6 +1687,7 @@ const CalendarGrid = ({
         className="flex-1 relative border-r border-border last:border-r-0 cursor-pointer"
         style={{ minWidth: minColWidth, height: totalHeight }}
         data-cal-column="true"
+        data-day={day} data-col-id={col.id} data-col-type={col.type} data-col-name={col.name}
         onClick={(e) => handleColumnClick(e, day, col)}
       >
         {/* Single droppable zone for the entire column (sibling to booking cards) */}
@@ -1616,6 +1752,7 @@ const CalendarGrid = ({
                   const pos = layout.cards[idx];
                   return (
                     <CalendarBookingCard
+                      isPanelSelected={!!selectedBookingId && (booking.bookingId || booking.id) === selectedBookingId}
                       key={cardKey}
                       booking={booking}
                       columnMode={columnMode}
@@ -1737,11 +1874,11 @@ const CalendarGrid = ({
           </div>
           {unassignedCol && (
             <div
-              className={`flex-shrink-0 border-r border-border bg-background ${
+              className={`flex-shrink-0 border-r border-border bg-surface ${
                 freezeUnassigned ? 'sticky z-header' : ''
               }`}
               style={freezeUnassigned
-                ? { left: TIME_COL_WIDTH, width: minColWidth }
+                ? { left: TIME_COL_WIDTH, width: minColWidth, boxShadow: gridScrolled ? PINNED_SHADOW : undefined }
                 : { minWidth: minColWidth }
               }
             >
@@ -1775,6 +1912,8 @@ const CalendarGrid = ({
           if (headerScrollRef.current) {
             headerScrollRef.current.scrollLeft = e.target.scrollLeft;
           }
+          const scrolled = e.target.scrollLeft > 0;
+          if (scrolled !== gridScrolledRef.current) { gridScrolledRef.current = scrolled; setGridScrolled(scrolled); }
         }}
       >
         <div
@@ -1784,6 +1923,7 @@ const CalendarGrid = ({
           data-open-hour={openHour}
           data-hour-height={eHH}
           onMouseMove={handleGridMouseMove}
+          onPointerDown={handleGridPointerDown}
           onMouseLeave={hideHoverTime}
         >
           {draftSpacer > 0 && <div aria-hidden="true" data-draft-spacer="true" style={{ position: 'absolute', top: 0, left: `calc(100% + ${draftSpacer}px)`, width: 1, height: 1 }} />}
@@ -1799,10 +1939,11 @@ const CalendarGrid = ({
                   freezeUnassigned ? 'sticky z-header' : ''
                 }`}
                 style={freezeUnassigned
-                  ? { left: TIME_COL_WIDTH, width: minColWidth, height: totalHeight }
+                  ? { left: TIME_COL_WIDTH, width: minColWidth, height: totalHeight, boxShadow: gridScrolled ? PINNED_SHADOW : undefined }
                   : { minWidth: minColWidth, height: totalHeight }
                 }
                 data-cal-column="true"
+                data-day={currentDate} data-col-id={unassignedCol.id} data-col-type={unassignedCol.type} data-col-name={unassignedCol.name}
                 onClick={(e) => handleColumnClick(e, currentDate, unassignedCol)}
               >
                 {renderGridLines()}
@@ -1835,6 +1976,7 @@ const CalendarGrid = ({
                           const pos = layout.cards[idx];
                           return (
                             <CalendarBookingCard
+                      isPanelSelected={!!selectedBookingId && (booking.bookingId || booking.id) === selectedBookingId}
                               key={booking.id}
                               booking={booking}
                               columnMode={columnMode}
@@ -1958,6 +2100,8 @@ const CalendarGrid = ({
           if (headerScrollRef.current) {
             headerScrollRef.current.scrollLeft = e.target.scrollLeft;
           }
+          const scrolled = e.target.scrollLeft > 0;
+          if (scrolled !== gridScrolledRef.current) { gridScrolledRef.current = scrolled; setGridScrolled(scrolled); }
         }}
       >
         <div
@@ -1967,6 +2111,7 @@ const CalendarGrid = ({
           data-open-hour={openHour}
           data-hour-height={eHH}
           onMouseMove={handleGridMouseMove}
+          onPointerDown={handleGridPointerDown}
           onMouseLeave={hideHoverTime}
         >
           {draftSpacer > 0 && <div aria-hidden="true" data-draft-spacer="true" style={{ position: 'absolute', top: 0, left: `calc(100% + ${draftSpacer}px)`, width: 1, height: 1 }} />}
@@ -1987,6 +2132,7 @@ const CalendarGrid = ({
                   className={`flex-1 relative cursor-pointer ${di < days.length - 1 ? 'border-r border-border' : ''} ${isCurrentDay ? 'bg-primary/[0.02]' : ''}`}
                   style={{ minWidth: minColWidth }}
                   data-cal-column="true"
+                  data-day={day} data-col-id="all" data-col-type="day" data-col-name={formatShortDate(day)}
                   onClick={(e) => {
                     if (activeDragId || !onEmptySlotClick) return;
                     const relativeY = e.clientY - e.currentTarget.getBoundingClientRect().top - TOP_PAD;
@@ -2014,6 +2160,7 @@ const CalendarGrid = ({
                   {/* Booking cards rendered as siblings to droppable */}
                   {dayBookings.map(booking => (
                     <CalendarBookingCard
+                      isPanelSelected={!!selectedBookingId && (booking.bookingId || booking.id) === selectedBookingId}
                       key={booking.id}
                       booking={booking}
                       columnMode={columnMode}
