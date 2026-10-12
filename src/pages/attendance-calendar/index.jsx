@@ -109,7 +109,7 @@ function CalendarMonth({ year, month, attendanceByDate, today, large = false }) 
               <div
                 className="w-full h-full flex items-center justify-center rounded-full"
                 style={{
-                  backgroundColor: isToday ? '#0F6E8C' : (bg || 'transparent'),
+                  backgroundColor: isToday ? '#7B2FF7' : (bg || 'transparent'),
                   color: isToday ? '#fff' : fg,
                   fontWeight: (isToday || bg) ? 600 : 400,
                   fontSize: large ? 16 : 12,
@@ -333,7 +333,7 @@ const AttendanceCalendarPage = () => {
         case 'Sick Leave':                   return '#D97706';
         case 'Day Off':                       return '#4338CA';
         case '1st-Half Day':
-        case '2nd-Half Day':                 return '#0F6E8C99';
+        case '2nd-Half Day':                 return '#7B2FF799';
         default:                              return '#E1E3E5';
       }
     };
@@ -381,7 +381,7 @@ const AttendanceCalendarPage = () => {
       { label: 'Absent',       color: '#DC2626' },
       { label: 'Leave',        color: '#D97706' },
       { label: 'Day Off',      color: '#4338CA' },
-      { label: 'Half Day',     color: '#0F6E8C99' },
+      { label: 'Half Day',     color: '#7B2FF799' },
       { label: 'No record',    color: '#E1E3E5' },
     ].map(l => `
       <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#6B7280;">
@@ -425,7 +425,7 @@ const AttendanceCalendarPage = () => {
       <div class="summary-item"><span class="val" style="color:#10B981">${totals.present}</span><span class="lbl">Present</span></div>
       <div class="summary-item"><span class="val" style="color:#DC2626">${totals.absent}</span><span class="lbl">Absent</span></div>
       <div class="summary-item"><span class="val" style="color:#D97706">${totals.leave}</span><span class="lbl">Leave</span></div>
-      <div class="summary-item"><span class="val" style="color:#0F6E8C">${totals.halfDay}</span><span class="lbl">Half Day</span></div>
+      <div class="summary-item"><span class="val" style="color:#7B2FF7">${totals.halfDay}</span><span class="lbl">Half Day</span></div>
     </div>
 
     <div class="legend">${legend}</div>

@@ -4,7 +4,7 @@ import Icon from '../../../components/AppIcon';
 import { fetchBookings } from '../../../services/api';
 import { transformBookings } from '../../../services/bookingTransformers';
 
-const TREATMENT_COLORS = ['#0F6E8C', '#2B4C6F', '#3FB8AF', '#059669', '#D97706'];
+const TREATMENT_COLORS = ['#7B2FF7', '#146EF4', '#7FB2FF', '#1F9D6C', '#D97706'];
 
 const RevenueAnalyticsChart = ({ branchId, period }) => {
   const [activeTab, setActiveTab] = useState('revenue');
