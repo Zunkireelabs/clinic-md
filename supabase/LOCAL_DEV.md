@@ -77,3 +77,23 @@ production — only with the owner's explicit approval. The bootstrap replays th
 
 The app tolerates a database without these tables (the calendar just shows no blocks), so the cloud-backed app keeps working
 until they are promoted; "Add block" will fail there until then.
+
+## Pulling a real tenant from the cloud (read-only)
+
+`./scripts/local-pull-tenant.sh "<org name or slug>"` (e.g. `"Dental City"`) copies ONE tenant from the cloud project into
+the local stack and creates `admin@<slug>.test` / `manager@<slug>.test` logins (passwords appended to the gitignored
+`supabase/LOCAL_TEST_USERS.md`; log in at `/<slug>/login` on the local app).
+
+- **Cloud is production, read-only.** The URL comes from the gitignored `.env.clouddb` (`CLOUD_DB_URL=...`, mode 600) and is never
+  printed. Every cloud statement runs in `BEGIN READ ONLY ... ROLLBACK` (the URL may be a pooler that ignores `PGOPTIONS`, so the
+  guard is per transaction); only `SELECT` / `\copy (SELECT ...) TO` is used. No migrations, no `link`, no writes.
+- **One org only.** Exactly one org must match, every query is filtered by org / its branches / parent keys, and the script aborts
+  if any exported `org_id` differs.
+- **No auth data.** `auth.users`, identities, passwords and sessions are not copied. Each tenant `public.users` row gets a local
+  `auth.users` stub (same id, `<id>@<slug>.local`, no password).
+- **Skipped / nulled:** `customer_accounts`, `outreach_provider_config`, `platform_admins`, `schema_migrations` skipped;
+  `users.pin`, `org_commission_*.created_by`, `bookings.customer_account_id` nulled.
+- **Schema drift** is handled by exporting the intersection of cloud and local columns (excluding generated ones); drift is reported.
+- **PII:** exports go to a private `mktemp` dir that is deleted on exit (success or failure). Never commit tenant data.
+- **Idempotent:** the org's local rows are deleted first, then reloaded (replica mode: FK checks and side-effect triggers are off during
+  the load; an FK-orphan check runs afterwards). Local `booking_number` collisions with the demo org get a `-L` suffix on the *demo* row.
