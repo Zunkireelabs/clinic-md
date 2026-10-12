@@ -4,7 +4,8 @@ import { SortableContext, horizontalListSortingStrategy, arrayMove, useSortable 
 import { CSS } from '@dnd-kit/utilities';
 import { useDroppable, useDraggable } from '@dnd-kit/core';
 import Icon from '../../../../components/AppIcon';
-import CalendarBookingCard, { canDragBooking, BookingHoverPreview } from './CalendarBookingCard';
+import CalendarBookingCard, { canDragBooking } from './CalendarBookingCard';
+import { BookingHoverLayer, useBookingHover } from './BookingHoverCard';
 import { to12h as to12hSpaced } from '../../../../services/bookingTransformers';
 import { PANEL_WIDTH } from '../../../../components/ui/SidePanel';
 import { findBlockOverlap, formatBlockRange } from '../../../../utils/blockOverlap';
@@ -368,44 +369,8 @@ const OverflowPopoverRow = ({ booking, onClick, onDragChange }) => {
     }
   }, [isDragging, onDragChange]);
 
-  // Same rich hover-preview as a regular card — hovering one row shows its
-  // details (no click needed); moving to the next row swaps the preview to
-  // that booking; leaving hides it.
-  const rowRef = useRef(null);
-  const hoverTimer = useRef(null);
-  const [showPreview, setShowPreview] = useState(false);
-  const [previewPos, setPreviewPos] = useState(null);
-
-  const handleMouseEnter = useCallback(() => {
-    hoverTimer.current = setTimeout(() => {
-      if (rowRef.current) {
-        const rect = rowRef.current.getBoundingClientRect();
-        const side = rect.right > window.innerWidth * 0.6 ? 'left' : 'right';
-        const popoverHeight = 280;
-        const maxTop = window.innerHeight - popoverHeight - 10;
-        setPreviewPos({
-          top: Math.max(10, Math.min(rect.top, maxTop)),
-          left: side === 'right' ? rect.right + 8 : rect.left - 288,
-        });
-      }
-      setShowPreview(true);
-    }, 200);
-  }, []);
-
-  const handleMouseLeave = useCallback(() => {
-    clearTimeout(hoverTimer.current);
-    setShowPreview(false);
-    setPreviewPos(null);
-  }, []);
-
-  useEffect(() => {
-    if (isDragging) {
-      clearTimeout(hoverTimer.current);
-      setShowPreview(false);
-    }
-  }, [isDragging]);
-
-  useEffect(() => () => clearTimeout(hoverTimer.current), []);
+  // Same hover card as a regular card (shared popover; see BookingHoverCard.jsx).
+  const { ref: rowRef, handlers: hoverHandlers, hideNow } = useBookingHover(booking, { draggable: isDraggable });
 
   return (
     <>
@@ -416,19 +381,19 @@ const OverflowPopoverRow = ({ booking, onClick, onDragChange }) => {
           isDraggable ? 'cursor-grab active:cursor-grabbing' : ''
         }`}
         onClick={() => {
-          if (!isDragging) onClick(booking);
+          if (!isDragging) { hideNow(); onClick(booking); }
         }}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
+        onPointerEnter={hoverHandlers.onPointerEnter}
+        onPointerLeave={hoverHandlers.onPointerLeave}
+        onFocus={hoverHandlers.onFocus}
+        onBlur={hoverHandlers.onBlur}
+        onKeyDown={hoverHandlers.onKeyDown}
         {...(isDraggable ? { ...listeners, ...attributes } : {})}
       >
         <div className="text-[11px] font-medium text-text-primary truncate">{booking.customerName || 'Guest'}</div>
         <div className="text-[10px] text-text-secondary truncate">{booking.treatmentName || 'Treatment'}</div>
         <div className="text-[10px] font-data text-text-secondary/80">{toTime12h(booking.startTime)} – {toTime12h(booking.endTime)}</div>
       </button>
-      {showPreview && !isDragging && previewPos && (
-        <BookingHoverPreview booking={booking} position={previewPos} draggable={isDraggable} />
-      )}
     </>
   );
 };
@@ -929,6 +894,10 @@ const CalendarGrid = ({
         discountAmount: b.discount_amount,
         finalAmount: b.final_amount,
         specialRequests: b.special_requests || null,
+        patientNotes: b.patientNotes,   // customers.notes (undefined if the lookup failed)
+        referredBy: b.referred_by || null,
+        previousDue: b.previousDue,     // { count, amount } | null | undefined
+        isNewCustomer: !!b.isNewCustomer,
         createdByName: b.creator?.full_name || null,
         isShared,
         sharedCount: isShared ? b.booking_dentists.length : 0,
@@ -2256,6 +2225,7 @@ const CalendarGrid = ({
   return (
     <>
       {isMultiDay ? renderMultiDayView() : renderDayView()}
+      <BookingHoverLayer />
       {headerTooltip && (
         <div
           className="fixed px-2 py-1 bg-text-primary text-white text-[10px] font-body rounded whitespace-nowrap z-dropdown pointer-events-none"

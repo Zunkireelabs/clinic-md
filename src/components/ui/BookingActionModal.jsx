@@ -12,6 +12,7 @@ import { useBranch } from '../../contexts/BranchContext';
 import { getExtendOptions } from '../../utils/treatmentVariants';
 import BlockOverlapWarning from './BlockOverlapWarning';
 import SidePanel from './SidePanel';
+import { AlertsBlock } from '../../pages/branch-manager-dashboard/components/calendar/BookingHoverCard';
 import { getBookingStatusColors } from '../../utils/bookingStatusColors';
 import { useBlockOverlap } from '../../hooks/useBlockOverlap';
 
@@ -1096,6 +1097,8 @@ const BookingActionModal = ({
                 )}
 
                 {isPanel && !isEditing && (() => {
+                  // Alerts / previous due come from the calendar card's data (the panel's own fetch doesn't carry them).
+                  const extras = previewBooking && (previewBooking.bookingId || previewBooking.id) === booking.bookingId ? previewBooking : null;
                   const dlist = (booking.dentists?.length > 0 ? booking.dentists : [booking.dentist]).filter(Boolean);
                   const mins = parseInt(booking.duration, 10) || 0;
                   const [sh, sm] = (booking.time || booking.startTime || '').slice(0, 5).split(':').map(Number);
@@ -1152,8 +1155,11 @@ const BookingActionModal = ({
                             <button type="button" onClick={() => setActiveTab('payment')} className="text-[13px] text-primary hover:underline">Collect payment →</button>
                           )}
                           {booking.discountAmount > 0 && <span className="text-xs text-text-tertiary tabular-nums">−{npr(booking.discountAmount)} discount</span>}
+                          {extras?.previousDue?.amount > 0 && <span className="text-xs tabular-nums" style={{ color: '#7A5408' }}>· Prev. due {npr(extras.previousDue.amount)}</span>}
                         </div>
                       </div>
+
+                      <AlertsBlock patientNotes={extras?.patientNotes} specialRequests={booking.specialRequests} />
 
                       <div className="border-t border-border pt-5 space-y-2">
                         <div className="flex items-center justify-between">
@@ -1184,11 +1190,10 @@ const BookingActionModal = ({
                         )}
                       </div>
 
-                      {(booking.specialRequests || booking.referredBy) && (
+                      {booking.referredBy && (
                         <div className="border-t border-border pt-5 space-y-2">
-                          <h3 className={sectionHead}>Notes</h3>
-                          {booking.specialRequests && <p className="text-[13px] text-text-primary"><span className="text-text-secondary">Special request:</span> {booking.specialRequests}</p>}
-                          {booking.referredBy && <p className="text-[13px] text-text-primary"><span className="text-text-secondary">Referred by:</span> {booking.referredBy}</p>}
+                          <h3 className={sectionHead}>Referral</h3>
+                          <p className="text-[13px] text-text-primary"><span className="text-text-secondary">Referred by:</span> {booking.referredBy}</p>
                         </div>
                       )}
                     </>

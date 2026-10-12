@@ -4463,7 +4463,7 @@ export async function getCalendarBookings(branchId, startDate, endDate) {
         id, booking_number, customer_id, customer_name, customer_phone, status, payment_status,
         date, start_time, end_time, start_datetime, end_datetime, created_at,
         dentist_id, chair_id,
-        base_amount, discount_amount, final_amount, special_requests,
+        base_amount, discount_amount, final_amount, special_requests, referred_by,
         treatment:treatments(name, duration_minutes),
         dentist:dentists(id, name),
         chair:chairs(id, name),
@@ -4483,6 +4483,67 @@ export async function getCalendarBookings(branchId, startDate, endDate) {
     // in this range (one read-only query). No customer_id (walk-in/guest) → never New.
     const bookingCustomerIds = [...new Set((bookings || []).map(b => b.customer_id).filter(Boolean))];
     const firstBookingIdByCustomer = {};
+
+    // Hover-card extras — read-only, batched (no N+1) and FAIL-OPEN: any error leaves the field undefined and the
+    // calendar still loads. Started now so they run concurrently with the New-patient query below.
+    //  * patient notes: customers.notes for every customer in range (one query)
+    //  * previous due: the Record Payment modal's "Previous due" figure, for every visible booking (two queries total)
+    const patientNotesPromise = (async () => {
+      if (bookingCustomerIds.length === 0) return {};
+      try {
+        const { data, error } = await supabase.from('customers').select('id, notes').in('id', bookingCustomerIds);
+        if (error) throw error;
+        const out = {};
+        for (const c of (data || [])) { const t = (c.notes || '').trim(); if (t) out[c.id] = t; }
+        return out;
+      } catch (e) {
+        console.warn('[API] getCalendarBookings: patient notes lookup failed:', e.message);
+        return undefined;
+      }
+    })();
+    // Same definition as getCustomerOutstandingBalance (what the payment modal bundles as "Previous due"): the same phone's
+    // other unpaid/partial, non-cancelled bookings in this branch (any date), amount = final_amount − payments, excluding
+    // the booking itself and — as BookingActionModal does — its same-name/same-date unpaid "related treatments".
+    const previousDuePromise = (async () => {
+      const phoneOf = (b) => { const p = toE164(b.customer_phone); return p && p.length >= 11 ? p : null; };
+      if (!(bookings || []).some(phoneOf)) return {};
+      try {
+        const { data: open, error } = await supabase
+          .from('bookings')
+          .select('id, customer_name, customer_phone, date, final_amount, payment_status')
+          .eq('branch_id', resolvedBranchId)
+          .in('payment_status', ['unpaid', 'partial'])
+          .not('status', 'in', '("Cancelled","No Show")');
+        if (error) throw error;
+        const ids = (open || []).map(o => o.id);
+        const paid = {};
+        if (ids.length > 0) {
+          const { data: pays, error: payErr } = await supabase.from('payments').select('booking_id, amount').in('booking_id', ids);
+          if (payErr) throw payErr;
+          for (const p of (pays || [])) paid[p.booking_id] = (paid[p.booking_id] || 0) + Number(p.amount);
+        }
+        const byPhone = {};
+        for (const o of (open || [])) {
+          const ph = phoneOf(o);
+          if (!ph) continue;
+          const due = Math.round((Number(o.final_amount) - (paid[o.id] || 0)) * 100) / 100;
+          if (due <= 0) continue;
+          (byPhone[ph] ||= []).push({ id: o.id, name: o.customer_name, date: o.date, unpaid: o.payment_status === 'unpaid', due });
+        }
+        const out = {};
+        for (const b of (bookings || [])) {
+          const ph = phoneOf(b);
+          if (!ph || !byPhone[ph]) continue;
+          const list = byPhone[ph].filter(o => o.id !== b.id && !(o.unpaid && o.name === b.customer_name && o.date === b.date));
+          if (list.length === 0) continue;
+          out[b.id] = { count: list.length, amount: Math.round(list.reduce((sum, o) => sum + o.due, 0) * 100) / 100 };
+        }
+        return out;
+      } catch (e) {
+        console.warn('[API] getCalendarBookings: previous-due lookup failed:', e.message);
+        return undefined;
+      }
+    })();
     let historyFailed = false;
     if (bookingCustomerIds.length > 0) {
       const { data: historyRows, error: histErr } = await supabase
@@ -4503,9 +4564,13 @@ export async function getCalendarBookings(branchId, startDate, endDate) {
         }
       }
     }
+    const [patientNotesByCustomer, previousDueByBooking] = await Promise.all([patientNotesPromise, previousDuePromise]);
     const bookingsWithNewFlag = (bookings || []).map(b => ({
       ...b,
       isNewCustomer: !historyFailed && !!b.customer_id && firstBookingIdByCustomer[b.customer_id] === b.id,
+      // undefined (not null/0) when the lookup failed, so the UI shows nothing rather than a false "no alerts / no due".
+      patientNotes: patientNotesByCustomer ? (patientNotesByCustomer[b.customer_id] || null) : undefined,
+      previousDue: previousDueByBooking ? (previousDueByBooking[b.id] || null) : undefined,
     }));
 
     // A dentist who's since been deactivated or moved to a different branch can still be
