@@ -106,11 +106,14 @@ const CalendarToolbar = ({
   }, [positionDropdownOpen]);
 
 
-  // Wraps on narrow screens; 3-column grid on sm+ (left / center / right)
+  // Wraps below sm (the date nav drops to its own full-width row on mobile). At lg+ the left and right groups share the
+  // free space equally (flex-1 / basis-0, never narrower than their content), so the date-nav group sits exactly on the
+  // toolbar's centre whenever there's room. When there isn't, the wider side keeps its content width and the centre
+  // slides over; if even that doesn't fit, the right group wraps to a second row as before (never overlapping/overflowing).
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-2 border-b border-border bg-surface flex-shrink-0 overflow-x-clip">
       {/* Left: Dentist/Chair toggle + away summary */}
-      <div className="flex items-center gap-3 justify-self-start min-w-0">
+      <div className="flex items-center gap-3 justify-self-start min-w-0 lg:flex-1 lg:basis-0 lg:min-w-max">
         {enableChairs ? (
           <div className="flex items-center border border-border rounded-spa bg-background p-0.5 gap-0.5 h-9">
             {[
@@ -256,7 +259,7 @@ const CalendarToolbar = ({
       </div>
 
       {/* Right: tip + position filter + view toggle */}
-      <div className="flex items-center gap-2 ml-auto">
+      <div className="flex items-center gap-2 ml-auto lg:flex-1 lg:basis-0 lg:min-w-max lg:justify-end">
         <div className="relative" ref={tipRef}>
           <button
             type="button"
