@@ -6,7 +6,7 @@ import { useDroppable } from '@dnd-kit/core';
 import Icon from '../../../../components/AppIcon';
 import CalendarBookingCard from './CalendarBookingCard';
 import { BookingHoverLayer } from './BookingHoverCard';
-import { to12h, toKathmanduParts, addDaysViaUtc } from './calendarDates';
+import { to12h, toKathmanduParts, addDays } from './calendarDates';
 import SharedBookingLines from './SharedBookingLines';
 import OverflowBadge from './OverflowBadge';
 import ManualBlockOverlay from './ManualBlockOverlay';
@@ -310,7 +310,7 @@ const CalendarGrid = ({
   }, [gridRef]);
 
   const days = useMemo(() => {
-    if (viewMode === '4day') return [0, 1, 2, 3].map(i => addDaysViaUtc(currentDate, i));
+    if (viewMode === '4day') return [0, 1, 2, 3].map(i => addDays(currentDate, i));
     return [currentDate];
   }, [currentDate, viewMode]);
 

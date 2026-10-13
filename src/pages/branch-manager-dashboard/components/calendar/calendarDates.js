@@ -18,15 +18,6 @@ export function addDays(dateStr, days) {
   return toLocalISO(d);
 }
 
-// UTC-based variant that CalendarGrid has always used for its 4-Day column days. Behaves differently from
-// addDays in any timezone ahead of UTC (local midnight serialises to the previous UTC day), so it is kept
-// as its own function rather than silently unified.
-export function addDaysViaUtc(dateStr, days) {
-  const d = new Date(dateStr + 'T00:00:00');
-  d.setDate(d.getDate() + days);
-  return d.toISOString().split('T')[0];
-}
-
 // Local-time month math; clamps to the last day of the target month (Jan 31 + 1 month -> Feb 28).
 export function addMonths(dateStr, months) {
   const d = new Date(dateStr + 'T00:00:00');
