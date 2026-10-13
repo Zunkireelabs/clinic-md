@@ -6,6 +6,7 @@ import { useBranch } from 'contexts/BranchContext';
 import { useIndustry } from 'hooks/useIndustry';
 import { useTransferFeature } from 'hooks/useTransferFeature';
 import { fetchPendingApprovalCount } from 'services/api';
+import BrandWordmark from './BrandWordmark';
 import { getNav, navPath, isNavItemActive } from 'navigation/navRegistry';
 import { useOptionalCommandPalette, SHORTCUT_LABEL } from 'components/CommandPalette/useCommandPalette';
 
@@ -138,9 +139,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
         <div className="px-5 py-3 h-12 flex items-center justify-between">
           {!isCollapsed && (
             <Link to={basePath} aria-label="ClinicMD Staff Portal" className="flex items-start text-gray-900">
-              {/* Wordmark matches the marketing site: Clinic + superscript MD */}
-              <span className="text-[20px] font-normal tracking-[-0.04em] leading-none">Clinic</span>
-              <span className="text-[9px] font-medium leading-none ml-px">MD</span>
+              <BrandWordmark size="sm" />
             </Link>
           )}
           <button

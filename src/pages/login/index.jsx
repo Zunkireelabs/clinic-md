@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTenant } from '../../contexts/TenantContext';
 import LoginForm from './components/LoginForm';
-import logo from 'assets/logo.png';
+import BrandWordmark from 'components/ui/BrandWordmark';
 
 const StaffLoginAuthentication = () => {
   const { orgSlug } = useParams();
@@ -39,7 +39,7 @@ const StaffLoginAuthentication = () => {
       {/* Minimal Header */}
       <header className="flex-shrink-0 px-6 md:px-8 py-5 flex justify-between items-center">
         <div className="flex items-center gap-2.5">
-          <img src={logo} alt="ClinicMD" className="h-7 w-auto" />
+          <BrandWordmark size="sm" />
           {organization?.name && (
             <span className="text-lg font-semibold text-text-primary tracking-tight">
               {organization.name}
@@ -69,7 +69,7 @@ const StaffLoginAuthentication = () => {
       <main className="flex-1 flex flex-col items-center px-5 py-10 overflow-y-auto">
         <div className="w-full max-w-[380px] mx-auto flex flex-col items-center">
           {/* Logo */}
-          <img src={logo} alt="ClinicMD" className="h-14 w-auto mb-6" />
+          <BrandWordmark size="lg" className="mb-6" />
 
           {/* Title & Subtitle */}
           <h1 className="text-[28px] font-semibold text-text-primary mb-2 text-center tracking-tight">

@@ -21,7 +21,7 @@ import PlatformLogin from 'pages/platform/PlatformLogin';
 import PlatformDashboard from 'pages/platform/PlatformDashboard';
 import PlatformOrgDetail from 'pages/platform/PlatformOrgDetail';
 import { PLATFORM_ADMIN_ENABLED } from 'lib/featureFlags';
-import logo from 'assets/logo.png';
+import BrandWordmark from 'components/ui/BrandWordmark';
 
 // Wrapper component that provides tenant context
 const TenantWrapper = ({ children }) => (
@@ -34,7 +34,7 @@ const TenantWrapper = ({ children }) => (
 const LoadingScreen = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
     <div className="flex flex-col items-center space-y-4">
-      <img src={logo} alt="ClinicMD" className="h-10 w-auto animate-pulse" />
+      <BrandWordmark size="md" className="animate-pulse" />
       <p className="font-body font-body-normal text-sm text-text-secondary">
         Loading...
       </p>
