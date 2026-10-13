@@ -184,8 +184,9 @@
   border-radius: 9999px;
 }
 
-.sidebar-scroll:hover::-webkit-scrollbar-thumb,
-.sidebar-scroll:focus-within::-webkit-scrollbar-thumb {
+/* Chromium doesn't repaint the thumb on the scroller's own :hover, so key the reveal off an ancestor :has(). */
+aside:has(.sidebar-scroll:hover) .sidebar-scroll::-webkit-scrollbar-thumb,
+aside:has(.sidebar-scroll:focus-within) .sidebar-scroll::-webkit-scrollbar-thumb {
   background-color: rgba(14, 13, 12, 0.18);
 }
 
