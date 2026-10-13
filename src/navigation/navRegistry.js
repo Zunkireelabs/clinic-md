@@ -23,38 +23,38 @@ const flagged = (enabled, items) => (enabled ? items : []);
 export const NAV_SECTIONS = [
   { id: 'main', label: null, items: [
     { id: 'dashboard', label: 'Dashboard', icon: 'LayoutDashboard', view: 'dashboard', roles: ALL },
-    { id: 'calendar', label: 'Calendar', icon: 'CalendarDays', view: 'calendar', roles: ALL },
-    { id: 'reports', label: 'Reports', icon: 'BarChart3', view: 'all-reports', roles: STAFF_UP, isActiveView: isReportView },
+    { id: 'calendar', label: 'Calendar', icon: 'CalendarDays', view: 'calendar', keywords: 'schedule diary appointments', roles: ALL },
+    { id: 'reports', label: 'Reports', icon: 'BarChart3', view: 'all-reports', keywords: 'analytics insights', roles: STAFF_UP, isActiveView: isReportView },
   ] },
   { id: 'operations', label: 'Operations', items: [
-    { id: 'bookings', label: 'Bookings', icon: 'ClipboardList', view: 'bookings', roles: ALL,
+    { id: 'bookings', label: 'Bookings', icon: 'ClipboardList', view: 'bookings', keywords: 'appointments', roles: ALL,
       activeViews: ['bookings', 'new-booking', 'check-booking', 'collect-payment', 'new-membership', 'new-voucher'] },
-    { id: 'customers', label: 'Customers', icon: 'Users', view: 'customers', roles: STAFF_UP },
+    { id: 'customers', label: 'Customers', icon: 'Users', view: 'customers', keywords: 'patients clients', roles: STAFF_UP },
   ] },
   { id: 'sales', label: 'Sales', items: [
-    { id: 'packages', label: 'Packages', icon: 'Layers', view: 'package-overview', roles: MGR_ADMIN, activeViews: ['package-overview', 'packages'] },
+    { id: 'packages', label: 'Packages', icon: 'Layers', view: 'package-overview', keywords: 'sessions bundles', roles: MGR_ADMIN, activeViews: ['package-overview', 'packages'] },
     ...flagged(MEMBERSHIP_ENABLED, [
-      { id: 'memberships', label: 'Memberships', icon: 'CreditCard', view: 'memberships', roles: MGR_ADMIN, activeViews: ['memberships', 'membership-collection', 'wallet-usage'] },
+      { id: 'memberships', label: 'Memberships', icon: 'CreditCard', view: 'memberships', keywords: 'wallet tiers', roles: MGR_ADMIN, activeViews: ['memberships', 'membership-collection', 'wallet-usage'] },
     ]),
     ...flagged(VOUCHER_ENABLED, [
-      { id: 'vouchers', label: 'Vouchers', icon: 'Ticket', view: 'voucher-overview', roles: MGR_ADMIN, activeViews: ['voucher-overview', 'vouchers'] },
+      { id: 'vouchers', label: 'Vouchers', icon: 'Ticket', view: 'voucher-overview', keywords: 'gift', roles: MGR_ADMIN, activeViews: ['voucher-overview', 'vouchers'] },
     ]),
   ] },
   { id: 'people', label: 'People', items: [ // the future HRMS module
-    { id: 'dentists', label: ({ staffLabelPlural }) => staffLabelPlural || 'Staff', icon: 'Stethoscope', view: 'dentists', roles: STAFF_UP },
-    { id: 'attendance', label: 'Attendance', icon: 'Clock', view: 'attendance', roles: STAFF_UP, overallHidden: true },
-    { id: 'payroll', label: 'Payroll', icon: 'Banknote', view: 'payroll', roles: ['admin', 'admin_viewer'] },
+    { id: 'dentists', label: ({ staffLabelPlural }) => staffLabelPlural || 'Staff', icon: 'Stethoscope', view: 'dentists', keywords: 'doctors team', roles: STAFF_UP },
+    { id: 'attendance', label: 'Attendance', icon: 'Clock', view: 'attendance', keywords: 'check in leave', roles: STAFF_UP, overallHidden: true },
+    { id: 'payroll', label: 'Payroll', icon: 'Banknote', view: 'payroll', keywords: 'salary wages pay', roles: ['admin', 'admin_viewer'] },
   ] },
   { id: 'marketing', label: 'Marketing', items: [
     ...flagged(OUTREACH_ENABLED, [
-      { id: 'outreach', label: 'Outreach', icon: 'Megaphone', view: 'outreach', roles: ['admin'] },
+      { id: 'outreach', label: 'Outreach', icon: 'Megaphone', view: 'outreach', keywords: 'campaign messages', roles: ['admin'] },
     ]),
   ] },
 ];
 
 // Pinned to the bottom of the nav column.
 export const NAV_FOOTER = [
-  { id: 'settings', label: 'Settings', icon: 'Settings', view: 'settings', roles: STAFF_UP, isActiveView: isSettingsView },
+  { id: 'settings', label: 'Settings', icon: 'Settings', view: 'settings', keywords: 'preferences setup configuration', roles: STAFF_UP, isActiveView: isSettingsView },
 ];
 
 export const navPath = (item, basePath) => `${basePath}?view=${item.view}`;

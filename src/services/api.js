@@ -4208,6 +4208,40 @@ export async function searchBookings(branchId, query) {
   }
 }
 
+// Customer lookup for the command palette: name / phone match, org-wide like the booking form's autocomplete, bounded by `limit`
+// (so it never downloads the whole customer list or runs into PostgREST's 1,000-row cap). Read-only, same table and RLS as the Customers panel.
+export async function searchCustomers(branchId, query, limit = 5) {
+  try {
+    const resolvedBranchId = resolveBranchId(branchId);
+    const term = (query || '').trim();
+    if (!term) return { data: [], error: null };
+
+    const { data: branch, error: branchErr } = await supabase
+      .from('branches')
+      .select('org_id')
+      .eq('id', resolvedBranchId)
+      .single();
+    if (branchErr) throw branchErr;
+
+    // Sanitize to prevent PostgREST filter injection (same as searchBookings)
+    const sanitized = term.replace(/[,.()"\\]/g, '');
+    if (!sanitized) return { data: [], error: null };
+    const { data, error } = await supabase
+      .from('customers')
+      .select('id, full_name, phone')
+      .eq('org_id', branch.org_id)
+      .eq('is_active', true)
+      .or(`full_name.ilike.%${sanitized}%,phone.ilike.%${sanitized}%`)
+      .order('full_name')
+      .limit(limit);
+    if (error) throw error;
+    return { data: data || [], error: null };
+  } catch (error) {
+    console.error('[API] searchCustomers error:', error.message);
+    return { data: null, error };
+  }
+}
+
 export async function getCustomerBookingHistory(customerAccountId) {
   try {
     if (!customerAccountId) {

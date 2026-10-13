@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import Icon from '../../../../components/AppIcon';
 import { getCustomerIntelligence } from '../../../../services/api';
 import { useAuth } from '../../../../contexts/AuthContext';
@@ -37,6 +38,10 @@ const CustomersPanel = ({ branchId, readOnly = false }) => { // eslint-disable-l
   const [filterTier, setFilterTier] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState(null);
+  // `?view=customers&customer=<id>` (from the command palette) opens that customer's profile.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const customerParam = searchParams.get('customer');
+  useEffect(() => { if (customerParam) setSelectedCustomerId(customerParam); }, [customerParam]);
 
   const loadData = useCallback(async () => {
     if (!branchId) return;
@@ -293,7 +298,7 @@ const CustomersPanel = ({ branchId, readOnly = false }) => { // eslint-disable-l
       {selectedCustomerId && (
         <CustomerProfileModal
           customerId={selectedCustomerId}
-          onClose={() => setSelectedCustomerId(null)}
+          onClose={() => { setSelectedCustomerId(null); if (customerParam) setSearchParams({ view: 'customers' }, { replace: true }); }}
         />
       )}
     </div>

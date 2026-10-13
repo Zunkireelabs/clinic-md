@@ -17,6 +17,7 @@ import { useCalendarData } from './hooks/useCalendarData';
 import { useCalendarDnd } from './hooks/useCalendarDnd';
 import { useCalendarPanels } from './hooks/useCalendarPanels';
 import { useCalendarShortcuts } from './hooks/useCalendarShortcuts';
+import { useGoTodaySignal } from './calendarSignals';
 import { useBookingActions } from './hooks/useBookingActions';
 import { useAutoRefresh } from '../../../../hooks/useAutoRefresh';
 import { useAuth } from '../../../../contexts/AuthContext';
@@ -131,6 +132,7 @@ const OperationalCalendar = ({ branchId }) => {
   const goPrev = () => setCurrentDate(addDays(currentDate, -getStepDays(viewMode)));
   const goNext = () => setCurrentDate(addDays(currentDate, getStepDays(viewMode)));
 
+  useGoTodaySignal(goToday);
   useCalendarShortcuts({ goToday, goPrev, goNext, setViewMode, handleNewBooking, setTipOpen });
 
   // ── Dentist/chair column reorder ────────────────────────────

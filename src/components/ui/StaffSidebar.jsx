@@ -7,6 +7,7 @@ import { useIndustry } from 'hooks/useIndustry';
 import { useTransferFeature } from 'hooks/useTransferFeature';
 import { fetchPendingApprovalCount } from 'services/api';
 import { getNav, navPath, isNavItemActive } from 'navigation/navRegistry';
+import { useOptionalCommandPalette, SHORTCUT_LABEL } from 'components/CommandPalette/useCommandPalette';
 
 const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: propBranch, onCollapseChange }) => {
   const transfersAvailable = useTransferFeature(); // hide transfer entries unless the DB has the tables
@@ -15,6 +16,8 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
   const { profile, signOut } = useAuth();
   const { branchName: contextBranchName, branchId, isOverall } = useBranch();
   const [pendingApprovals, setPendingApprovals] = useState(0);
+  const palette = useOptionalCommandPalette(); // null on pages rendered outside the shell
+  const openPalette = palette?.openPalette;
   const { staffLabelPlural } = useIndustry();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
@@ -156,7 +159,31 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
           </button>
         </div>
 
-        {/* RESERVED (step 3): the "Search or ask… ⌘K" bar goes here, directly under the logo row. Nothing is rendered yet. */}
+        {/* "Search or ask… ⌘K": opens the command palette (icon-only in the collapsed rail) */}
+        {openPalette && <div className={`pb-2 ${isCollapsed ? 'flex justify-center' : 'px-3'}`}>
+          {isCollapsed ? (
+            <button
+              type="button"
+              onClick={openPalette}
+              title={`Search or ask (${SHORTCUT_LABEL})`}
+              aria-label="Search or ask"
+              className="h-[var(--control-h)] w-[var(--control-h)] flex items-center justify-center rounded-spa border border-border bg-surface text-text-tertiary hover:text-text-secondary"
+            >
+              <Icon name="Search" size={15} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={openPalette}
+              aria-label="Search or ask"
+              className="w-full h-[var(--control-h)] flex items-center gap-2 px-2.5 rounded-spa border border-border bg-surface text-[13px] text-text-tertiary hover:border-black/20 spa-transition-fast"
+            >
+              <Icon name="Search" size={15} className="flex-shrink-0" />
+              <span className="flex-1 text-left truncate">Search or ask…</span>
+              <kbd className="text-[11px] text-text-tertiary border border-border rounded px-1.5 leading-4">{SHORTCUT_LABEL}</kbd>
+            </button>
+          )}
+        </div>}
 
         {/* Navigation — flat items under section labels, generated from navigation/navRegistry.js (no dropdowns) */}
         <nav className="sidebar-scroll flex-1 overflow-y-auto p-3">

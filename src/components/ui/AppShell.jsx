@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { useLocation } from 'react-router-dom';
 import StaffSidebar from './StaffSidebar';
 import AppHeader from './AppHeader';
+import { CommandPaletteProvider } from '../CommandPalette/useCommandPalette';
 
 // The scroller of the content frame (desktop). Pages that need to scroll programmatically use this instead of `window`.
 const ScrollerContext = createContext(null);
@@ -31,6 +32,7 @@ const AppShell = ({ sidebar, header, banner = null, floating = null, aside = nul
   const fill = variant === 'fill';
 
   return (
+    <CommandPaletteProvider assistantEnabled={!!aside}>
     <div className={`app-shell min-h-screen bg-surface-sidebar lg:h-dvh lg:overflow-hidden ${fill ? 'h-dvh overflow-hidden' : ''}`}>
       <StaffSidebar {...sidebar} onCollapseChange={setCollapsed} />
 
@@ -56,6 +58,7 @@ const AppShell = ({ sidebar, header, banner = null, floating = null, aside = nul
         </div>
       </div>
     </div>
+    </CommandPaletteProvider>
   );
 };
 
