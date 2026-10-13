@@ -88,7 +88,14 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
       id: 'dashboard',
       label: 'Dashboard',
       icon: 'LayoutDashboard',
-      path: basePath,
+      path: `${basePath}?view=dashboard`,
+      roles: ['staff', 'manager', 'admin', 'admin_viewer']
+    },
+    {
+      id: 'calendar',
+      label: 'Calendar',
+      icon: 'CalendarDays',
+      path: `${basePath}?view=calendar`,
       roles: ['staff', 'manager', 'admin', 'admin_viewer']
     },
     {
@@ -102,13 +109,6 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
           label: 'Bookings',
           icon: 'BookOpen',
           path: `${basePath}?view=bookings`,
-          roles: ['staff', 'manager', 'admin', 'admin_viewer']
-        },
-        {
-          id: 'calendar',
-          label: 'Calendar',
-          icon: 'Calendar',
-          path: `${basePath}?view=calendar`,
           roles: ['staff', 'manager', 'admin', 'admin_viewer']
         },
         {
@@ -459,6 +459,10 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
   const mobileOverflowItems = mainNavItems.slice(4);
 
   const isActive = (path) => {
+    // Bare dashboard URL = landing view: the dashboard for managers/admins, the calendar for staff.
+    if (location.pathname === basePath && !new URLSearchParams(location.search).get('view')) {
+      return path === `${basePath}?view=${userRole === 'staff' ? 'calendar' : 'dashboard'}`;
+    }
     if (path.includes('?')) {
       return `${location.pathname}${location.search}` === path;
     }
@@ -662,6 +666,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
               <Link
                 key={item.id}
                 to={item.path}
+                title={isCollapsed ? item.label : undefined}
                 className={`flex items-center gap-3 px-3 py-2 rounded-md text-[13px] font-medium transition-colors ${
                   isActive(item.path)
                     ? 'bg-white text-gray-900 shadow-[0_0_0_1px_#E9E9EC]'

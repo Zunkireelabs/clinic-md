@@ -395,49 +395,49 @@ const BranchManagerDashboard = () => {
         }}
         banner={
           viewMode === 'dashboard' && !loading && bookings.length > 0 && bookings.some(b => b.isLocked) && (
-      <div className="bg-amber-50 border-b border-amber-200 px-4 sm:px-6 lg:px-8 py-2">
-        <div className="flex items-center space-x-2 text-amber-700">
-          <Icon name="Lock" size={16} />
-          <span className="font-body font-body-medium text-sm">
-            This day is closed. Financial records are locked.
-          </span>
-        </div>
-      </div>
-    )
+            <div className="bg-amber-50 border-b border-amber-200 px-4 sm:px-6 lg:px-8 py-2">
+              <div className="flex items-center space-x-2 text-amber-700">
+                <Icon name="Lock" size={16} />
+                <span className="font-body font-body-medium text-sm">
+                  This day is closed. Financial records are locked.
+                </span>
+              </div>
+            </div>
+          )
         }
         floating={
           newBookingNotification && (
-      <div className="fixed top-16 sm:top-20 left-4 right-4 sm:left-auto sm:right-6 z-toast bg-primary text-white px-4 sm:px-5 py-3 rounded-lg shadow-lg animate-fade-in sm:max-w-sm">
-        <div className="flex items-start space-x-3">
-          <div className="flex-shrink-0 mt-0.5">
-            <Icon name="CalendarPlus" size={20} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-body font-body-medium text-sm">{newBookingNotification.message}</p>
-            {newBookingNotification.customerName && (
-              <p className="font-caption text-xs text-white/80 mt-0.5 truncate">
-                {newBookingNotification.customerName}
-                {newBookingNotification.bookingNumber && ` - ${newBookingNotification.bookingNumber}`}
-              </p>
-            )}
-          </div>
-          <div className="flex items-center space-x-2 flex-shrink-0">
-            <button
-              onClick={handleViewNewBooking}
-              className="px-2.5 py-1.5 bg-white/20 hover:bg-white/30 rounded text-xs font-body font-body-medium transition-colors min-h-[32px]"
-            >
-              View
-            </button>
-            <button
-              onClick={() => setNewBookingNotification(null)}
-              className="hover:opacity-80 text-white/80 hover:text-white p-1 min-h-[32px]"
-            >
-              <Icon name="X" size={16} />
-            </button>
-          </div>
-        </div>
-      </div>
-    )
+            <div className="fixed top-16 sm:top-20 left-4 right-4 sm:left-auto sm:right-6 z-toast bg-primary text-white px-4 sm:px-5 py-3 rounded-lg shadow-lg animate-fade-in sm:max-w-sm">
+              <div className="flex items-start space-x-3">
+                <div className="flex-shrink-0 mt-0.5">
+                  <Icon name="CalendarPlus" size={20} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-body font-body-medium text-sm">{newBookingNotification.message}</p>
+                  {newBookingNotification.customerName && (
+                    <p className="font-caption text-xs text-white/80 mt-0.5 truncate">
+                      {newBookingNotification.customerName}
+                      {newBookingNotification.bookingNumber && ` - ${newBookingNotification.bookingNumber}`}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center space-x-2 flex-shrink-0">
+                  <button
+                    onClick={handleViewNewBooking}
+                    className="px-2.5 py-1.5 bg-white/20 hover:bg-white/30 rounded text-xs font-body font-body-medium transition-colors min-h-[32px]"
+                  >
+                    View
+                  </button>
+                  <button
+                    onClick={() => setNewBookingNotification(null)}
+                    className="hover:opacity-80 text-white/80 hover:text-white p-1 min-h-[32px]"
+                  >
+                    <Icon name="X" size={16} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
         }
         aside={<AIAssistantPanel />}
         asideOpen={isAssistantOpen}
