@@ -52,3 +52,32 @@ export function toKathmanduParts(isoString) {
 
 // Compact 12h ('2:00pm') to match the gutter and cards.
 export const to12h = (t) => to12hSpaced(t).replace(' ', '');
+
+export function getDateRange(dateStr, viewMode) {
+  if (viewMode === '4day') {
+    return { start: dateStr, end: addDays(dateStr, 3) };
+  }
+  return { start: dateStr, end: dateStr };
+}
+
+export function getStepDays(viewMode) {
+  return viewMode === '4day' ? 4 : 1;
+}
+
+export function formatTimeFromSlot(hour, minute) {
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+export function calculateEndTime(startHour, startMinute, durationMinutes) {
+  const totalMinutes = startHour * 60 + startMinute + (durationMinutes || 60);
+  const endHour = Math.floor(totalMinutes / 60);
+  const endMinute = totalMinutes % 60;
+  return `${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`;
+}
+
+export function formatTimeDisplay(time) {
+  if (!time) return '';
+  // Convert HH:MM to display format
+  const [h, m] = time.split(':').map(Number);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
