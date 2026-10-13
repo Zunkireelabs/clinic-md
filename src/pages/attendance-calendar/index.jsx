@@ -136,7 +136,7 @@ const STAFF_TYPE_OPTIONS = [
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-const AttendanceCalendarPage = () => {
+const AttendanceCalendarPage = ({ embedded = false }) => {
   const navigate = useNavigate();
   const { orgSlug } = useParams();
   const { branchId, branchName } = useBranch();
@@ -481,9 +481,40 @@ const AttendanceCalendarPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className={embedded ? '' : 'min-h-screen bg-background'}>
 
-      {/* ── Top bar ── */}
+      {/* ── Top bar (standalone only; embedded in Reports the layout provides the title) ── */}
+      {embedded ? (
+        <div className="mb-3 flex justify-end">
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {data && staffRows.length > 0 && !isAggregated && !tooManyDays && (
+              <>
+                <button
+                  onClick={handleExportHTML}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-spa border border-primary/40 bg-primary/5 text-sm font-body-medium text-primary hover:bg-primary/10 spa-transition-fast"
+                >
+                  <Icon name="FileCode" size={15} />
+                  Export HTML
+                </button>
+                <button
+                  onClick={handleExportCSV}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-spa border border-border bg-surface text-sm font-body-medium text-text-secondary hover:bg-background spa-transition-fast"
+                >
+                  <Icon name="Download" size={15} />
+                  Export CSV
+                </button>
+              </>
+            )}
+            <button
+              onClick={load}
+              className="p-2 rounded-spa hover:bg-background text-text-tertiary hover:text-text-secondary spa-transition-fast"
+              title="Refresh"
+            >
+              <Icon name="RefreshCw" size={16} />
+            </button>
+          </div>
+        </div>
+      ) : (
       <header className="sticky top-0 z-header bg-surface border-b border-border px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
           <button
@@ -535,9 +566,10 @@ const AttendanceCalendarPage = () => {
           </button>
         </div>
       </header>
+      )}
 
       {/* ── Filters ── */}
-      <div className="bg-surface border-b border-border px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-3 flex-wrap">
+      <div className={`bg-surface border-border py-3 flex items-center gap-3 flex-wrap ${embedded ? 'border rounded-spa-lg px-3' : 'border-b px-4 sm:px-6 lg:px-8'}`}>
         {/* Period presets */}
         <div className="flex items-center gap-1 flex-wrap">
           {PERIOD_PRESETS.map((p) => (
@@ -624,7 +656,7 @@ const AttendanceCalendarPage = () => {
 
       {/* ── Summary strip ── */}
       {!loading && data && (
-        <div className="bg-surface border-b border-border px-4 sm:px-6 lg:px-8 py-2 flex items-center gap-5 flex-wrap text-xs font-body text-text-secondary">
+        <div className={`bg-surface border-border py-2 flex items-center gap-5 flex-wrap text-xs font-body text-text-secondary ${embedded ? 'border border-t-0 rounded-b-spa-lg px-3' : 'border-b px-4 sm:px-6 lg:px-8'}`}>
           <span>{fmtDate(data.startDate)} – {fmtDate(data.endDate)}</span>
           <span className="h-3 w-px bg-border" />
           {isAggregated && selectedStaff ? (
@@ -653,7 +685,7 @@ const AttendanceCalendarPage = () => {
       )}
 
       {/* ── Main content ── */}
-      <main className="px-4 sm:px-6 lg:px-8 py-6">
+      <main className={embedded ? 'py-5' : 'px-4 sm:px-6 lg:px-8 py-6'}>
 
         {loading && (
           <div className="flex flex-col items-center justify-center py-24">

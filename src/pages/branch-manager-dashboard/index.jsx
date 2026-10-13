@@ -30,6 +30,9 @@ import BookingsViewPanel from './components/BookingsViewPanel';
 import RevenueCards from './components/RevenueCards';
 import TodayInsightsPanel from './components/TodayInsightsPanel';
 import PeriodFilter from './components/PeriodFilter';
+import ReportsLayout from './components/Reports/ReportsLayout';
+import { isReportView } from './components/Reports/reportRegistry';
+import AttendanceCalendarPage from '../attendance-calendar';
 import { getTodayISO } from '../../utils/periodPresets';
 import UtilizationPanel from './components/UtilizationPanel';
 import RiskIndicatorsPanel from './components/RiskIndicatorsPanel';
@@ -373,6 +376,26 @@ const BranchManagerDashboard = () => {
     </div>
   );
 
+  // The Reports area: the layout frames each report; the panels themselves are unchanged.
+  const isReportsView = isReportView(viewMode);
+  const renderReportView = (view) => {
+    switch (view) {
+      case 'reports': return renderReportsView();
+      case 'treatment-revenue': return <TreatmentRevenueReportPanel branchId={branchId} />;
+      case 'discounts': return <DiscountsPanel branchId={branchId} />;
+      case 'outstanding': return <OutstandingReportPanel branchId={branchId} />;
+      case 'performance': return <DentistPerformancePanel branchId={branchId} />;
+      case 'attendance-report': return <AttendanceReportPanel branchId={branchId} />;
+      case 'attendance-calendar': return <AttendanceCalendarPage embedded />;
+      case 'transfer-report': return <TransferReportPanel />;
+      case 'referrals': return <ReferralsReportPanel branchId={branchId} />;
+      case 'customer-referrals': return CUSTOMER_REFERRALS_ENABLED ? <CustomerReferralsReportPanel branchId={branchId} /> : null;
+      case 'referral-wallet': return CUSTOMER_REFERRALS_ENABLED ? <ReferralWalletPanel branchId={branchId} /> : null;
+      case 'reward-catalog': return CUSTOMER_REFERRALS_ENABLED && ['manager', 'admin'].includes(profile?.role) ? <RewardCatalogPanel /> : null;
+      default: return null;
+    }
+  };
+
   return (
     <>
       <Helmet>
@@ -381,7 +404,7 @@ const BranchManagerDashboard = () => {
       </Helmet>
 
       <AppShell
-        variant={viewMode === 'calendar' ? 'fill' : 'page'}
+        variant={viewMode === 'calendar' || isReportsView ? 'fill' : 'page'}
         sidebar={{ userRole: 'manager', userName: managerData.name, branchName: managerData.branch }}
         header={{
           realtimeStatus,
@@ -445,19 +468,9 @@ const BranchManagerDashboard = () => {
         {viewMode === 'dashboard' && renderDashboardView()}
         {viewMode === 'bookings' && <BookingsViewPanel branchId={branchId} />}
         {viewMode === 'calendar' && renderCalendarView()}
-        {viewMode === 'reports' && renderReportsView()}
+        {isReportsView && <ReportsLayout view={viewMode} renderReport={renderReportView} />}
         {viewMode === 'customers' && <CustomersPanel branchId={branchId} readOnly={isOverall} />}
         {viewMode === 'attendance' && !isOverall && <AttendancePanel branchId={branchId} />}
-        {viewMode === 'performance' && <DentistPerformancePanel branchId={branchId} />}
-        {viewMode === 'discounts' && <DiscountsPanel branchId={branchId} />}
-        {viewMode === 'attendance-report' && <AttendanceReportPanel branchId={branchId} />}
-        {viewMode === 'transfer-report' && <TransferReportPanel />}
-        {viewMode === 'outstanding' && <OutstandingReportPanel branchId={branchId} />}
-        {viewMode === 'referrals' && <ReferralsReportPanel branchId={branchId} />}
-        {viewMode === 'customer-referrals' && CUSTOMER_REFERRALS_ENABLED && <CustomerReferralsReportPanel branchId={branchId} />}
-        {viewMode === 'referral-wallet' && CUSTOMER_REFERRALS_ENABLED && <ReferralWalletPanel branchId={branchId} />}
-        {viewMode === 'reward-catalog' && CUSTOMER_REFERRALS_ENABLED && ['manager', 'admin'].includes(profile?.role) && <RewardCatalogPanel />}
-        {viewMode === 'treatment-revenue' && <TreatmentRevenueReportPanel branchId={branchId} />}
         {viewMode === 'payroll' && profile?.role === 'admin' && <PayrollPanel branchId={branchId} isOverall={isOverall} />}
         {MEMBERSHIP_ENABLED && viewMode === 'memberships' && ['manager','admin'].includes(profile?.role) && <MembershipsPanel branchId={branchId} />}
         {MEMBERSHIP_ENABLED && viewMode === 'membership-collection' && ['manager','admin'].includes(profile?.role) && <MembershipCollectionPanel />}

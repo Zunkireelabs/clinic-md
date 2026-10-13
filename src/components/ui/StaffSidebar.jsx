@@ -6,7 +6,8 @@ import { useBranch } from 'contexts/BranchContext';
 import { useIndustry } from 'hooks/useIndustry';
 import { useTransferFeature } from 'hooks/useTransferFeature';
 import { fetchPendingApprovalCount } from 'services/api';
-import { MEMBERSHIP_ENABLED, CUSTOMER_REFERRALS_ENABLED, VOUCHER_ENABLED, OUTREACH_ENABLED } from 'lib/featureFlags';
+import { isReportView } from 'pages/branch-manager-dashboard/components/Reports/reportRegistry';
+import { MEMBERSHIP_ENABLED, VOUCHER_ENABLED, OUTREACH_ENABLED } from 'lib/featureFlags';
 
 const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: propBranch, onCollapseChange }) => {
   const transfersAvailable = useTransferFeature(); // hide transfer entries unless the DB has the tables
@@ -161,93 +162,8 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
       id: 'insights',
       label: 'Reports',
       icon: 'BarChart3',
-      roles: ['manager', 'admin', 'admin_viewer'],
-      children: [
-        {
-          id: 'reports',
-          label: 'Daily Report',
-          icon: 'FileText',
-          path: `${basePath}?view=reports`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-        {
-          id: 'performance',
-          label: 'Performance',
-          icon: 'TrendingUp',
-          path: `${basePath}?view=performance`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-        {
-          id: 'discounts',
-          label: 'Discounts Report',
-          icon: 'Percent',
-          path: `${basePath}?view=discounts`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-        {
-          id: 'attendance-report',
-          label: 'Attendance Report',
-          icon: 'CalendarCheck',
-          path: `${basePath}?view=attendance-report`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-        {
-          id: 'attendance-calendar',
-          label: 'Attendance Calendar',
-          icon: 'CalendarDays',
-          path: orgSlug ? `/${orgSlug}/attendance-calendar` : '/attendance-calendar',
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-        {
-          id: 'transfer-report',
-          label: 'Transfer Report',
-          icon: 'ArrowRightLeft',
-          path: `${basePath}?view=transfer-report`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-        {
-          id: 'outstanding',
-          label: 'Outstanding Report',
-          icon: 'AlertCircle',
-          path: `${basePath}?view=outstanding`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-        {
-          id: 'referrals',
-          label: 'Referrals Report',
-          icon: 'UserPlus',
-          path: `${basePath}?view=referrals`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-        ...(CUSTOMER_REFERRALS_ENABLED ? [{
-          id: 'customer-referrals',
-          label: 'Customer Referrals',
-          icon: 'Users',
-          path: `${basePath}?view=customer-referrals`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        }] : []),
-        ...(CUSTOMER_REFERRALS_ENABLED ? [{
-          id: 'referral-wallet',
-          label: 'Referral Wallet',
-          icon: 'Wallet',
-          path: `${basePath}?view=referral-wallet`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        }] : []),
-        ...(CUSTOMER_REFERRALS_ENABLED ? [{
-          id: 'reward-catalog',
-          label: 'Reward Catalog',
-          icon: 'Gift',
-          path: `${basePath}?view=reward-catalog`,
-          roles: ['manager', 'admin']
-        }] : []),
-        {
-          id: 'treatment-revenue',
-          label: 'Treatment Revenue',
-          icon: 'PieChart',
-          path: `${basePath}?view=treatment-revenue`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-      ]
+      path: `${basePath}?view=all-reports`,
+      roles: ['manager', 'admin', 'admin_viewer']
     },
     {
       id: 'staff-mgmt',
@@ -459,6 +375,10 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
   const mobileOverflowItems = mainNavItems.slice(4);
 
   const isActive = (path) => {
+    // The single Reports item is active on every report view (and the catalogue).
+    if (path === `${basePath}?view=all-reports`) {
+      return location.pathname === basePath && isReportView(new URLSearchParams(location.search).get('view'));
+    }
     // Bare dashboard URL = landing view: the dashboard for managers/admins, the calendar for staff.
     if (location.pathname === basePath && !new URLSearchParams(location.search).get('view')) {
       return path === `${basePath}?view=${userRole === 'staff' ? 'calendar' : 'dashboard'}`;

@@ -126,7 +126,6 @@ const CustomerReferralsReportPanel = ({ branchId }) => {
     <div className="space-y-4">
       {/* Header */}
       <div>
-        <h3 className="font-heading font-heading-semibold text-lg text-text-primary">Customer Referrals</h3>
         <p className="font-body text-sm text-text-secondary">
           {loading
             ? 'Loading…'

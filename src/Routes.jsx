@@ -10,7 +10,6 @@ import StaffLoginAuthentication from "pages/login";
 import BranchStaffDashboard from "pages/branch-staff-dashboard";
 import BookingDetailsAssignmentModal from "pages/booking-details-assignment-modal";
 import BranchManagerDashboard from "pages/branch-manager-dashboard";
-import AttendanceCalendarPage from "pages/attendance-calendar";
 import OrgFinder from "pages/org-finder";
 import CustomerLoginAuthentication from "pages/customer-login";
 import CustomerSignup from "pages/customer-signup";
@@ -119,14 +118,8 @@ const AppRoutes = () => {
           </TenantWrapper>
         } />
 
-        {/* Attendance calendar — dedicated full-page grid view */}
-        <Route path="/:orgSlug/attendance-calendar" element={
-          <TenantWrapper>
-            <ProtectedRoute allowedRoles={['manager', 'admin', 'admin_viewer']}>
-              <AttendanceCalendarPage />
-            </ProtectedRoute>
-          </TenantWrapper>
-        } />
+        {/* Attendance calendar now lives inside the Reports area; the old URL redirects (bookmarks keep working) */}
+        <Route path="/:orgSlug/attendance-calendar" element={<AttendanceCalendarRedirect />} />
 
         {/* Org-scoped booking details */}
         <Route path="/:orgSlug/bookings/:bookingId" element={
@@ -202,6 +195,12 @@ const AppRoutes = () => {
 const ManageRedirect = () => {
   const { orgSlug } = useParams();
   return <Navigate to={`/${orgSlug}/book`} replace />;
+};
+
+// Old standalone Attendance Calendar route -> the Reports area
+const AttendanceCalendarRedirect = () => {
+  const { orgSlug } = useParams();
+  return <Navigate to={`/${orgSlug}/dashboard?view=attendance-calendar`} replace />;
 };
 
 // Legacy booking redirect - redirects old /booking-details/:bookingId to org-scoped URL

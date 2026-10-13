@@ -194,7 +194,6 @@ const TransferReportPanel = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-heading font-heading-semibold text-lg text-text-primary">{staffLabel} Transfer Report</h3>
           <p className="font-body text-sm text-text-secondary">
             {loading ? 'Loading…' : `${filtered.length} transfer${filtered.length !== 1 ? 's' : ''}`}
           </p>
