@@ -80,7 +80,7 @@ const ProfileMenu = () => {
           ref={menuRef}
           role="menu"
           aria-label="Account"
-          className="absolute right-0 top-[calc(50%+34px)] w-64 bg-surface border border-border rounded-xl shadow-spa-elevated z-dropdown p-1.5"
+          className="absolute right-0 top-[calc(50%+32px)] w-64 bg-surface border border-border rounded-xl shadow-spa-elevated z-dropdown p-1.5"
         >
           <div className="p-3 mb-1 rounded-spa-lg bg-background">
             <div className="min-w-0">

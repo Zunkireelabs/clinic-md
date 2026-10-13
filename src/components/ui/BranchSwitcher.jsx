@@ -3,7 +3,7 @@ import Icon from '../AppIcon';
 import { useBranch, OVERALL_BRANCH_ID } from 'contexts/BranchContext';
 import { useMenuNav } from './useMenuNav';
 
-const TRIGGER_BASE = 'h-9 flex items-center gap-2 px-2 -ml-2 rounded-spa-lg min-w-0';
+const TRIGGER_BASE = 'h-[var(--control-h)] flex items-center gap-2 px-2 -ml-2 rounded-spa-lg min-w-0';
 
 // Workspace-style branch switcher. Admins get "Overall" + every branch, multi-branch managers
 // get their accessible branches, single-branch managers and staff see the name as plain text.
@@ -56,7 +56,7 @@ const BranchSwitcher = () => {
           ref={menuRef}
           role="menu"
           aria-label="Switch branch"
-          className="absolute left-0 top-[calc(50%+34px)] min-w-[240px] bg-surface border border-border rounded-spa-lg shadow-spa-elevated z-dropdown p-1.5"
+          className="absolute left-0 top-[calc(50%+32px)] min-w-[240px] bg-surface border border-border rounded-spa-lg shadow-spa-elevated z-dropdown p-1.5"
         >
           {withOverall && (
             <>

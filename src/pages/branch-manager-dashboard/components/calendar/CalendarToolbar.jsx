@@ -111,11 +111,11 @@ const CalendarToolbar = ({
   // toolbar's centre whenever there's room. When there isn't, the wider side keeps its content width and the centre
   // slides over; if even that doesn't fit, the right group wraps to a second row as before (never overlapping/overflowing).
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-2 border-b border-border bg-surface flex-shrink-0 overflow-x-clip">
+    <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-1.5 border-b border-border bg-surface flex-shrink-0 overflow-x-clip">
       {/* Left: Dentist/Chair toggle + away summary */}
       <div className="flex items-center gap-3 justify-self-start min-w-0 lg:flex-1 lg:basis-0 lg:min-w-max">
         {enableChairs ? (
-          <div className="flex items-center border border-border rounded-spa bg-background p-0.5 gap-0.5 h-9">
+          <div className="flex items-center border border-border rounded-spa bg-background p-0.5 gap-0.5 h-[var(--control-h)]">
             {[
               { key: 'dentist', icon: 'User', label: staffLabel },
               { key: 'chair', icon: 'DoorOpen', label: locationLabel },
@@ -167,7 +167,7 @@ const CalendarToolbar = ({
         <div className="relative" ref={prevJumpRef}>
           <button
             onClick={() => setJumpMenuOpen(prev => (prev === 'prev' ? null : 'prev'))}
-            className="h-9 w-9 flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
+            className="h-[var(--control-h)] w-[var(--control-h)] flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
             aria-label="Jump back"
           >
             <Icon name="ChevronsLeft" size={16} className="text-text-secondary" />
@@ -188,7 +188,7 @@ const CalendarToolbar = ({
         </div>
         <button
           onClick={goPrev}
-          className="h-9 w-9 flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
+          className="h-[var(--control-h)] w-[var(--control-h)] flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
           aria-label="Previous"
           title={viewMode === '4day' ? 'Previous 4 days (J or ←)' : 'Previous day (J or ←)'}
           aria-keyshortcuts="j ArrowLeft"
@@ -199,14 +199,14 @@ const CalendarToolbar = ({
           onClick={goToday}
           title="Today (T)"
           aria-keyshortcuts="t"
-          className="h-9 px-3 text-[13px] font-body font-body-medium text-text-primary border border-border rounded-spa hover:bg-background spa-transition-fast"
+          className="h-[var(--control-h)] px-3 text-[13px] font-body font-body-medium text-text-primary border border-border rounded-spa hover:bg-background spa-transition-fast"
         >
           Today
         </button>
         <div className="relative" ref={dateDropdownRef}>
           <button
             onClick={() => setDateDropdownOpen(prev => !prev)}
-            className={`h-9 flex items-center gap-1.5 px-3 text-[13px] font-body font-body-medium text-text-primary border rounded-spa hover:bg-background spa-transition-fast justify-between ${
+            className={`h-[var(--control-h)] flex items-center gap-1.5 px-3 text-[13px] font-body font-body-medium text-text-primary border rounded-spa hover:bg-background spa-transition-fast justify-between ${
               dateDropdownOpen ? 'border-text-primary' : 'border-border'
             }`}
             aria-haspopup="dialog"
@@ -227,7 +227,7 @@ const CalendarToolbar = ({
         </div>
         <button
           onClick={goNext}
-          className="h-9 w-9 flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
+          className="h-[var(--control-h)] w-[var(--control-h)] flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
           aria-label="Next"
           title={viewMode === '4day' ? 'Next 4 days (K or →)' : 'Next day (K or →)'}
           aria-keyshortcuts="k ArrowRight"
@@ -237,7 +237,7 @@ const CalendarToolbar = ({
         <div className="relative" ref={nextJumpRef}>
           <button
             onClick={() => setJumpMenuOpen(prev => (prev === 'next' ? null : 'next'))}
-            className="h-9 w-9 flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
+            className="h-[var(--control-h)] w-[var(--control-h)] flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
             aria-label="Jump forward"
           >
             <Icon name="ChevronsRight" size={16} className="text-text-secondary" />
@@ -264,7 +264,7 @@ const CalendarToolbar = ({
           <button
             type="button"
             onClick={() => setTipOpen(prev => !prev)}
-            className="h-9 w-9 flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
+            className="h-[var(--control-h)] w-[var(--control-h)] flex items-center justify-center border border-border rounded-spa hover:bg-background spa-transition-fast"
             aria-label="Shortcuts and drag-and-drop tips"
             title="Shortcuts (?)"
             aria-keyshortcuts="?"
@@ -301,7 +301,7 @@ const CalendarToolbar = ({
           <div className="relative" ref={positionDropdownRef}>
             <button
               onClick={() => setPositionDropdownOpen(prev => !prev)}
-              className={`h-9 flex items-center gap-1.5 px-3 text-[13px] border rounded-spa spa-transition-fast ${
+              className={`h-[var(--control-h)] flex items-center gap-1.5 px-3 text-[13px] border rounded-spa spa-transition-fast ${
                 selectedPositions.length > 0 ? 'border-text-primary bg-background text-text-primary' : 'border-border bg-surface text-text-primary'
               }`}
             >
@@ -355,7 +355,7 @@ const CalendarToolbar = ({
             )}
           </div>
         )}
-        <div className="flex items-center border border-border rounded-spa bg-background p-0.5 gap-0.5 h-9">
+        <div className="flex items-center border border-border rounded-spa bg-background p-0.5 gap-0.5 h-[var(--control-h)]">
           {[
             { key: 'day', label: 'Day' },
             { key: '4day', label: '4 Day' },
@@ -380,7 +380,7 @@ const CalendarToolbar = ({
           onClick={onNewBooking}
           title="New booking (N)"
           aria-keyshortcuts="n"
-          className="h-9 flex items-center gap-1.5 px-3.5 text-[13px] font-body font-body-medium text-white bg-primary hover:bg-primary/90 rounded-spa spa-transition-fast whitespace-nowrap"
+          className="h-[var(--control-h)] flex items-center gap-1.5 px-3.5 text-[13px] font-body font-body-medium text-white bg-primary hover:bg-primary/90 rounded-spa spa-transition-fast whitespace-nowrap"
         >
           <Icon name="Plus" size={14} />
           New booking

@@ -484,7 +484,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
         isCollapsed ? 'w-16' : 'w-60'
       } hidden lg:flex`}>
         {/* Header */}
-        <div className="px-5 py-3 h-[52px] flex items-center justify-between">
+        <div className="px-5 py-3 h-12 flex items-center justify-between">
           {!isCollapsed && (
             <Link to={basePath} aria-label="ClinicMD Staff Portal" className="flex items-start text-gray-900">
               {/* Wordmark matches the marketing site: Clinic + superscript MD */}

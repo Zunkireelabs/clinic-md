@@ -235,3 +235,7 @@ aside:has(.sidebar-scroll:focus-within) .sidebar-scroll::-webkit-scrollbar-thumb
   background: var(--color-background);
 }
 
+
+/* Control height shared by the app header and the calendar toolbar: compact with a mouse, today's 36px for touch. */
+:root { --control-h: 32px; }
+@media (pointer: coarse) { :root { --control-h: 36px; } }
