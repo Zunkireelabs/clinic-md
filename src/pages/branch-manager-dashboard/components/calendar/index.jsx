@@ -212,6 +212,7 @@ const OperationalCalendar = ({ branchId }) => {
             setSelectedPositions={setSelectedPositions}
             calendarPositionOptions={calendarPositionOptions}
             onNewBooking={handleNewBooking}
+            branchId={branchId}
           />
 
           {/* Main content area: Grid */}

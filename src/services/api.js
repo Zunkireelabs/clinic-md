@@ -4412,6 +4412,59 @@ async function applyCalendarTransfers(branchId, startDate, endDate, dentists) {
 
 
 
+// ── Date-picker booking counts ───────────────────────────────────────────────────────────────────────────────────────
+// One number per day for the calendar's date picker. Read-only, `bookings.date` is the clinic-local date (no UTC maths).
+// Counts = Pending/Confirmed/In-Progress/Completed; Cancelled + No Show are reported separately; a shared (multi-dentist)
+// booking is one row. Paged with .range() so PostgREST's 1,000-row cap can't undercount a busy branch.
+const DAY_COUNT_PAGE = 1000;
+const DAY_COUNT_TTL_MS = 60000;
+const dayCountCache = new Map(); // `${branch}|${start}|${end}` -> { at, promise }
+
+export function invalidateBookingDayCounts() {
+  dayCountCache.clear();
+}
+
+export function getBookingDayCounts(branchId, startDate, endDate) {
+  const resolvedBranchId = resolveBranchId(branchId);
+  const key = `${resolvedBranchId}|${startDate}|${endDate}`;
+  const hit = dayCountCache.get(key);
+  if (hit && Date.now() - hit.at < DAY_COUNT_TTL_MS) return hit.promise;
+
+  const promise = (async () => {
+    try {
+      const counts = {};
+      for (let from = 0; ; from += DAY_COUNT_PAGE) {
+        const { data, error } = await supabase
+          .from('bookings')
+          .select('date, status')
+          .eq('branch_id', resolvedBranchId)
+          .gte('date', startDate)
+          .lte('date', endDate)
+          .order('date', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + DAY_COUNT_PAGE - 1);
+        if (error) throw error;
+        for (const row of data || []) {
+          const c = (counts[row.date] ||= { total: 0, pending: 0, cancelled: 0 });
+          if (row.status === 'Cancelled' || row.status === 'No Show') c.cancelled += 1;
+          else {
+            c.total += 1;
+            if (row.status === 'Pending') c.pending += 1;
+          }
+        }
+        if (!data || data.length < DAY_COUNT_PAGE) break;
+      }
+      return counts;
+    } catch (e) {
+      console.warn('[API] getBookingDayCounts failed:', e.message);
+      dayCountCache.delete(key); // don't cache a failure
+      return null;
+    }
+  })();
+  dayCountCache.set(key, { at: Date.now(), promise });
+  return promise;
+}
+
 export async function getCalendarBookings(branchId, startDate, endDate) {
   try {
     const resolvedBranchId = resolveBranchId(branchId);

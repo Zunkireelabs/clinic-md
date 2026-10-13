@@ -8,6 +8,7 @@ import {
   LEAVE_LIKE_ATTENDANCE_STATUSES,
   updateDentistOrder,
   updateChairOrder,
+  invalidateBookingDayCounts,
 } from '../../../../../services/api';
 import { getDateRange } from '../calendarDates';
 
@@ -75,6 +76,7 @@ export function useCalendarData({ branchId, currentDate, viewMode }) {
   }, [branchId, currentDate, viewMode, fetchData]);
 
   const refreshCalendar = useCallback(() => {
+    invalidateBookingDayCounts(); // picker counts must reflect what just changed
     const { start, end } = getDateRange(currentDate, viewMode);
     fetchData(start, end);
   }, [currentDate, viewMode, fetchData]);

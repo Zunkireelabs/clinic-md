@@ -43,7 +43,7 @@ const CalendarToolbar = ({
   currentDate, setCurrentDate, viewMode, setViewMode, goToday, goPrev, goNext,
   tipOpen, setTipOpen,
   showTreatmentOnly, setShowTreatmentOnly, selectedPositions, setSelectedPositions, calendarPositionOptions,
-  onNewBooking,
+  onNewBooking, branchId,
 }) => {
   const [positionDropdownOpen, setPositionDropdownOpen] = useState(false);
   const positionDropdownRef = useRef(null);
@@ -213,9 +213,10 @@ const CalendarToolbar = ({
             <Icon name="ChevronDown" size={14} className={`text-text-secondary spa-transition-fast ${dateDropdownOpen ? 'rotate-180' : ''}`} />
           </button>
           {dateDropdownOpen && (
-            <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 bg-surface border border-border rounded-spa-lg shadow-spa-elevated z-dropdown p-3">
+            <div className="absolute left-1/2 -translate-x-1/2 top-full max-sm:fixed max-sm:top-auto mt-1 bg-surface border border-border rounded-spa-lg shadow-spa-elevated z-dropdown p-3 max-w-[calc(100vw-16px)]">
               <MiniMonthCalendar
                 selectedDate={currentDate}
+                branchId={branchId}
                 onDateSelect={(d) => { setCurrentDate(d); setDateDropdownOpen(false); }}
               />
             </div>
