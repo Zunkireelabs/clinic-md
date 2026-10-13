@@ -6,12 +6,9 @@ import { useDroppable, useDraggable } from '@dnd-kit/core';
 import Icon from '../../../../components/AppIcon';
 import CalendarBookingCard, { canDragBooking } from './CalendarBookingCard';
 import { BookingHoverLayer, useBookingHover } from './BookingHoverCard';
-import { to12h as to12hSpaced } from '../../../../services/bookingTransformers';
+import { to12h, toKathmanduParts, addDaysViaUtc } from './calendarDates';
 import { PANEL_WIDTH } from '../../../../components/ui/SidePanel';
 import { findBlockOverlap, formatBlockRange } from '../../../../utils/blockOverlap';
-
-// Compact 12h ('2:00pm') to match the gutter and cards.
-const to12h = (t) => to12hSpaced(t).replace(' ', '');
 
 // SVG overlay: inverted-U bracket connectors between shared booking cards
 const SharedBookingLines = ({ containerRef, bookings }) => {
@@ -123,42 +120,15 @@ const MAX_ZOOM = 320 / HOUR_HEIGHT;
 const clampZoom = (v) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, v));
 const touchDistance = (t0, t1) => Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
 
-function addDaysToStr(dateStr, days) {
-  const d = new Date(dateStr + 'T00:00:00');
-  d.setDate(d.getDate() + days);
-  return d.toISOString().split('T')[0];
-}
-
 function formatShortDate(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
   return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-}
-
-// Nepal-business-timezone date ("YYYY-MM-DD") + time-of-day ("HH:MM") for an ISO instant,
-// regardless of the viewer's own browser timezone.
-function toKathmanduParts(isoString) {
-  if (!isoString) return null;
-  const d = new Date(isoString);
-  if (Number.isNaN(d.getTime())) return null;
-  return {
-    date: d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kathmandu' }),
-    time: d.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kathmandu', hour: '2-digit', minute: '2-digit', hour12: false }),
-  };
 }
 
 // ── Overlap layout constants & helpers ─────────────────
 const MAX_VISIBLE_OVERLAP = 2;
 const OVERLAP_GAP = 2;       // px between side-by-side cards
 const OVERLAP_PADDING = 4;   // px from column edges
-
-// Convert "HH:MM" or "HH:MM:SS" to 12h format (used in the overflow popover)
-function toTime12h(timeStr) {
-  if (!timeStr) return '';
-  const [h, m] = timeStr.split(':').map(Number);
-  const period = h >= 12 ? 'pm' : 'am';
-  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-  return `${h12}:${String(m).padStart(2, '0')}${period}`;
-}
 
 /**
  * Group overlapping bookings into clusters.
@@ -392,7 +362,7 @@ const OverflowPopoverRow = ({ booking, onClick, onDragChange }) => {
       >
         <div className="text-[11px] font-medium text-text-primary truncate">{booking.customerName || 'Guest'}</div>
         <div className="text-[10px] text-text-secondary truncate">{booking.treatmentName || 'Treatment'}</div>
-        <div className="text-[10px] font-data text-text-secondary/80">{toTime12h(booking.startTime)} – {toTime12h(booking.endTime)}</div>
+        <div className="text-[10px] font-data text-text-secondary/80">{to12h(booking.startTime)} – {to12h(booking.endTime)}</div>
       </button>
     </>
   );
@@ -766,7 +736,7 @@ const CalendarGrid = ({
   }, [gridRef]);
 
   const days = useMemo(() => {
-    if (viewMode === '4day') return [0, 1, 2, 3].map(i => addDaysToStr(currentDate, i));
+    if (viewMode === '4day') return [0, 1, 2, 3].map(i => addDaysViaUtc(currentDate, i));
     return [currentDate];
   }, [currentDate, viewMode]);
 
