@@ -4208,9 +4208,12 @@ export async function searchBookings(branchId, query) {
   }
 }
 
-// Customer lookup for the command palette: name / phone match, org-wide like the booking form's autocomplete, bounded by `limit`
-// (so it never downloads the whole customer list or runs into PostgREST's 1,000-row cap). Read-only, same table and RLS as the Customers panel.
-export async function searchCustomers(branchId, query, limit = 5) {
+// Bounded, server-side customer lookup (org-wide, like the booking form's autocomplete): never downloads the whole customer list, so it
+// can't run into PostgREST's 1,000-row cap. Read-only, same table and RLS as the Customers panel.
+//   searchBy: 'name' | 'phone' | 'email' | 'name_or_phone' (default; used by the ⌘K palette)
+//   withMembership: attach `primaryMembership` (status RPC, MEMBERSHIP_ENABLED only) to the returned rows only — the badge and the
+//                   "card depleted / lapsed" hint in the booking form and Enroll Member modal.
+export async function searchCustomers(branchId, query, limit = 5, { searchBy = 'name_or_phone', withMembership = false } = {}) {
   try {
     const resolvedBranchId = resolveBranchId(branchId);
     const term = (query || '').trim();
@@ -4226,18 +4229,69 @@ export async function searchCustomers(branchId, query, limit = 5) {
     // Sanitize to prevent PostgREST filter injection (same as searchBookings)
     const sanitized = term.replace(/[,.()"\\]/g, '');
     if (!sanitized) return { data: [], error: null };
+    const filters = {
+      name: `full_name.ilike.%${sanitized}%`,
+      phone: `phone.ilike.%${sanitized}%`,
+      email: `email.ilike.%${sanitized}%`,
+      name_or_phone: `full_name.ilike.%${sanitized}%,phone.ilike.%${sanitized}%`,
+    };
     const { data, error } = await supabase
       .from('customers')
-      .select('id, full_name, phone')
+      .select('id, full_name, phone, email, gender')
       .eq('org_id', branch.org_id)
       .eq('is_active', true)
-      .or(`full_name.ilike.%${sanitized}%,phone.ilike.%${sanitized}%`)
+      .or(filters[searchBy] || filters.name_or_phone)
       .order('full_name')
       .limit(limit);
     if (error) throw error;
-    return { data: data || [], error: null };
+
+    let rows = data || [];
+    if (withMembership && MEMBERSHIP_ENABLED && rows.length > 0) {
+      // Status RPC (migration-087): status/tier only, readable for every role. One call per returned row (≤ limit), not per customer in the org.
+      const statuses = await Promise.all(rows.map((c) => fetchMembershipStatus({ customerId: c.id })));
+      rows = rows.map((c, i) => {
+        const st = (statuses[i].data || []).find((r) => r.customerId === c.id) || (statuses[i].data || [])[0];
+        return { ...c, primaryMembership: st ? { id: st.membershipId, status: st.status, tierName: st.tierName, membershipNumber: st.membershipNumber } : null };
+      });
+    } else if (withMembership) {
+      rows = rows.map((c) => ({ ...c, primaryMembership: null }));
+    }
+    return { data: rows, error: null };
   } catch (error) {
     console.error('[API] searchCustomers error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// One customer by phone, or null. Stored formats vary (that is why samePhone exists), so the server query is deliberately loose — the last
+// 10 digits with a wildcard between each digit, so "+977 984-123-4567", "9841234567" and "+9779841234567" rows all come back — and the
+// match is then confirmed client-side with the same samePhone() the old whole-list scan used.
+export async function findCustomerByPhone(branchId, phone) {
+  try {
+    const e164 = toE164(phone);
+    const digits = e164 ? e164.replace(/\D/g, '').slice(-10) : '';
+    if (digits.length < 7) return { data: null, error: null };
+
+    const resolvedBranchId = resolveBranchId(branchId);
+    const { data: branch, error: branchErr } = await supabase
+      .from('branches')
+      .select('org_id')
+      .eq('id', resolvedBranchId)
+      .single();
+    if (branchErr) throw branchErr;
+
+    const { data, error } = await supabase
+      .from('customers')
+      .select('id, full_name, phone, email, gender')
+      .eq('org_id', branch.org_id)
+      .eq('is_active', true)
+      .ilike('phone', `%${digits.split('').join('%')}%`)
+      .order('full_name')
+      .limit(25);
+    if (error) throw error;
+    return { data: (data || []).find((c) => samePhone(c.phone, e164)) || null, error: null };
+  } catch (error) {
+    console.error('[API] findCustomerByPhone error:', error.message);
     return { data: null, error };
   }
 }
@@ -6453,65 +6507,6 @@ export async function dismissDuplicateCandidate(orgId, customerIdA, customerIdB)
     return { data: true, error: null };
   } catch (error) {
     console.error('[API] dismissDuplicateCandidate error:', error.message);
-    return { data: null, error };
-  }
-}
-
-export async function fetchCustomersLightweight(branchId) {
-  try {
-    if (!branchId) {
-      return { data: null, error: { code: 'BRANCH_REQUIRED', message: 'Branch ID is required.' } };
-    }
-
-    const resolvedBranchId = resolveBranchId(branchId);
-
-    // Resolve the branch's org so autocomplete suggests the whole org's customers
-    // (a returning cross-branch customer appears instead of being invisible).
-    const { data: branch, error: branchErr } = await supabase
-      .from('branches')
-      .select('org_id')
-      .eq('id', resolvedBranchId)
-      .single();
-    if (branchErr) throw branchErr;
-
-    const [{ data, error }, statusRes] = await Promise.all([
-      supabase
-        .from('customers')
-        .select('id, full_name, phone, email, gender')
-        .eq('org_id', branch.org_id)
-        .eq('is_active', true)
-        .order('full_name'),
-      MEMBERSHIP_ENABLED ? fetchMembershipStatus() : Promise.resolve({ data: [] }),
-    ]);
-
-    if (error) throw error;
-
-    // Attach a `primaryMembership` to each customer via the staff-safe status
-    // RPC (migration-087) — status/tier only, no balance, and readable
-    // regardless of role (unlike an embedded `memberships` relation, which
-    // RLS silently empties out for staff). Drives the membership badge in the
-    // booking-creation customer autocomplete AND the "already a member" /
-    // "renew instead" hint in the Enroll Member modal -- depleted/lapsed
-    // cards are surfaced too (not filtered out) so staff sees a returning
-    // member's ended card instead of it looking like they've never had one.
-    const statusByCustomer = new Map((statusRes.data || []).map((r) => [r.customerId, r]));
-    const enriched = (data || []).map((c) => {
-      const s = statusByCustomer.get(c.id);
-      return {
-        id: c.id,
-        full_name: c.full_name,
-        phone: c.phone,
-        email: c.email,
-        gender: c.gender,
-        primaryMembership: s
-          ? { id: s.membershipId, status: s.status, tierName: s.tierName, membershipNumber: s.membershipNumber }
-          : null,
-      };
-    });
-
-    return { data: enriched, error: null };
-  } catch (error) {
-    console.error('[API] fetchCustomersLightweight error:', error.message);
     return { data: null, error };
   }
 }
@@ -9315,7 +9310,7 @@ export async function fetchMembershipForBooking(bookingId) {
 }
 
 // Membership status — status/tier/usable only, no balance/deposit figures
-// (migration-087). Used by fetchCustomersLightweight for the booking-creation
+// (migration-087). Used by searchCustomers (withMembership) for the booking-creation
 // tier badge (every role — the badge never needed balance in the first place).
 export async function fetchMembershipStatus({ customerId } = {}) {
   try {
