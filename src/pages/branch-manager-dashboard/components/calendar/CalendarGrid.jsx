@@ -1542,7 +1542,7 @@ const CalendarGrid = ({
           {renderTimeLabels()}
           {unassignedCol && (
             <div
-              className={`flex-shrink-0 relative border-r border-border bg-surface overflow-hidden ${
+              className={`flex-shrink-0 relative border-r border-border bg-surface overflow-hidden cursor-pointer ${
                 freezeUnassigned ? 'sticky z-header' : ''
               }`}
               style={freezeUnassigned
