@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import Icon from '../../../components/AppIcon';
-import { useAuth, getDashboardPath } from '../../../contexts/AuthContext';
+import { useAuth, getDashboardPath, getSafeRedirect } from '../../../contexts/AuthContext';
 import { supabase } from '../../../lib/supabase';
 
 // Helper: get saved emails for an org from localStorage
@@ -25,6 +25,7 @@ function saveEmail(orgSlug, email) {
 
 const LoginForm = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { orgSlug: urlOrgSlug } = useParams();
   const { signIn, user, profile } = useAuth();
   const [email, setEmail] = useState('');
@@ -46,9 +47,9 @@ const LoginForm = () => {
   useEffect(() => {
     if (user && profile) {
       const userOrgSlug = profile?.organizations?.slug;
-      navigate(getDashboardPath(profile.role, userOrgSlug), { replace: true });
+      navigate(getSafeRedirect(location.state?.from, userOrgSlug) || getDashboardPath(profile.role, userOrgSlug), { replace: true });
     }
-  }, [user, profile, navigate]);
+  }, [user, profile, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleOAuth = async (provider) => {
     setOauthLoading(provider);
@@ -164,7 +165,7 @@ const LoginForm = () => {
         // PIN login successful — session is set, fetch profile
         saveEmail(urlOrgSlug, email);
         // Reload to let AuthContext pick up the session
-        window.location.href = getDashboardPath(null, urlOrgSlug || 'bright-smile-dental');
+        window.location.href = getSafeRedirect(location.state?.from, urlOrgSlug) || getDashboardPath(null, urlOrgSlug || 'bright-smile-dental');
         return;
       }
 
@@ -181,7 +182,7 @@ const LoginForm = () => {
           return;
         }
 
-        navigate(getDashboardPath(result.profile.role, userOrgSlug), { replace: true });
+        navigate(getSafeRedirect(location.state?.from, userOrgSlug) || getDashboardPath(result.profile.role, userOrgSlug), { replace: true });
         return;
       }
       setErrors({
