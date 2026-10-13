@@ -49,6 +49,14 @@ Reset and reseed: `supabase db reset && ./scripts/local-db-bootstrap.sh`.
 for org `bright-smile-dental`, branch Kathmandu Main (GoTrue user + `public.users` + `user_branches`).
 Passwords are generated into `supabase/LOCAL_TEST_USERS.md` (gitignored) and reused on re-runs.
 
+## Busy calendar seed
+
+`./scripts/local-seed-busy-calendar.sh` fills Bright Smile / Kathmandu Main with a realistic busy week, from
+yesterday through +6 days (today busiest). It adds 3 extra dentists, double-bookings, "+N" clusters, stacked Unassigned
+bookings, shared two-dentist bookings, patient alerts, payments and prior dues. Re-running re-seeds;
+`--clean` removes it. Everything is tagged (`@busy.seed.test` emails, fixed-id seed dentists), so other data is
+untouched. Fictional data only.
+
 ## Why a bootstrap script
 
 Schema/RLS/seed live in raw `supabase/*.sql`, not the CLI's `supabase/migrations/` convention, so
