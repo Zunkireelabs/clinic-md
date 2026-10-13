@@ -1479,7 +1479,7 @@ const CalendarGrid = ({
   }, [regularColumns, columnMode, onDentistReorder, onChairReorder]);
 
   const renderDayView = () => (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden isolate">
       {/* Fixed header — outside scroll container */}
       <div
         ref={headerScrollRef}
@@ -1578,7 +1578,7 @@ const CalendarGrid = ({
   const daysMinWidth = days.length * minColWidth;
 
   const renderMultiDayView = () => (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden isolate">
       {/* Fixed header — outside scroll container */}
       <div
         ref={headerScrollRef}
