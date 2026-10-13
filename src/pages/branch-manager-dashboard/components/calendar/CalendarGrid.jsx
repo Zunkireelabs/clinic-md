@@ -1312,7 +1312,7 @@ const CalendarGrid = ({
             return (
               <CalendarBookingCard
                 isPanelSelected={!!selectedBookingId && (booking.bookingId || booking.id) === selectedBookingId}
-                key={v.cardInteractions ? cardKey : booking.id}
+                key={cardKey}
                 booking={booking}
                 columnMode={columnMode}
                 style={{
