@@ -2,7 +2,6 @@ import React, { useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../AppIcon';
 import { useAuth } from 'contexts/AuthContext';
-import { useBranch } from 'contexts/BranchContext';
 import { useMenuNav } from './useMenuNav';
 
 const ROLE_LABELS = {
@@ -33,7 +32,6 @@ const Avatar = ({ name, src }) => {
 
 const ProfileMenu = () => {
   const { profile, signOut } = useAuth();
-  const { isOverall } = useBranch();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
@@ -47,8 +45,7 @@ const ProfileMenu = () => {
   const org = profile?.organizations?.name;
   const roleLine = [ROLE_LABELS[role] || 'Staff', org].filter(Boolean).join(' · ');
 
-  // There is no account/settings page; "Settings" opens the Setup area (manager/admin only).
-  // Overall is read-only and hides the write views, so it lands on the Audit Log instead.
+  // "Settings" opens the Settings area (manager/admin only); it lands on the first page visible for the role and branch.
   const canSettings = role === 'manager' || role === 'admin' || role === 'admin_viewer';
   // The calendar owns the shortcuts help and toggles it on "?"; only offer the item there.
   const onCalendar = new URLSearchParams(window.location.search).get('view') === 'calendar';
@@ -57,7 +54,7 @@ const ProfileMenu = () => {
     setOpen(false);
     fn();
   };
-  const openSettings = () => navigate(isOverall ? '?view=audit' : '?view=treatments');
+  const openSettings = () => navigate('?view=settings');
   const openShortcuts = () => setTimeout(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: '?' })), 0);
 
   const row = 'w-full h-9 flex items-center gap-3 px-2.5 rounded-spa text-left text-sm font-body text-text-primary hover:bg-black/[0.04] focus:bg-black/[0.04] focus:outline-none';

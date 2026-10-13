@@ -4,6 +4,7 @@ import Icon from '../../../../components/AppIcon';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { useBranch } from '../../../../contexts/BranchContext';
 import { useTransferFeature } from '../../../../hooks/useTransferFeature';
+import AreaLayout, { AreaPage, menuRow } from '../Area/AreaLayout';
 import { REPORT_CATEGORIES, getReportByView, canOpenReport, getVisibleReports } from './reportRegistry';
 
 const MENU_KEY = 'clinicmd.reports.menu';
@@ -35,9 +36,6 @@ const ReportsLayout = ({ view, renderReport }) => {
   const role = profile?.role;
   const userId = profile?.id;
 
-  const [menuOpen, setMenuOpen] = useState(() => { try { return localStorage.getItem(MENU_KEY) !== 'collapsed'; } catch { return true; } });
-  const toggleMenu = () => setMenuOpen((o) => { try { localStorage.setItem(MENU_KEY, o ? 'collapsed' : 'open'); } catch { /* ignore */ } return !o; });
-
   const [favs, setFavs] = useState(() => readJSON(favKey(userId), []));
   useEffect(() => { setFavs(readJSON(favKey(userId), [])); }, [userId]);
   const toggleFav = useCallback((id) => {
@@ -55,53 +53,25 @@ const ReportsLayout = ({ view, renderReport }) => {
   const scope = isOverall ? 'all branches' : (branchName || 'this branch');
   const cats = REPORT_CATEGORIES.map((c) => ({ ...c, items: visible.filter((r) => r.category === c.id) })).filter((c) => c.items.length);
 
-  const reopen = !menuOpen && (
-    <button type="button" onClick={toggleMenu} aria-label="Show reports menu" title="Show reports menu" className="hidden lg:inline-flex p-1.5 -ml-1.5 rounded-spa hover:bg-black/[0.05] text-text-secondary">
-      <Icon name="PanelLeftOpen" size={16} />
-    </button>
-  );
-
-  // ── Internal menu ──
-  const row = (active) => `w-full h-8 flex items-center gap-2.5 px-2.5 rounded-spa text-[13px] text-left spa-transition-fast ${
-    active ? 'bg-white shadow-[0_0_0_1px_#E9E9EC] text-text-primary font-medium' : 'text-text-secondary hover:bg-black/[0.04]'
-  }`;
-  const menu = menuOpen && (
-    <aside className="hidden lg:flex w-[232px] flex-shrink-0 flex-col border-r border-border bg-background">
-      <div className="h-11 px-3 flex items-center justify-between flex-shrink-0">
-        <span className="text-[13px] font-semibold text-text-primary px-0.5">Reports</span>
-        <button type="button" onClick={toggleMenu} aria-label="Hide reports menu" title="Hide reports menu" className="p-1.5 rounded-spa hover:bg-black/[0.05] text-text-tertiary hover:text-text-secondary">
-          <Icon name="PanelLeftClose" size={16} />
-        </button>
-      </div>
-      <nav className="sidebar-scroll flex-1 overflow-y-auto px-3 pb-4" aria-label="Reports">
-        <button type="button" className={row(view === 'all-reports' && tab !== 'favourites')} onClick={openCatalogue}>
-          <Icon name="LayoutList" size={15} className="flex-shrink-0" />
-          <span className="flex-1">All reports</span>
-          <span className="text-[11px] text-text-tertiary tabular-nums">{visible.length}</span>
-        </button>
-        <button type="button" className={`${row(view === 'all-reports' && tab === 'favourites')} mt-0.5`} onClick={() => go('all-reports', { tab: 'favourites' })}>
-          <Icon name="Star" size={15} className="flex-shrink-0" />
-          <span className="flex-1">Favourites</span>
-          <span className="text-[11px] text-text-tertiary tabular-nums">{favCount}</span>
-        </button>
-        <div className="h-px bg-border my-3" />
-        {cats.map((c) => (
-          <div key={c.id} className="mb-3">
-            <p className="px-2.5 mb-1 text-[11px] font-medium uppercase tracking-wide text-text-tertiary">{c.label}</p>
-            {c.items.map((r) => (
-              <button key={r.id} type="button" className={`${row(view === r.view)} mb-0.5`} onClick={() => go(r.view)} aria-current={view === r.view ? 'page' : undefined}>
-                <Icon name={r.icon} size={15} className="flex-shrink-0" />
-                <span className="flex-1 truncate">{r.title}</span>
-              </button>
-            ))}
-          </div>
-        ))}
-      </nav>
-    </aside>
+  // Rows above the category list (the shared AreaLayout renders the categories themselves).
+  const menuTop = (
+    <>
+      <button type="button" className={menuRow(view === 'all-reports' && tab !== 'favourites')} onClick={openCatalogue}>
+        <Icon name="LayoutList" size={15} className="flex-shrink-0" />
+        <span className="flex-1">All reports</span>
+        <span className="text-[11px] text-text-tertiary tabular-nums">{visible.length}</span>
+      </button>
+      <button type="button" className={`${menuRow(view === 'all-reports' && tab === 'favourites')} mt-0.5`} onClick={() => go('all-reports', { tab: 'favourites' })}>
+        <Icon name="Star" size={15} className="flex-shrink-0" />
+        <span className="flex-1">Favourites</span>
+        <span className="text-[11px] text-text-tertiary tabular-nums">{favCount}</span>
+      </button>
+      <div className="h-px bg-border my-3" />
+    </>
   );
 
   // ── Catalogue ──
-  const renderCatalogue = () => {
+  const renderCatalogue = (reopen) => {
     const q = query.trim().toLowerCase();
     const base = tab === 'favourites' ? visible.filter((r) => favs.includes(r.id)) : visible;
     const matches = q ? base.filter((r) => `${r.title} ${r.description}`.toLowerCase().includes(q)) : base;
@@ -164,37 +134,28 @@ const ReportsLayout = ({ view, renderReport }) => {
   };
 
   // ── A report ──
-  const renderReportPage = () => {
+  const renderReportPage = (reopen) => {
     const allowed = canOpenReport(report, role);
     return (
-      <>
-        <div className="px-4 sm:px-6 lg:px-8 pt-3 pb-3 border-b border-border flex-shrink-0">
-          <button type="button" onClick={openCatalogue} className="lg:hidden mb-2 inline-flex items-center gap-1 text-[13px] text-text-secondary hover:text-text-primary">
-            <Icon name="ChevronLeft" size={14} /> Reports
-          </button>
-          <div className="flex items-center gap-2">
-            {reopen}
-            <h1 className="font-heading font-heading-semibold text-lg text-text-primary">{report.title}</h1>
-            <Star on={favs.includes(report.id)} onToggle={() => toggleFav(report.id)} label={report.title} />
-          </div>
-          <p className="text-[13px] text-text-secondary">{report.description}</p>
-        </div>
-        <div className="content-scroll flex-1 min-h-0 overflow-y-auto px-3 sm:px-4 md:px-6 lg:px-8 py-3 sm:py-4">
-          {allowed ? renderReport(report.view) : (
-            <p className="py-12 text-center text-sm text-text-secondary">This report isn't available for your role.</p>
-          )}
-        </div>
-      </>
+      <AreaPage
+        title={report.title}
+        description={report.description}
+        titleExtra={<Star on={favs.includes(report.id)} onToggle={() => toggleFav(report.id)} label={report.title} />}
+        backLabel="Reports"
+        onBack={openCatalogue}
+        reopen={reopen}
+      >
+        {allowed ? renderReport(report.view) : (
+          <p className="py-12 text-center text-sm text-text-secondary">This report isn't available for your role.</p>
+        )}
+      </AreaPage>
     );
   };
 
   return (
-    <div className="h-full flex min-h-0">
-      {menu}
-      <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-        {report ? renderReportPage() : renderCatalogue()}
-      </div>
-    </div>
+    <AreaLayout title="Reports" menuStorageKey={MENU_KEY} menuTop={menuTop} categories={cats} activeView={view} onNavigate={(v) => go(v)}>
+      {({ reopen }) => (report ? renderReportPage(reopen) : renderCatalogue(reopen))}
+    </AreaLayout>
   );
 };
 

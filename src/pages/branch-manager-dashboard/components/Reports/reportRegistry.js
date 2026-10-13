@@ -25,7 +25,6 @@ export const REPORTS = [
   ...(CUSTOMER_REFERRALS_ENABLED ? [
     { id: 'customer-referrals', view: 'customer-referrals', title: 'Customer Referrals', description: 'Customers who referred other customers, and the rewards credited.', icon: 'Users', category: 'patients', roles: STAFF_UP },
     { id: 'referral-wallet', view: 'referral-wallet', title: 'Referral Wallet', description: 'Who referred whom, how much they got, and what is left.', icon: 'Wallet', category: 'patients', roles: STAFF_UP },
-    { id: 'reward-catalog', view: 'reward-catalog', title: 'Reward Catalog', description: 'Gift vouchers staff can pick when logging a customer referral.', icon: 'Gift', category: 'patients', roles: ['manager', 'admin'] },
   ] : []),
 ];
 

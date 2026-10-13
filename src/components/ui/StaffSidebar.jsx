@@ -7,6 +7,7 @@ import { useIndustry } from 'hooks/useIndustry';
 import { useTransferFeature } from 'hooks/useTransferFeature';
 import { fetchPendingApprovalCount } from 'services/api';
 import { isReportView } from 'pages/branch-manager-dashboard/components/Reports/reportRegistry';
+import { isSettingsView } from 'pages/branch-manager-dashboard/components/Settings/settingsRegistry';
 import { MEMBERSHIP_ENABLED, VOUCHER_ENABLED, OUTREACH_ENABLED } from 'lib/featureFlags';
 
 const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: propBranch, onCollapseChange }) => {
@@ -16,7 +17,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
   const { profile, signOut } = useAuth();
   const { branchName: contextBranchName, branchId, isOverall } = useBranch();
   const [pendingApprovals, setPendingApprovals] = useState(0);
-  const { staffLabelPlural, locationLabelPlural, enableChairs } = useIndustry();
+  const { staffLabelPlural } = useIndustry();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
@@ -277,51 +278,10 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
     }] : []),
     {
       id: 'infrastructure',
-      label: 'Setup',
+      label: 'Settings',
       icon: 'Settings',
-      roles: ['manager', 'admin', 'admin_viewer'],
-      children: [
-        // Only show chairs/locations for industries that use them
-        ...(enableChairs ? [{
-          id: 'chairs',
-          label: locationLabelPlural,
-          icon: 'DoorOpen',
-          path: `${basePath}?view=chairs`,
-          roles: ['manager', 'admin', 'admin_viewer'],
-          overallHidden: true
-        }] : []),
-        {
-          id: 'treatments',
-          label: 'Treatments',
-          icon: 'Sparkles',
-          path: `${basePath}?view=treatments`,
-          roles: ['manager', 'admin', 'admin_viewer'],
-          overallHidden: true
-        },
-        {
-          id: 'categories',
-          label: 'Categories',
-          icon: 'Tags',
-          path: `${basePath}?view=categories`,
-          roles: ['manager', 'admin', 'admin_viewer'],
-          overallHidden: true
-        },
-        {
-          id: 'payment-methods',
-          label: 'Payment Methods',
-          icon: 'CreditCard',
-          path: `${basePath}?view=payment-methods`,
-          roles: ['admin'],
-          overallHidden: true
-        },
-        {
-          id: 'audit',
-          label: 'Audit Log',
-          icon: 'History',
-          path: `${basePath}?view=audit`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-      ]
+      path: `${basePath}?view=settings`,
+      roles: ['manager', 'admin', 'admin_viewer']
     },
   ];
 
@@ -375,6 +335,10 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
   const mobileOverflowItems = mainNavItems.slice(4);
 
   const isActive = (path) => {
+    // The single Settings item is active on every settings view.
+    if (path === `${basePath}?view=settings`) {
+      return location.pathname === basePath && isSettingsView(new URLSearchParams(location.search).get('view'));
+    }
     // The single Reports item is active on every report view (and the catalogue).
     if (path === `${basePath}?view=all-reports`) {
       return location.pathname === basePath && isReportView(new URLSearchParams(location.search).get('view'));
