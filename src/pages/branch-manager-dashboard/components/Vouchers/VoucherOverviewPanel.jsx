@@ -78,7 +78,6 @@ const VoucherOverviewPanel = () => {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="font-heading font-heading-semibold text-lg text-text-primary">All Voucher</h3>
           <p className="font-body text-sm text-text-secondary">Org-wide voucher totals and branch breakdown</p>
         </div>
         <button

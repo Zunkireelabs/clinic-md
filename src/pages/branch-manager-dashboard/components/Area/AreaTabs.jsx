@@ -16,6 +16,7 @@ const AreaTabs = ({ area, view, children }) => {
 
   const ctx = { role: profile?.role, isOverall, branchName, staffLabelPlural };
   const tabs = getVisibleTabs(area, ctx);
+  const areaTitle = typeof area.title === 'function' ? area.title(ctx) : area.title;
 
   // Arrow keys / Home / End move focus between tabs; Enter or Space opens the focused one (it is a link).
   const onKeyDown = (e) => {
@@ -29,7 +30,7 @@ const AreaTabs = ({ area, view, children }) => {
   };
 
   const tabRow = tabs.length > 1 ? (
-    <div ref={listRef} role="tablist" aria-label={area.title} onKeyDown={onKeyDown} className="mt-2 -mb-[13px] flex gap-6 overflow-x-auto whitespace-nowrap">
+    <div ref={listRef} role="tablist" aria-label={areaTitle} onKeyDown={onKeyDown} className="mt-2 -mb-[13px] flex gap-6 overflow-x-auto whitespace-nowrap">
       {tabs.map((t) => {
         const active = t.view === view;
         return (
@@ -52,7 +53,7 @@ const AreaTabs = ({ area, view, children }) => {
 
   return (
     <div className="h-full flex flex-col min-h-0">
-      <AreaPage title={area.title} description={area.description(ctx)} tabs={tabRow}>
+      <AreaPage title={areaTitle} description={area.description(ctx)} tabs={tabRow}>
         {children}
       </AreaPage>
     </div>

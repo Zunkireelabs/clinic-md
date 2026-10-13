@@ -372,7 +372,7 @@ const BranchManagerDashboard = () => {
     <DailyOperationalReportPanel branchId={branchId} />
   );
 
-  // Tabbed areas (Bookings, Team, Packages): each tab is an existing view; the panels keep their own role / Overall guards.
+  // Tabbed areas (Bookings, Packages, plus flagged Memberships / Vouchers) and single pages (Dentists, Attendance, Payroll): each tab is an existing view; the panels keep their own role / Overall guards.
   const areaForView = getAreaForView(viewMode);
   const renderAreaView = (view) => {
     switch (view) {
@@ -384,6 +384,11 @@ const BranchManagerDashboard = () => {
       case 'payroll': return profile?.role === 'admin' ? <PayrollPanel branchId={branchId} isOverall={isOverall} /> : null;
       case 'package-overview': return ['manager', 'admin'].includes(profile?.role) ? <PackageOverviewPanel /> : null;
       case 'packages': return ['manager', 'admin'].includes(profile?.role) ? <PackageListPanel /> : null;
+      case 'memberships': return MEMBERSHIP_ENABLED && ['manager', 'admin'].includes(profile?.role) ? <MembershipsPanel branchId={branchId} /> : null;
+      case 'membership-collection': return MEMBERSHIP_ENABLED && ['manager', 'admin'].includes(profile?.role) ? <MembershipCollectionPanel /> : null;
+      case 'wallet-usage': return MEMBERSHIP_ENABLED && ['manager', 'admin'].includes(profile?.role) ? <WalletUsagePanel /> : null;
+      case 'voucher-overview': return VOUCHER_ENABLED && ['manager', 'admin'].includes(profile?.role) ? <VoucherOverviewPanel /> : null;
+      case 'vouchers': return VOUCHER_ENABLED && ['manager', 'admin'].includes(profile?.role) ? <VoucherListPanel /> : null;
       default: return null;
     }
   };
@@ -496,11 +501,6 @@ const BranchManagerDashboard = () => {
         {isSettingsViewActive && <SettingsLayout view={viewMode} renderSetting={renderSettingView} />}
         {areaForView && <AreaTabs area={areaForView} view={viewMode}>{renderAreaView(viewMode)}</AreaTabs>}
         {viewMode === 'customers' && <CustomersPanel branchId={branchId} readOnly={isOverall} />}
-        {MEMBERSHIP_ENABLED && viewMode === 'memberships' && ['manager','admin'].includes(profile?.role) && <MembershipsPanel branchId={branchId} />}
-        {MEMBERSHIP_ENABLED && viewMode === 'membership-collection' && ['manager','admin'].includes(profile?.role) && <MembershipCollectionPanel />}
-        {MEMBERSHIP_ENABLED && viewMode === 'wallet-usage' && ['manager','admin'].includes(profile?.role) && <WalletUsagePanel />}
-        {VOUCHER_ENABLED && viewMode === 'voucher-overview' && ['manager','admin'].includes(profile?.role) && <VoucherOverviewPanel />}
-        {VOUCHER_ENABLED && viewMode === 'vouchers' && ['manager','admin'].includes(profile?.role) && <VoucherListPanel />}
         {OUTREACH_ENABLED && viewMode === 'outreach' && profile?.role === 'admin' && <OutreachPanel />}
       </AppShell>
     </>

@@ -19,15 +19,24 @@ export const AREAS = [
       ...(VOUCHER_ENABLED ? [{ view: 'new-voucher', label: 'New voucher', roles: ['staff'] }] : []),
     ],
   },
+  // Single pages: one tab, so the header shows and there is no tab row.
   {
-    id: 'team',
-    title: 'Team',
-    description: ({ staffLabelPlural }) => `Your ${String(staffLabelPlural || 'staff').toLowerCase()}, attendance and payroll.`,
-    tabs: [
-      { view: 'dentists', label: ({ staffLabelPlural }) => staffLabelPlural || 'Staff', roles: STAFF_UP },
-      { view: 'attendance', label: 'Attendance', roles: STAFF_UP, overallHidden: true },
-      { view: 'payroll', label: 'Payroll', roles: ['admin', 'admin_viewer'] },
-    ],
+    id: 'dentists',
+    title: ({ staffLabelPlural }) => staffLabelPlural || 'Staff',
+    description: () => 'Everyone who sees patients, and their positions.',
+    tabs: [{ view: 'dentists', label: ({ staffLabelPlural }) => staffLabelPlural || 'Staff', roles: STAFF_UP }],
+  },
+  {
+    id: 'attendance',
+    title: 'Attendance',
+    description: () => "Who's in today, check-ins and check-outs.",
+    tabs: [{ view: 'attendance', label: 'Attendance', roles: STAFF_UP, overallHidden: true }],
+  },
+  {
+    id: 'payroll',
+    title: 'Payroll',
+    description: () => 'Monthly pay runs for your team.',
+    tabs: [{ view: 'payroll', label: 'Payroll', roles: ['admin', 'admin_viewer'] }],
   },
   {
     id: 'packages',
@@ -38,6 +47,26 @@ export const AREAS = [
       { view: 'packages', label: 'Issued', roles: ['manager', 'admin'] },
     ],
   },
+  // Flagged areas: only present when the feature is on.
+  ...(MEMBERSHIP_ENABLED ? [{
+    id: 'memberships',
+    title: 'Memberships',
+    description: () => 'Prepaid memberships, what has been collected and how wallets are used.',
+    tabs: [
+      { view: 'memberships', label: 'All memberships', roles: ['manager', 'admin'] },
+      { view: 'membership-collection', label: 'Collection', roles: ['manager', 'admin'] },
+      { view: 'wallet-usage', label: 'Wallet usage', roles: ['manager', 'admin'] },
+    ],
+  }] : []),
+  ...(VOUCHER_ENABLED ? [{
+    id: 'vouchers',
+    title: 'Vouchers',
+    description: () => 'Gift vouchers you sell and the ones that have been issued.',
+    tabs: [
+      { view: 'voucher-overview', label: 'All vouchers', roles: ['manager', 'admin'] },
+      { view: 'vouchers', label: 'Issued', roles: ['manager', 'admin'] },
+    ],
+  }] : []),
 ];
 
 export const getAreaForView = (view) => AREAS.find((a) => a.tabs.some((t) => t.view === view)) || null;
