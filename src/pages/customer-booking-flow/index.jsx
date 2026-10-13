@@ -13,6 +13,7 @@ import BookingConfirmation from './components/BookingConfirmation';
 import BookingSuccess from './components/BookingSuccess';
 import { useTenant } from '../../contexts/TenantContext';
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext';
+import logo from 'assets/logo.png';
 import { splitE164 } from '../../utils/phone';
 
 const CustomerBookingFlow = () => {
@@ -537,25 +538,8 @@ const CustomerBookingFlow = () => {
       <footer className="bg-surface border-t border-border mt-16">
         <div className="max-w-4xl mx-auto px-4 py-8">
           <div className="text-center">
-            <div className="flex items-center justify-center space-x-2 mb-4">
-              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                <svg 
-                  width="20" 
-                  height="20" 
-                  viewBox="0 0 24 24" 
-                  fill="none" 
-                  className="text-primary-foreground"
-                >
-                  <path 
-                    d="M12 2L13.09 8.26L20 9L13.09 9.74L12 16L10.91 9.74L4 9L10.91 8.26L12 2Z" 
-                    fill="currentColor"
-                  />
-                  <circle cx="12" cy="19" r="2" fill="currentColor" opacity="0.7"/>
-                </svg>
-              </div>
-              <span className="font-heading font-heading-semibold text-lg text-text-primary">
-                ClinicMD
-              </span>
+            <div className="flex items-center justify-center mb-4">
+              <img src={logo} alt="ClinicMD" className="h-8 w-auto" />
             </div>
             <p className="font-body font-body-normal text-sm text-text-secondary mb-4">
               Nepal's premier spa booking platform

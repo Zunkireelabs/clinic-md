@@ -40,9 +40,11 @@ const StaffLoginAuthentication = () => {
       <header className="flex-shrink-0 px-6 md:px-8 py-5 flex justify-between items-center">
         <div className="flex items-center gap-2.5">
           <img src={logo} alt="ClinicMD" className="h-7 w-auto" />
-          <span className="text-lg font-semibold text-text-primary tracking-tight">
-            {orgName}
-          </span>
+          {organization?.name && (
+            <span className="text-lg font-semibold text-text-primary tracking-tight">
+              {organization.name}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2 text-sm text-text-secondary">

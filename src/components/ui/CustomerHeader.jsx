@@ -18,7 +18,7 @@ const CustomerHeader = () => {
   useMeasuredHeightVar(headerRef, '--customer-header-h');
 
   // Try to get tenant context, but don't fail if not available
-  let tenantData = { orgName: 'ClinicMD' };
+  let tenantData = { orgName: null };
   try {
     tenantData = useTenant();
   } catch {
@@ -53,14 +53,16 @@ const CustomerHeader = () => {
           {/* Logo */}
           <Link to={bookingPath} className="flex items-center space-x-2 group min-w-0 flex-1">
             <img src={logo} alt="ClinicMD" className="h-8 sm:h-10 w-auto flex-shrink-0" />
-            <div className="flex flex-col min-w-0">
-              <span className="font-heading font-heading-semibold text-base sm:text-lg text-text-primary truncate">
-                {orgName || 'ClinicMD'}
-              </span>
-              <span className="block font-caption font-caption-normal text-[10px] sm:text-xs text-text-secondary -mt-0.5 sm:-mt-1 truncate">
-                {getTagline()}
-              </span>
-            </div>
+            {orgName && (
+              <div className="flex flex-col min-w-0">
+                <span className="font-heading font-heading-semibold text-base sm:text-lg text-text-primary truncate">
+                  {orgName}
+                </span>
+                <span className="block font-caption font-caption-normal text-[10px] sm:text-xs text-text-secondary -mt-0.5 sm:-mt-1 truncate">
+                  {getTagline()}
+                </span>
+              </div>
+            )}
           </Link>
 
           {/* Navigation Links */}
