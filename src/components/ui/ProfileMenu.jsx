@@ -18,11 +18,10 @@ const getInitials = (name = '') => {
   return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
 };
 
-const Avatar = ({ name, src, size }) => {
+const Avatar = ({ name, src }) => {
   const [broken, setBroken] = useState(false);
-  const dim = size === 40 ? 'w-10 h-10 text-sm' : 'w-8 h-8 text-xs';
   return (
-    <span className={`${dim} rounded-full overflow-hidden bg-primary/10 text-primary flex items-center justify-center flex-shrink-0 font-body font-body-medium`}>
+    <span className={`w-8 h-8 text-xs rounded-full overflow-hidden bg-primary/10 text-primary flex items-center justify-center flex-shrink-0 font-body font-body-medium`}>
       {src && !broken ? (
         <img src={src} alt="" className="w-full h-full object-cover" onError={() => setBroken(true)} />
       ) : (
@@ -64,7 +63,7 @@ const ProfileMenu = () => {
   const row = 'w-full h-9 flex items-center gap-3 px-2.5 rounded-spa text-left text-sm font-body text-text-primary hover:bg-black/[0.04] focus:bg-black/[0.04] focus:outline-none';
 
   return (
-    <div className="relative flex-shrink-0">
+    <div className="relative flex flex-shrink-0">
       <button
         ref={triggerRef}
         type="button"
@@ -74,21 +73,20 @@ const ProfileMenu = () => {
         aria-label="Account menu"
         className={`rounded-full ring-2 ring-offset-0 focus:outline-none focus-visible:ring-primary ${open ? 'ring-primary' : 'ring-transparent'}`}
       >
-        <Avatar name={name} src={profile?.avatar_url} size={32} />
+        <Avatar name={name} src={profile?.avatar_url} />
       </button>
       {open && (
         <div
           ref={menuRef}
           role="menu"
           aria-label="Account"
-          className="absolute right-0 top-full mt-2 w-72 bg-surface border border-border rounded-xl shadow-spa-elevated z-dropdown p-1.5"
+          className="absolute right-0 top-[calc(50%+34px)] w-64 bg-surface border border-border rounded-xl shadow-spa-elevated z-dropdown p-1.5"
         >
-          <div className="flex items-center gap-3 p-3 mb-1 rounded-spa-lg bg-background">
-            <Avatar name={name} src={profile?.avatar_url} size={40} />
+          <div className="p-3 mb-1 rounded-spa-lg bg-background">
             <div className="min-w-0">
               <p className="text-sm font-semibold text-text-primary truncate">{name}</p>
               {email && <p className="text-[13px] text-text-secondary truncate">{email}</p>}
-              <p className="text-xs text-text-tertiary truncate">{roleLine}</p>
+              <p className="text-xs text-text-tertiary truncate" title={roleLine}>{roleLine}</p>
             </div>
           </div>
           {canSettings && (

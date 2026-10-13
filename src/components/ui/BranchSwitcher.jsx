@@ -56,7 +56,7 @@ const BranchSwitcher = () => {
           ref={menuRef}
           role="menu"
           aria-label="Switch branch"
-          className="absolute left-0 top-full mt-2 min-w-[240px] bg-surface border border-border rounded-spa-lg shadow-spa-elevated z-dropdown p-1.5"
+          className="absolute left-0 top-[calc(50%+34px)] min-w-[240px] bg-surface border border-border rounded-spa-lg shadow-spa-elevated z-dropdown p-1.5"
         >
           {withOverall && (
             <>
