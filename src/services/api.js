@@ -8,6 +8,22 @@ import { expandBlockOccurrences } from '../utils/blockRecurrence';
 import { dedupeTransfersByKey, sortTransfersByTime } from './transferDedup';
 import { transferWindowOccurrencesForDate } from '../utils/transferOccurrences';
 
+// PostgREST puts .in() lists in the URL, which breaks (and supabase-js then retries the network error with backoff,
+// ~7s) once it gets long — so id lists are always sent in chunks of at most this many.
+const IN_CHUNK = 100;
+const inChunks = async (ids, run) => {
+  const results = [];
+  for (let i = 0; i < ids.length; i += IN_CHUNK) {
+    const { data, error } = await run(ids.slice(i, i + IN_CHUNK));
+    if (error) throw error;
+    results.push(...(data || []));
+  }
+  return results;
+};
+// Optional enrichment must never hold the calendar up: resolve to `fallback` if it takes longer than `ms`.
+const failOpenAfter = (promise, ms, fallback) =>
+  Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(fallback), ms))]);
+
 // Sentinel "branch" meaning "all branches in the admin's org" (the Overall view).
 // Admin RLS is already org-scoped, so dropping the per-branch filter for this value
 // returns exactly the org's rows across every branch (never other orgs).
@@ -4488,39 +4504,40 @@ export async function getCalendarBookings(branchId, startDate, endDate) {
     // calendar still loads. Started now so they run concurrently with the New-patient query below.
     //  * patient notes: customers.notes for every customer in range (one query)
     //  * previous due: the Record Payment modal's "Previous due" figure, for every visible booking (two queries total)
-    const patientNotesPromise = (async () => {
+    const patientNotesPromise = failOpenAfter((async () => {
       if (bookingCustomerIds.length === 0) return {};
       try {
-        const { data, error } = await supabase.from('customers').select('id, notes').in('id', bookingCustomerIds);
-        if (error) throw error;
+        const rows = await inChunks(bookingCustomerIds, (ids) => supabase.from('customers').select('id, notes').in('id', ids));
         const out = {};
-        for (const c of (data || [])) { const t = (c.notes || '').trim(); if (t) out[c.id] = t; }
+        for (const c of rows) { const t = (c.notes || '').trim(); if (t) out[c.id] = t; }
         return out;
       } catch (e) {
         console.warn('[API] getCalendarBookings: patient notes lookup failed:', e.message);
         return undefined;
       }
-    })();
+    })().catch(() => undefined), 4000, undefined);
     // Same definition as getCustomerOutstandingBalance (what the payment modal bundles as "Previous due"): the same phone's
     // other unpaid/partial, non-cancelled bookings in this branch (any date), amount = final_amount − payments, excluding
     // the booking itself and — as BookingActionModal does — its same-name/same-date unpaid "related treatments".
-    const previousDuePromise = (async () => {
+    const previousDuePromise = failOpenAfter((async () => {
       const phoneOf = (b) => { const p = toE164(b.customer_phone); return p && p.length >= 11 ? p : null; };
-      if (!(bookings || []).some(phoneOf)) return {};
+      const visiblePhones = new Set((bookings || []).map(phoneOf).filter(Boolean));
+      if (visiblePhones.size === 0) return {};
       try {
-        const { data: open, error } = await supabase
+        const { data: openAll, error } = await supabase
           .from('bookings')
           .select('id, customer_name, customer_phone, date, final_amount, payment_status')
           .eq('branch_id', resolvedBranchId)
           .in('payment_status', ['unpaid', 'partial'])
           .not('status', 'in', '("Cancelled","No Show")');
         if (error) throw error;
-        const ids = (open || []).map(o => o.id);
+        // Only rows for a phone that is actually on screen can matter; don't fetch payments for the rest of the branch.
+        const open = (openAll || []).filter(o => visiblePhones.has(phoneOf(o)));
+        const ids = open.map(o => o.id);
         const paid = {};
         if (ids.length > 0) {
-          const { data: pays, error: payErr } = await supabase.from('payments').select('booking_id, amount').in('booking_id', ids);
-          if (payErr) throw payErr;
-          for (const p of (pays || [])) paid[p.booking_id] = (paid[p.booking_id] || 0) + Number(p.amount);
+          const pays = await inChunks(ids, (chunk) => supabase.from('payments').select('booking_id, amount').in('booking_id', chunk));
+          for (const p of pays) paid[p.booking_id] = (paid[p.booking_id] || 0) + Number(p.amount);
         }
         const byPhone = {};
         for (const o of (open || [])) {
@@ -4543,17 +4560,19 @@ export async function getCalendarBookings(branchId, startDate, endDate) {
         console.warn('[API] getCalendarBookings: previous-due lookup failed:', e.message);
         return undefined;
       }
-    })();
+    })().catch(() => undefined), 4000, undefined);
     let historyFailed = false;
     if (bookingCustomerIds.length > 0) {
-      const { data: historyRows, error: histErr } = await supabase
-        .from('bookings')
-        .select('id, customer_id, date, start_time')
-        .in('customer_id', bookingCustomerIds)
-        .neq('status', 'Cancelled')
-        .order('date', { ascending: true })
-        .order('start_time', { ascending: true });
-      if (histErr) {
+      let historyRows = [];
+      try {
+        historyRows = await inChunks(bookingCustomerIds, (ids) => supabase
+          .from('bookings')
+          .select('id, customer_id, date, start_time')
+          .in('customer_id', ids)
+          .neq('status', 'Cancelled')
+          .order('date', { ascending: true })
+          .order('start_time', { ascending: true }));
+      } catch (histErr) {
         // Cosmetic tag only — never block the calendar from loading.
         console.warn('[API] getCalendarBookings: New-patient lookup failed:', histErr.message);
         historyFailed = true;
