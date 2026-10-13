@@ -118,9 +118,6 @@ const CollectPaymentPanel = ({ onSuccess }) => {
             <Icon name="CreditCard" size={20} className="text-primary" />
           </div>
           <div>
-            <h2 className="font-heading font-heading-semibold text-lg text-text-primary">
-              Collect Payment
-            </h2>
             <p className="font-caption text-xs text-text-secondary">
               Look up a customer's outstanding balance by phone number — no booking needed
             </p>

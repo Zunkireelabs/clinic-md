@@ -33,6 +33,8 @@ import PeriodFilter from './components/PeriodFilter';
 import ReportsLayout from './components/Reports/ReportsLayout';
 import { isReportView } from './components/Reports/reportRegistry';
 import SettingsLayout from './components/Settings/SettingsLayout';
+import AreaTabs from './components/Area/AreaTabs';
+import { getAreaForView } from './components/Area/areaTabsRegistry';
 import { isSettingsView } from './components/Settings/settingsRegistry';
 import AttendanceCalendarPage from '../attendance-calendar';
 import { getTodayISO } from '../../utils/periodPresets';
@@ -370,6 +372,22 @@ const BranchManagerDashboard = () => {
     <DailyOperationalReportPanel branchId={branchId} />
   );
 
+  // Tabbed areas (Bookings, Team, Packages): each tab is an existing view; the panels keep their own role / Overall guards.
+  const areaForView = getAreaForView(viewMode);
+  const renderAreaView = (view) => {
+    switch (view) {
+      case 'bookings': return <BookingsViewPanel branchId={branchId} />;
+      case 'new-booking': return !isOverall ? <StaffBookingForm onBookingCreated={loadData} /> : null;
+      case 'check-booking': return !isOverall ? <CheckBookingPanel branchId={branchId} /> : null;
+      case 'dentists': return <DentistManagementPanel branchId={branchId} readOnly={isOverall} />;
+      case 'attendance': return !isOverall ? <AttendancePanel branchId={branchId} /> : null;
+      case 'payroll': return profile?.role === 'admin' ? <PayrollPanel branchId={branchId} isOverall={isOverall} /> : null;
+      case 'package-overview': return ['manager', 'admin'].includes(profile?.role) ? <PackageOverviewPanel /> : null;
+      case 'packages': return ['manager', 'admin'].includes(profile?.role) ? <PackageListPanel /> : null;
+      default: return null;
+    }
+  };
+
   // The Settings area: same idea as Reports; the panels keep their own role / Overall guards.
   const isSettingsViewActive = isSettingsView(viewMode);
   const renderSettingView = (view) => {
@@ -411,7 +429,7 @@ const BranchManagerDashboard = () => {
       </Helmet>
 
       <AppShell
-        variant={viewMode === 'calendar' || isReportsView || isSettingsViewActive ? 'fill' : 'page'}
+        variant={viewMode === 'calendar' || isReportsView || isSettingsViewActive || areaForView ? 'fill' : 'page'}
         sidebar={{ userRole: 'manager', userName: managerData.name, branchName: managerData.branch }}
         header={{
           realtimeStatus,
@@ -473,24 +491,17 @@ const BranchManagerDashboard = () => {
         asideOpen={isAssistantOpen}
       >
         {viewMode === 'dashboard' && renderDashboardView()}
-        {viewMode === 'bookings' && <BookingsViewPanel branchId={branchId} />}
         {viewMode === 'calendar' && renderCalendarView()}
         {isReportsView && <ReportsLayout view={viewMode} renderReport={renderReportView} />}
         {isSettingsViewActive && <SettingsLayout view={viewMode} renderSetting={renderSettingView} />}
+        {areaForView && <AreaTabs area={areaForView} view={viewMode}>{renderAreaView(viewMode)}</AreaTabs>}
         {viewMode === 'customers' && <CustomersPanel branchId={branchId} readOnly={isOverall} />}
-        {viewMode === 'attendance' && !isOverall && <AttendancePanel branchId={branchId} />}
-        {viewMode === 'payroll' && profile?.role === 'admin' && <PayrollPanel branchId={branchId} isOverall={isOverall} />}
         {MEMBERSHIP_ENABLED && viewMode === 'memberships' && ['manager','admin'].includes(profile?.role) && <MembershipsPanel branchId={branchId} />}
         {MEMBERSHIP_ENABLED && viewMode === 'membership-collection' && ['manager','admin'].includes(profile?.role) && <MembershipCollectionPanel />}
         {MEMBERSHIP_ENABLED && viewMode === 'wallet-usage' && ['manager','admin'].includes(profile?.role) && <WalletUsagePanel />}
         {VOUCHER_ENABLED && viewMode === 'voucher-overview' && ['manager','admin'].includes(profile?.role) && <VoucherOverviewPanel />}
         {VOUCHER_ENABLED && viewMode === 'vouchers' && ['manager','admin'].includes(profile?.role) && <VoucherListPanel />}
-        {viewMode === 'package-overview' && ['manager','admin'].includes(profile?.role) && <PackageOverviewPanel />}
-        {viewMode === 'packages' && ['manager','admin'].includes(profile?.role) && <PackageListPanel />}
         {OUTREACH_ENABLED && viewMode === 'outreach' && profile?.role === 'admin' && <OutreachPanel />}
-        {viewMode === 'dentists' && <DentistManagementPanel branchId={branchId} readOnly={isOverall} />}
-        {viewMode === 'new-booking' && !isOverall && <StaffBookingForm onBookingCreated={loadData} />}
-        {viewMode === 'check-booking' && !isOverall && <CheckBookingPanel branchId={branchId} />}
       </AppShell>
     </>
   );

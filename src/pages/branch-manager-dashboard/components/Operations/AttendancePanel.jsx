@@ -423,7 +423,6 @@ const AttendancePanel = ({ branchId }) => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="font-heading font-heading-semibold text-xl text-text-primary">Staff Attendance</h2>
           <p className="font-body text-sm text-text-secondary">Mark daily attendance for active staff.</p>
         </div>
         <div className="flex items-center space-x-3">

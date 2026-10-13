@@ -302,9 +302,6 @@ const StaffBookingForm = ({ onBookingCreated }) => {
             <Icon name="CalendarPlus" size={18} className="sm:w-5 sm:h-5 text-primary" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-base sm:text-lg font-semibold text-gray-900">
-              New Booking
-            </h2>
             <p className="text-xs text-gray-500 truncate">
               Step {step}/4 — {['Treatment', 'Date & Time', 'Customer', 'Review'][step - 1]}
             </p>
