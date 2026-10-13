@@ -136,15 +136,14 @@ const SortableColumnHeader = ({ id, children, minWidth }) => {
 //   nowLine           draw the now-line inside the column, before or after the droppable zone (null: the parent row draws it)
 //   checkoutOverlay   grey "Checked out" shading for a dentist who has clocked out for the day
 //   transferOverlays  transferred-out / visiting shading (the data it needs is only attached to Day-view dentist columns)
-//   clusterOverlap    cluster overlapping bookings side by side with a "+N" overflow badge (false: every booking full width)
 //   cardInteractions  shared-booking card resize + Cmd/Ctrl multi-select on the cards
 const COLUMN_BODY = {
   // Day view: dentist or chair column
-  column: { gridLines: false, nowLine: null, checkoutOverlay: true, transferOverlays: true, clusterOverlap: true, cardInteractions: true },
+  column: { gridLines: false, nowLine: null, checkoutOverlay: true, transferOverlays: true, cardInteractions: true },
   // Day view: pinned Unassigned column
-  unassigned: { gridLines: true, nowLine: 'before-droppable', checkoutOverlay: false, transferOverlays: false, clusterOverlap: true, cardInteractions: false },
+  unassigned: { gridLines: true, nowLine: 'before-droppable', checkoutOverlay: false, transferOverlays: false, cardInteractions: false },
   // 4-Day view: one column per day, all dentists/chairs merged
-  multiDay: { gridLines: false, nowLine: 'after-droppable', checkoutOverlay: false, transferOverlays: false, clusterOverlap: true, cardInteractions: false },
+  multiDay: { gridLines: false, nowLine: 'after-droppable', checkoutOverlay: false, transferOverlays: false, cardInteractions: false },
 };
 
 const CalendarGrid = ({
@@ -1294,7 +1293,7 @@ const CalendarGrid = ({
   const renderClusteredCards = (col, day, colBookings, v) => {
     const clusters = clusterOverlapping(colBookings);
     return clusters.map(cluster => {
-      const layout = getOverlapLayout(cluster.length, minColWidth);
+      const layout = getOverlapLayout(cluster.length);
       const clusterTop = timeToTop(cluster[0].startTime);
       const clusterHeight = Math.max(
         timeToHeight(cluster[0].startTime, clusterEndTime(cluster)),
@@ -1366,7 +1365,7 @@ const CalendarGrid = ({
                 top: 0,
                 height: clusterHeight,
                 left: OVERLAP_PADDING,
-                width: minColWidth - OVERLAP_PADDING * 2,
+                width: `calc(100% - ${OVERLAP_PADDING * 2}px)`,
                 right: 'auto',
               }}
             />
@@ -1392,21 +1391,6 @@ const CalendarGrid = ({
     });
   };
 
-  // Booking cards for a multi-day column: every booking of the day, full width, no clustering.
-  const renderFlatCards = (colBookings) => colBookings.map(booking => (
-    <CalendarBookingCard
-      isPanelSelected={!!selectedBookingId && (booking.bookingId || booking.id) === selectedBookingId}
-      key={booking.id}
-      booking={booking}
-      columnMode={columnMode}
-      style={{
-        top: timeToTop(booking.startTime),
-        height: timeToHeight(booking.startTime, booking.endTime),
-      }}
-      onClick={onBookingClick}
-    />
-  ));
-
   // The inside of a grid column, shared by the Day-view dentist/chair columns, the pinned Unassigned column and the
   // 4-Day day columns. `v` is one of COLUMN_BODY (the per-view differences, see the table above the component);
   // the column frame (classes, sticky/pinned style, click handler) stays with each caller.
@@ -1426,7 +1410,7 @@ const CalendarGrid = ({
       {v.transferOverlays && renderTransferOverlays(col, day)}
       {renderManualBlocks(col, day)}
       {renderDraftGhost(col.id, day, col.type)}
-      {v.clusterOverlap ? renderClusteredCards(col, day, colBookings, v) : renderFlatCards(colBookings)}
+      {renderClusteredCards(col, day, colBookings, v)}
     </>
   );
 

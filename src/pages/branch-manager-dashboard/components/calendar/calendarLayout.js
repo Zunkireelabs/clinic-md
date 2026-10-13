@@ -62,46 +62,45 @@ export function earliestStartTime(items) {
 
 // The overflow badge only ever needs to fit "+N" — giving it a full card-width
 // slot (the old behavior) squeezed the two real cards into equal thirds. It
-// gets a fixed narrow width instead (clamped so it stays legible in very
+// gets a narrow width instead (clamped so it stays legible in very
 // narrow/zoomed-out columns); cards keep the rest of the space.
 const BADGE_MIN_WIDTH = 34;
 const BADGE_MAX_WIDTH = 56;
 export const BADGE_MIN_HEIGHT = 64; // px — keeps wrapped "+N" text readable on short clusters
+const MIN_CARD_WIDTH = 10; // px — floor so cards never go negative-width in a very narrow/zoomed-out column
 
 /**
  * Calculate positioning for cards within an overlap cluster.
  * Shows up to MAX_VISIBLE_OVERLAP full-size cards side by side; any extra
  * bookings collapse into a "+N more" badge (see OverflowBadge) instead of
  * being squeezed into ever-thinner slivers.
+ *
+ * Positions are CSS calc() strings against the column's real width (100% of the cluster box, which spans the
+ * column), so the cards fill the column at any width or zoom without measuring the DOM. The badge keeps its
+ * px min/max via clamp().
  * Returns { cards: [{left, width}|null], badge: {left, width, count}|null }
  */
-export function getOverlapLayout(clusterSize, columnWidth) {
+export function getOverlapLayout(clusterSize) {
   if (clusterSize <= 1) {
     return { cards: [null], badge: null };
   }
 
-  const availableWidth = columnWidth - OVERLAP_PADDING * 2;
   const visibleCount = Math.min(clusterSize, MAX_VISIBLE_OVERLAP);
   const hasBadge = clusterSize > MAX_VISIBLE_OVERLAP;
-  const MIN_CARD_WIDTH = 10; // px — floor so cards never go negative-width in a very narrow/zoomed-out column
 
+  const avail = `100% - ${OVERLAP_PADDING * 2}px`; // column width minus the edge padding
   const totalGap = (visibleCount + (hasBadge ? 1 : 0) - 1) * OVERLAP_GAP;
-  let badgeWidth = hasBadge
-    ? Math.min(BADGE_MAX_WIDTH, Math.max(BADGE_MIN_WIDTH, Math.round(availableWidth * 0.38)))
-    : 0;
-  // The badge's own min-width can exceed what's left for cards in a very
-  // narrow column — shrink it (even below BADGE_MIN_WIDTH) rather than let
-  // the cards go negative-width.
-  if (hasBadge) {
-    const maxBadgeWidth = availableWidth - totalGap - MIN_CARD_WIDTH * visibleCount;
-    badgeWidth = Math.max(0, Math.min(badgeWidth, maxBadgeWidth));
-  }
-  const cardWidth = Math.max(MIN_CARD_WIDTH, Math.floor((availableWidth - totalGap - badgeWidth) / visibleCount));
+  // Badge: ~38% of the available width within its px min/max, shrunk (even below the min) if the cards would
+  // otherwise go below MIN_CARD_WIDTH.
+  const badgeWidth = hasBadge
+    ? `max(0px, min(clamp(${BADGE_MIN_WIDTH}px, calc((${avail}) * 0.38), ${BADGE_MAX_WIDTH}px), calc(${avail} - ${totalGap}px - ${MIN_CARD_WIDTH * visibleCount}px)))`
+    : '0px';
+  const cardWidth = `max(${MIN_CARD_WIDTH}px, calc((${avail} - ${totalGap}px - ${badgeWidth}) / ${visibleCount}))`;
 
   const cards = [];
   for (let i = 0; i < visibleCount; i++) {
     cards.push({
-      left: OVERLAP_PADDING + i * (cardWidth + OVERLAP_GAP),
+      left: `calc(${OVERLAP_PADDING}px + ${i} * (${cardWidth} + ${OVERLAP_GAP}px))`,
       width: cardWidth,
     });
   }
@@ -109,7 +108,7 @@ export function getOverlapLayout(clusterSize, columnWidth) {
   let badge = null;
   if (hasBadge) {
     badge = {
-      left: OVERLAP_PADDING + visibleCount * (cardWidth + OVERLAP_GAP),
+      left: `calc(${OVERLAP_PADDING}px + ${visibleCount} * (${cardWidth} + ${OVERLAP_GAP}px))`,
       width: badgeWidth,
       count: clusterSize - MAX_VISIBLE_OVERLAP,
     };
