@@ -144,7 +144,7 @@ const COLUMN_BODY = {
   // Day view: pinned Unassigned column
   unassigned: { gridLines: true, nowLine: 'before-droppable', checkoutOverlay: false, transferOverlays: false, clusterOverlap: true, cardInteractions: false },
   // 4-Day view: one column per day, all dentists/chairs merged
-  multiDay: { gridLines: false, nowLine: 'after-droppable', checkoutOverlay: false, transferOverlays: false, clusterOverlap: false, cardInteractions: false },
+  multiDay: { gridLines: false, nowLine: 'after-droppable', checkoutOverlay: false, transferOverlays: false, clusterOverlap: true, cardInteractions: false },
 };
 
 const CalendarGrid = ({
