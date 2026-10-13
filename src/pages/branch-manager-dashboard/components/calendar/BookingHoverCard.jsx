@@ -85,6 +85,12 @@ export function useBookingHover(booking, { draggable = false, suppress = false }
   return { ref, handlers, open, hideNow: hide };
 }
 
+// id of the booking whose popover is open, so linked highlights (shared-booking copies) survive the pointer moving
+// from the card onto its popover.
+export function useHoverCardBookingId() {
+  return useSyncExternalStore(subscribe, () => (getState().booking ? (getState().booking.bookingId || getState().booking.id) : null));
+}
+
 // ── Content ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 const AMBER = { fill: '#FBF5E6', text: '#7A5408' };
 

@@ -5,7 +5,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useDroppable } from '@dnd-kit/core';
 import Icon from '../../../../components/AppIcon';
 import CalendarBookingCard from './CalendarBookingCard';
-import { BookingHoverLayer } from './BookingHoverCard';
+import { BookingHoverLayer, useHoverCardBookingId } from './BookingHoverCard';
 import { to12h, toKathmanduParts, addDays } from './calendarDates';
 import SharedBookingLines from './SharedBookingLines';
 import OverflowBadge from './OverflowBadge';
@@ -181,6 +181,24 @@ const CalendarGrid = ({
   const scrollRef = useRef(null);
   const headerScrollRef = useRef(null);
   const gridBodyRef = useRef(null);
+
+  // Linked highlight for shared bookings: the booking under the pointer/focus (cleared after a short delay so moving
+  // between its copies doesn't flicker), falling back to the one open in the side panel.
+  const [hoverSharedId, setHoverSharedId] = useState(null);
+  const sharedClearTimer = useRef(null);
+  const activateShared = useCallback((id) => {
+    clearTimeout(sharedClearTimer.current);
+    setHoverSharedId(id);
+  }, []);
+  const deactivateShared = useCallback(() => {
+    clearTimeout(sharedClearTimer.current);
+    sharedClearTimer.current = setTimeout(() => setHoverSharedId(null), 100);
+  }, []);
+  useEffect(() => () => clearTimeout(sharedClearTimer.current), []);
+  const popoverBookingId = useHoverCardBookingId();
+  const activeSharedId = hoverSharedId || popoverBookingId || selectedBookingId || null;
+  // Hide the connector of the booking being dragged (its copies are mid-move); it redraws from fresh data on drop.
+  const draggingSharedId = activeDragId ? String(activeDragId).split('__')[0] : null;
 
   // ── Pinch-to-zoom (mobile/touch only) ──────────────────────
   // Relayouts the grid at a scaled HOUR_HEIGHT/column width rather than a CSS
@@ -1028,6 +1046,9 @@ const CalendarGrid = ({
   };
 
   // ── Shared renderers ──────────────────────────────────────
+  // Identity changes whenever card positions can have changed; SharedBookingLines re-measures on it (plus its ResizeObserver).
+  const sharedLayoutKey = useMemo(() => ({}), [bookingsByDayAndCol, columns, viewMode, currentDate, eHH]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const renderTimeLabels = () => (
     <div className="flex-shrink-0 border-r border-border relative bg-surface sticky left-0 z-header" style={{ width: TIME_COL_WIDTH }}>
       {hours.map((hour) => (
@@ -1311,6 +1332,9 @@ const CalendarGrid = ({
             return (
               <CalendarBookingCard
                 isPanelSelected={!!selectedBookingId && (booking.bookingId || booking.id) === selectedBookingId}
+                isLinkedActive={!!booking.isShared && !!activeSharedId && booking.bookingId === activeSharedId}
+                onSharedActivate={activateShared}
+                onSharedDeactivate={deactivateShared}
                 key={cardKey}
                 booking={booking}
                 columnMode={columnMode}
@@ -1522,7 +1546,7 @@ const CalendarGrid = ({
         >
           {draftSpacer > 0 && <div aria-hidden="true" data-draft-spacer="true" style={{ position: 'absolute', top: 0, left: `calc(100% + ${draftSpacer}px)`, width: 1, height: 1 }} />}
           {renderHoverTime()}
-          <SharedBookingLines containerRef={gridBodyRef} bookings={bookings} />
+          <SharedBookingLines containerRef={gridBodyRef} activeId={activeSharedId} hiddenId={draggingSharedId} layoutKey={sharedLayoutKey} />
           {renderTimeLabels()}
           {unassignedCol && (
             <div

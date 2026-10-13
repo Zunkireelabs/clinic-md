@@ -56,7 +56,7 @@ export function canDragBooking(booking) {
   return true;
 }
 
-const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', onResize, isSelected = false, onSelect, isPanelSelected = false }) => {
+const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', onResize, isSelected = false, onSelect, isPanelSelected = false, isLinkedActive = false, onSharedActivate, onSharedDeactivate }) => {
   const colors = getBookingStatusColors(booking.status);
   const isUnpaid = booking.paymentStatus === 'unpaid';
   const isPaid = booking.paymentStatus === 'paid';
@@ -139,6 +139,7 @@ const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', 
   const cardHeight = typeof style?.height === 'number' ? style.height : parseFloat(style?.height) || 0;
   const isTall = cardHeight >= 56;
   const isShort = cardHeight > 0 && cardHeight < 40;
+  const sharedLabel = booking.isShared ? `Shared with ${booking.dentistName}` : null;
 
   return (
     <div
@@ -153,14 +154,18 @@ const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', 
       data-booking-key={booking.bookingId || booking.id}
       data-booking-id={booking.isShared ? booking.bookingId : undefined}
       data-shared={booking.isShared ? 'true' : undefined}
+      data-bar={booking.isShared ? colors.bar : undefined}
       style={{
         ...style,
         ...(isResizing ? {} : dragStyle),
         ...(isResizing && resizeDir === 'bottom' ? { height: Math.max((style?.height || 60) + resizeDelta, 20), zIndex: 9999 } : {}),
         ...(isResizing && resizeDir === 'top' ? { top: (style?.top || 0) + resizeDelta, height: Math.max((style?.height || 60) - resizeDelta, 20), zIndex: 9999 } : {}),
-        backgroundColor: colors.fill,
-        borderLeft: `3px solid ${colors.bar}`,
-        opacity: isDragging ? 0.3 : booking._isFaded ? 0.4 : 1,
+        // Secondary copies of a shared booking stay readable: a lighter fill and a softer bar, not ghosted.
+        backgroundColor: booking._isFaded ? `color-mix(in srgb, ${colors.fill} 55%, white)` : colors.fill,
+        borderLeft: `3px solid ${booking._isFaded ? `color-mix(in srgb, ${colors.bar} 50%, transparent)` : colors.bar}`,
+        opacity: isDragging ? 0.3 : 1,
+        // Linked highlight (all copies of the hovered/focused/open shared booking); the panel ring wins on the open card.
+        ...(isLinkedActive && !isPanelSelected && !isDragging ? { outline: `1.5px solid ${colors.bar}`, outlineOffset: 1 } : {}),
       }}
       onClick={(e) => {
         if (!isDragging && !isResizing) {
@@ -180,10 +185,10 @@ const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', 
         hoverHandlers.onKeyDown(e);
         if (!e.defaultPrevented && e.key === 'Enter' && e.target === e.currentTarget && !isResizing) { e.preventDefault(); hideNow(); onClick(booking); }
       }}
-      onPointerEnter={hoverHandlers.onPointerEnter}
-      onPointerLeave={hoverHandlers.onPointerLeave}
-      onFocus={hoverHandlers.onFocus}
-      onBlur={hoverHandlers.onBlur}
+      onPointerEnter={(e) => { hoverHandlers.onPointerEnter?.(e); if (booking.isShared) onSharedActivate?.(booking.bookingId); }}
+      onPointerLeave={(e) => { hoverHandlers.onPointerLeave?.(e); if (booking.isShared) onSharedDeactivate?.(); }}
+      onFocus={(e) => { hoverHandlers.onFocus?.(e); if (booking.isShared) onSharedActivate?.(booking.bookingId); }}
+      onBlur={(e) => { hoverHandlers.onBlur?.(e); if (booking.isShared) onSharedDeactivate?.(); }}
     >
       {/* Drag handle area — middle section of card, not edges */}
       <div
@@ -194,9 +199,14 @@ const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', 
           <div className="flex items-center gap-1 min-w-0 leading-tight">
             {isUnpaid && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: UNPAID_DOT_COLOR }} title="Unpaid" />}
             <span className="font-body font-medium text-xs text-text-primary truncate">{booking.customerName}</span>
-            <span className="font-data text-[11px] text-text-secondary flex-shrink-0">· {to12h(booking.startTime)}</span>
-            {(booking.specialRequests || booking.patientNotes) && (
-              <span className="flex-shrink-0 ml-auto" title="Has notes" aria-label="Has notes" style={{ color: booking.patientNotes ? '#C98A12' : undefined }}><Icon name="AlertTriangle" size={11} /></span>
+            <span className="font-data text-[11px] text-text-secondary shrink-[1000] min-w-0 truncate">· {to12h(booking.startTime)}</span>
+            {(sharedLabel || booking.specialRequests || booking.patientNotes) && (
+              <span className="flex-shrink-0 ml-auto flex items-center gap-1">
+                {sharedLabel && <span title={sharedLabel} aria-label={sharedLabel} className="text-text-tertiary"><Icon name="Users" size={11} /></span>}
+                {(booking.specialRequests || booking.patientNotes) && (
+                  <span title="Has notes" aria-label="Has notes" style={{ color: booking.patientNotes ? '#C98A12' : undefined }}><Icon name="AlertTriangle" size={11} /></span>
+                )}
+              </span>
             )}
           </div>
         ) : (
@@ -205,6 +215,12 @@ const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', 
               {isUnpaid && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: UNPAID_DOT_COLOR }} title="Unpaid" />}
               <span className="font-body font-medium text-xs text-text-primary leading-tight truncate">{booking.customerName}</span>
               <span className="ml-auto flex items-center gap-1 flex-shrink-0 text-text-tertiary">
+                {sharedLabel && (
+                  <span title={sharedLabel} aria-label={sharedLabel} className="flex items-center gap-0.5">
+                    <Icon name="Users" size={12} />
+                    <span className="text-[10px] font-data leading-none">{booking.sharedCount}</span>
+                  </span>
+                )}
                 {booking.isNewCustomer && (
                   <span className="px-1 rounded-sm bg-primary/10 text-primary text-[10px] font-medium leading-4">New</span>
                 )}

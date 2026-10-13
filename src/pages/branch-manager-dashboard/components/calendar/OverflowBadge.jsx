@@ -138,6 +138,7 @@ const OverflowBadge = ({ count, bookings, style, expandedStyle, onBookingClick, 
   return (
     <div
       className="absolute overflow-hidden border-2 border-primary/40 bg-background/80 rounded flex flex-col z-dropdown"
+      data-overflow-booking-ids={(bookings || []).map(b => b.bookingId || b.id).join(' ')}
       style={style}
     >
       {!!onAdd && (
