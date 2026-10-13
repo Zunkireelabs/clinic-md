@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import StaffSidebar from '../../components/ui/StaffSidebar';
 import Icon from '../../components/AppIcon';
-import AppHeader from '../../components/ui/AppHeader';
+import AppShell from '../../components/ui/AppShell';
 import QuickFilters from './components/QuickFilters';
 import BookingsList from './components/BookingsList';
 import BookingLookupPanel from './components/BookingLookupPanel';
@@ -34,7 +33,6 @@ const BranchStaffDashboard = () => {
   };
 
   const viewMode = searchParams.get('view') || 'dashboard';
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const [filters, setFilters] = useState({
     dateRange: 'today',
@@ -402,21 +400,17 @@ const BranchStaffDashboard = () => {
   const userRole = profile?.role || 'staff';
 
   return (
-    <div className="min-h-screen bg-surface-sidebar">
-      <StaffSidebar
-        onCollapseChange={setSidebarCollapsed}
-      />
-
-      <div className={`${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-60'} lg:pb-0 pb-16 transition-all duration-200 ${viewMode === 'calendar' ? 'h-screen overflow-hidden flex flex-col' : ''}`}>
-        <AppHeader
-          realtimeStatus={realtimeStatus}
-          notifications={notifications}
-          unreadCount={unreadNotifCount}
-          onMarkAllRead={markAllNotifsRead}
-          onItemClick={handleNotificationClick}
-        />
-
-        {/* Toast notifications - Responsive positioning */}
+    <AppShell
+      variant={viewMode === 'calendar' ? 'fill' : 'page'}
+      header={{
+        realtimeStatus,
+        notifications,
+        unreadCount: unreadNotifCount,
+        onMarkAllRead: markAllNotifsRead,
+        onItemClick: handleNotificationClick,
+      }}
+      floating={
+        <>
         {actionError && (
           <div className="fixed top-16 sm:top-20 left-4 right-4 sm:left-1/2 sm:right-auto sm:transform sm:-translate-x-1/2 z-toast bg-error text-white px-4 sm:px-5 py-3 rounded-spa-lg spa-shadow-elevated animate-fade-in flex items-center space-x-2">
             <span className="font-body font-body-medium text-sm flex-1">{actionError}</span>
@@ -462,113 +456,111 @@ const BranchStaffDashboard = () => {
             </div>
           </div>
         )}
-
-        {/* Main Content Area - Consistent with Admin */}
-        <main className={`${viewMode === 'calendar' ? 'px-0 py-0 flex-1 min-h-0 overflow-hidden' : 'px-3 sm:px-4 md:px-6 lg:px-8 py-3 sm:py-4 min-h-[calc(100vh-48px)]'} bg-surface-dim`} style={{ borderRadius: '16px 0 0 0', borderLeft: '1px solid #e5e7eb', borderTop: '1px solid #e5e7eb' }}>
-          {viewMode === 'dashboard' ? (
-            <div className="flex flex-col gap-2 sm:gap-3 min-h-[calc(100vh-120px)]">
-              {/* Overview Stats */}
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900">{getOverviewTitle()}</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
-                <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4">
-                  <div className="text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">Confirmed</div>
-                  <div className="text-xl sm:text-2xl font-semibold text-emerald-600">{bookingCounts.confirmed}</div>
-                </div>
-                <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4">
-                  <div className="text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">Pending</div>
-                  <div className="text-xl sm:text-2xl font-semibold text-amber-500">{bookingCounts.pending}</div>
-                </div>
-                <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4">
-                  <div className="text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">In Progress</div>
-                  <div className="text-xl sm:text-2xl font-semibold text-blue-600">{bookingCounts.inProgress}</div>
-                </div>
-                <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4">
-                  <div className="text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">Completed</div>
-                  <div className="text-xl sm:text-2xl font-semibold text-gray-400">{bookingCounts.completed}</div>
-                </div>
-              </div>
-
-              {/* Inline Filters */}
-              <QuickFilters
-                onFiltersChange={handleFiltersChange}
-                bookingCounts={bookingCounts}
-              />
-
-              {/* Main Grid - Responsive: stack on mobile, side-by-side on lg */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 sm:gap-3 flex-1">
-                {/* Bookings List - Full width on mobile/tablet, 9 cols on desktop */}
-                <div className="lg:col-span-9 order-1">
-                  {loading ? (
-                    <div className="bg-white rounded-lg border border-gray-200 p-8 sm:p-12 text-center">
-                      <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
-                      <p className="text-sm text-gray-500">Loading bookings...</p>
-                    </div>
-                  ) : (
-                    <BookingsList
-                      bookings={filteredBookings}
-                      dentists={dentists}
-                      onStatusUpdate={handleStatusUpdate}
-                      onAssignDentist={handleAssignDentist}
-                      onRecordPayment={handleRecordPayment}
-                      onApplyDiscount={handleApplyDiscount}
-                      userRole={profile?.role || 'staff'}
-                      onRefresh={loadData}
-                      dateRange={filters.dateRange}
-                    />
-                  )}
-                </div>
-
-                {/* Dentist Panel - Below bookings on mobile, sidebar on desktop */}
-                <div className="lg:col-span-3 order-2">
-                  <DentistAvailability
-                    dentists={dentists}
-                    pendingBookings={bookings.filter(b => b.status === 'pending' && !b.dentist)}
-                    onAssignDentist={handleAssignDentist}
-                  />
-                </div>
-              </div>
+        </>
+      }
+    >
+      {viewMode === 'dashboard' ? (
+        <div className="flex flex-col gap-2 sm:gap-3 min-h-[calc(100vh-120px)]">
+          {/* Overview Stats */}
+          <h2 className="text-base sm:text-lg font-semibold text-gray-900">{getOverviewTitle()}</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+            <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4">
+              <div className="text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">Confirmed</div>
+              <div className="text-xl sm:text-2xl font-semibold text-emerald-600">{bookingCounts.confirmed}</div>
             </div>
-          ) : viewMode === 'bookings' ? (
-            <BookingLookupPanel
-              dentists={dentists}
-              onStatusUpdate={handleStatusUpdate}
-              onAssignDentist={handleAssignDentist}
-              onRecordPayment={handleRecordPayment}
-              onApplyDiscount={handleApplyDiscount}
-              userRole={profile?.role || 'staff'}
-              onRefresh={loadData}
-            />
-          ) : viewMode === 'calendar' ? (
-            <OperationalCalendar branchId={branchId} />
-          ) : viewMode === 'collect-payment' ? (
-            <CollectPaymentPanel onSuccess={showSuccess} />
-          ) : viewMode === 'new-booking' ? (
-            <StaffBookingForm onBookingCreated={loadData} />
-          ) : viewMode === 'check-booking' ? (
-            <CheckBookingPanel branchId={branchId} />
-          ) : viewMode === 'new-membership' && MEMBERSHIP_ENABLED ? (
-            <EnrollMemberModal
-              onClose={() => setSearchParams({ view: 'dashboard' })}
-              onEnrolled={() => {
-                setSearchParams({ view: 'dashboard' });
-                showSuccess('Membership created.');
-              }}
-            />
-          ) : viewMode === 'new-voucher' && VOUCHER_ENABLED ? (
-            <NewVoucherModal
-              userRole={userRole}
-              onClose={() => setSearchParams({ view: 'dashboard' })}
-              onIssued={() => {
-                setSearchParams({ view: 'dashboard' });
-                showSuccess('Voucher issued.');
-              }}
-            />
-          ) : (
-            <StaffBookingForm onBookingCreated={loadData} />
-          )}
-        </main>
-      </div>
-    </div>
+            <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4">
+              <div className="text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">Pending</div>
+              <div className="text-xl sm:text-2xl font-semibold text-amber-500">{bookingCounts.pending}</div>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4">
+              <div className="text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">In Progress</div>
+              <div className="text-xl sm:text-2xl font-semibold text-blue-600">{bookingCounts.inProgress}</div>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4">
+              <div className="text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">Completed</div>
+              <div className="text-xl sm:text-2xl font-semibold text-gray-400">{bookingCounts.completed}</div>
+            </div>
+          </div>
+
+          {/* Inline Filters */}
+          <QuickFilters
+            onFiltersChange={handleFiltersChange}
+            bookingCounts={bookingCounts}
+          />
+
+          {/* Main Grid - Responsive: stack on mobile, side-by-side on lg */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 sm:gap-3 flex-1">
+            {/* Bookings List - Full width on mobile/tablet, 9 cols on desktop */}
+            <div className="lg:col-span-9 order-1">
+              {loading ? (
+                <div className="bg-white rounded-lg border border-gray-200 p-8 sm:p-12 text-center">
+                  <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
+                  <p className="text-sm text-gray-500">Loading bookings...</p>
+                </div>
+              ) : (
+                <BookingsList
+                  bookings={filteredBookings}
+                  dentists={dentists}
+                  onStatusUpdate={handleStatusUpdate}
+                  onAssignDentist={handleAssignDentist}
+                  onRecordPayment={handleRecordPayment}
+                  onApplyDiscount={handleApplyDiscount}
+                  userRole={profile?.role || 'staff'}
+                  onRefresh={loadData}
+                  dateRange={filters.dateRange}
+                />
+              )}
+            </div>
+
+            {/* Dentist Panel - Below bookings on mobile, sidebar on desktop */}
+            <div className="lg:col-span-3 order-2">
+              <DentistAvailability
+                dentists={dentists}
+                pendingBookings={bookings.filter(b => b.status === 'pending' && !b.dentist)}
+                onAssignDentist={handleAssignDentist}
+              />
+            </div>
+          </div>
+        </div>
+      ) : viewMode === 'bookings' ? (
+        <BookingLookupPanel
+          dentists={dentists}
+          onStatusUpdate={handleStatusUpdate}
+          onAssignDentist={handleAssignDentist}
+          onRecordPayment={handleRecordPayment}
+          onApplyDiscount={handleApplyDiscount}
+          userRole={profile?.role || 'staff'}
+          onRefresh={loadData}
+        />
+      ) : viewMode === 'calendar' ? (
+        <OperationalCalendar branchId={branchId} />
+      ) : viewMode === 'collect-payment' ? (
+        <CollectPaymentPanel onSuccess={showSuccess} />
+      ) : viewMode === 'new-booking' ? (
+        <StaffBookingForm onBookingCreated={loadData} />
+      ) : viewMode === 'check-booking' ? (
+        <CheckBookingPanel branchId={branchId} />
+      ) : viewMode === 'new-membership' && MEMBERSHIP_ENABLED ? (
+        <EnrollMemberModal
+          onClose={() => setSearchParams({ view: 'dashboard' })}
+          onEnrolled={() => {
+            setSearchParams({ view: 'dashboard' });
+            showSuccess('Membership created.');
+          }}
+        />
+      ) : viewMode === 'new-voucher' && VOUCHER_ENABLED ? (
+        <NewVoucherModal
+          userRole={userRole}
+          onClose={() => setSearchParams({ view: 'dashboard' })}
+          onIssued={() => {
+            setSearchParams({ view: 'dashboard' });
+            showSuccess('Voucher issued.');
+          }}
+        />
+      ) : (
+        <StaffBookingForm onBookingCreated={loadData} />
+      )}
+    </AppShell>
   );
 };
 

@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
-import StaffSidebar from '../../components/ui/StaffSidebar';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBranch } from '../../contexts/BranchContext';
-import AppHeader from '../../components/ui/AppHeader';
+import AppShell from '../../components/ui/AppShell';
 import { fetchBookings, fetchDentists, updateBookingStatus, fetchPendingDiscounts } from '../../services/api';
 import { transformBookings, toDbStatus } from '../../services/bookingTransformers';
 import { supabase } from '../../lib/supabase';
@@ -73,7 +72,6 @@ const BranchManagerDashboard = () => {
 
   const [period, setPeriod] = useState(() => ({ key: 'daily', from: getTodayISO(), to: getTodayISO() }));
   const viewMode = searchParams.get('view') || 'dashboard';
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newBookingNotification, setNewBookingNotification] = useState(null);
@@ -382,116 +380,103 @@ const BranchManagerDashboard = () => {
         <meta name="description" content="Comprehensive branch management dashboard for ClinicMD managers with analytics, staff oversight, and operational controls." />
       </Helmet>
 
-      <div className="min-h-screen bg-surface-sidebar">
-        <StaffSidebar
-          userRole="manager"
-          userName={managerData.name}
-          branchName={managerData.branch}
-          onCollapseChange={setSidebarCollapsed}
-        />
-
-        <div className={`${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-60'} transition-all duration-200 ${viewMode === 'calendar' ? 'h-screen overflow-hidden flex flex-col' : 'pb-20 lg:pb-0'}`}>
-          <AppHeader
-            realtimeStatus={realtimeStatus}
-            leftExtra={viewMode === 'dashboard' ? <PeriodFilter value={period} onChange={setPeriod} /> : null}
-            onToggleAssistant={toggleAssistant}
-            assistantOpen={isAssistantOpen}
-            notifications={feedNotifications}
-            unreadCount={unreadNotifications}
-            onMarkAllRead={markAllNotificationsRead}
-            onItemClick={handleNotificationClick}
-          />
-
-          {/* Closed Day Banner */}
-          {viewMode === 'dashboard' && !loading && bookings.length > 0 && bookings.some(b => b.isLocked) && (
-            <div className="bg-amber-50 border-b border-amber-200 px-4 sm:px-6 lg:px-8 py-2">
-              <div className="flex items-center space-x-2 text-amber-700">
-                <Icon name="Lock" size={16} />
-                <span className="font-body font-body-medium text-sm">
-                  This day is closed. Financial records are locked.
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* New Booking Notification Toast - Responsive positioning */}
-          {newBookingNotification && (
-            <div className="fixed top-16 sm:top-20 left-4 right-4 sm:left-auto sm:right-6 z-toast bg-primary text-white px-4 sm:px-5 py-3 rounded-lg shadow-lg animate-fade-in sm:max-w-sm">
-              <div className="flex items-start space-x-3">
-                <div className="flex-shrink-0 mt-0.5">
-                  <Icon name="CalendarPlus" size={20} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-body font-body-medium text-sm">{newBookingNotification.message}</p>
-                  {newBookingNotification.customerName && (
-                    <p className="font-caption text-xs text-white/80 mt-0.5 truncate">
-                      {newBookingNotification.customerName}
-                      {newBookingNotification.bookingNumber && ` - ${newBookingNotification.bookingNumber}`}
-                    </p>
-                  )}
-                </div>
-                <div className="flex items-center space-x-2 flex-shrink-0">
-                  <button
-                    onClick={handleViewNewBooking}
-                    className="px-2.5 py-1.5 bg-white/20 hover:bg-white/30 rounded text-xs font-body font-body-medium transition-colors min-h-[32px]"
-                  >
-                    View
-                  </button>
-                  <button
-                    onClick={() => setNewBookingNotification(null)}
-                    className="hover:opacity-80 text-white/80 hover:text-white p-1 min-h-[32px]"
-                  >
-                    <Icon name="X" size={16} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Main Content Area with AI Assistant */}
-          <div className={`relative z-0 flex ${isAssistantOpen ? 'gap-2 sm:gap-3' : ''} ${viewMode === 'calendar' ? 'flex-1 min-h-0 overflow-hidden' : 'min-h-[calc(100vh-48px)]'}`}>
-            <main className={`flex-1 min-w-0 ${viewMode === 'calendar' ? 'px-0 py-0' : 'px-3 sm:px-4 md:px-6 lg:px-8 py-3 sm:py-4'} bg-surface-dim`} style={{ borderRadius: '16px 0 0 0', borderLeft: '1px solid #e5e7eb', borderTop: '1px solid #e5e7eb' }}>
-              {viewMode === 'dashboard' && renderDashboardView()}
-              {viewMode === 'bookings' && <BookingsViewPanel branchId={branchId} />}
-              {viewMode === 'calendar' && renderCalendarView()}
-              {viewMode === 'reports' && renderReportsView()}
-              {viewMode === 'customers' && <CustomersPanel branchId={branchId} readOnly={isOverall} />}
-              {viewMode === 'attendance' && !isOverall && <AttendancePanel branchId={branchId} />}
-              {viewMode === 'performance' && <DentistPerformancePanel branchId={branchId} />}
-              {viewMode === 'discounts' && <DiscountsPanel branchId={branchId} />}
-              {viewMode === 'attendance-report' && <AttendanceReportPanel branchId={branchId} />}
-              {viewMode === 'transfer-report' && <TransferReportPanel />}
-              {viewMode === 'outstanding' && <OutstandingReportPanel branchId={branchId} />}
-              {viewMode === 'referrals' && <ReferralsReportPanel branchId={branchId} />}
-              {viewMode === 'customer-referrals' && CUSTOMER_REFERRALS_ENABLED && <CustomerReferralsReportPanel branchId={branchId} />}
-              {viewMode === 'referral-wallet' && CUSTOMER_REFERRALS_ENABLED && <ReferralWalletPanel branchId={branchId} />}
-              {viewMode === 'reward-catalog' && CUSTOMER_REFERRALS_ENABLED && ['manager', 'admin'].includes(profile?.role) && <RewardCatalogPanel />}
-              {viewMode === 'treatment-revenue' && <TreatmentRevenueReportPanel branchId={branchId} />}
-              {viewMode === 'payroll' && profile?.role === 'admin' && <PayrollPanel branchId={branchId} isOverall={isOverall} />}
-              {MEMBERSHIP_ENABLED && viewMode === 'memberships' && ['manager','admin'].includes(profile?.role) && <MembershipsPanel branchId={branchId} />}
-              {MEMBERSHIP_ENABLED && viewMode === 'membership-collection' && ['manager','admin'].includes(profile?.role) && <MembershipCollectionPanel />}
-              {MEMBERSHIP_ENABLED && viewMode === 'wallet-usage' && ['manager','admin'].includes(profile?.role) && <WalletUsagePanel />}
-              {VOUCHER_ENABLED && viewMode === 'voucher-overview' && ['manager','admin'].includes(profile?.role) && <VoucherOverviewPanel />}
-              {VOUCHER_ENABLED && viewMode === 'vouchers' && ['manager','admin'].includes(profile?.role) && <VoucherListPanel />}
-              {viewMode === 'package-overview' && ['manager','admin'].includes(profile?.role) && <PackageOverviewPanel />}
-              {viewMode === 'packages' && ['manager','admin'].includes(profile?.role) && <PackageListPanel />}
-              {OUTREACH_ENABLED && viewMode === 'outreach' && profile?.role === 'admin' && <OutreachPanel />}
-              {viewMode === 'infrastructure' && renderInfrastructureView()}
-              {viewMode === 'chairs' && !isOverall && <ChairManagementPanel branchId={branchId} />}
-              {viewMode === 'treatments' && !isOverall && <TreatmentManagementPanel />}
-              {viewMode === 'categories' && !isOverall && <CategoryManagementPanel />}
-              {viewMode === 'payment-methods' && profile?.role === 'admin' && <PaymentMethodsPanel />}
-              {viewMode === 'dentists' && <DentistManagementPanel branchId={branchId} readOnly={isOverall} />}
-              {viewMode === 'audit' && <AuditPanel branchId={branchId} initialRecordId={searchParams.get('recordId') || ''} />}
-              {viewMode === 'new-booking' && !isOverall && <StaffBookingForm onBookingCreated={loadData} />}
-              {viewMode === 'check-booking' && !isOverall && <CheckBookingPanel branchId={branchId} />}
-            </main>
-
-            {/* AI Assistant Panel */}
-            <AIAssistantPanel />
+      <AppShell
+        variant={viewMode === 'calendar' ? 'fill' : 'page'}
+        sidebar={{ userRole: 'manager', userName: managerData.name, branchName: managerData.branch }}
+        header={{
+          realtimeStatus,
+          leftExtra: viewMode === 'dashboard' ? <PeriodFilter value={period} onChange={setPeriod} /> : null,
+          onToggleAssistant: toggleAssistant,
+          assistantOpen: isAssistantOpen,
+          notifications: feedNotifications,
+          unreadCount: unreadNotifications,
+          onMarkAllRead: markAllNotificationsRead,
+          onItemClick: handleNotificationClick,
+        }}
+        banner={
+          viewMode === 'dashboard' && !loading && bookings.length > 0 && bookings.some(b => b.isLocked) && (
+      <div className="bg-amber-50 border-b border-amber-200 px-4 sm:px-6 lg:px-8 py-2">
+        <div className="flex items-center space-x-2 text-amber-700">
+          <Icon name="Lock" size={16} />
+          <span className="font-body font-body-medium text-sm">
+            This day is closed. Financial records are locked.
+          </span>
+        </div>
+      </div>
+    )
+        }
+        floating={
+          newBookingNotification && (
+      <div className="fixed top-16 sm:top-20 left-4 right-4 sm:left-auto sm:right-6 z-toast bg-primary text-white px-4 sm:px-5 py-3 rounded-lg shadow-lg animate-fade-in sm:max-w-sm">
+        <div className="flex items-start space-x-3">
+          <div className="flex-shrink-0 mt-0.5">
+            <Icon name="CalendarPlus" size={20} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-body font-body-medium text-sm">{newBookingNotification.message}</p>
+            {newBookingNotification.customerName && (
+              <p className="font-caption text-xs text-white/80 mt-0.5 truncate">
+                {newBookingNotification.customerName}
+                {newBookingNotification.bookingNumber && ` - ${newBookingNotification.bookingNumber}`}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center space-x-2 flex-shrink-0">
+            <button
+              onClick={handleViewNewBooking}
+              className="px-2.5 py-1.5 bg-white/20 hover:bg-white/30 rounded text-xs font-body font-body-medium transition-colors min-h-[32px]"
+            >
+              View
+            </button>
+            <button
+              onClick={() => setNewBookingNotification(null)}
+              className="hover:opacity-80 text-white/80 hover:text-white p-1 min-h-[32px]"
+            >
+              <Icon name="X" size={16} />
+            </button>
           </div>
         </div>
       </div>
+    )
+        }
+        aside={<AIAssistantPanel />}
+        asideOpen={isAssistantOpen}
+      >
+        {viewMode === 'dashboard' && renderDashboardView()}
+        {viewMode === 'bookings' && <BookingsViewPanel branchId={branchId} />}
+        {viewMode === 'calendar' && renderCalendarView()}
+        {viewMode === 'reports' && renderReportsView()}
+        {viewMode === 'customers' && <CustomersPanel branchId={branchId} readOnly={isOverall} />}
+        {viewMode === 'attendance' && !isOverall && <AttendancePanel branchId={branchId} />}
+        {viewMode === 'performance' && <DentistPerformancePanel branchId={branchId} />}
+        {viewMode === 'discounts' && <DiscountsPanel branchId={branchId} />}
+        {viewMode === 'attendance-report' && <AttendanceReportPanel branchId={branchId} />}
+        {viewMode === 'transfer-report' && <TransferReportPanel />}
+        {viewMode === 'outstanding' && <OutstandingReportPanel branchId={branchId} />}
+        {viewMode === 'referrals' && <ReferralsReportPanel branchId={branchId} />}
+        {viewMode === 'customer-referrals' && CUSTOMER_REFERRALS_ENABLED && <CustomerReferralsReportPanel branchId={branchId} />}
+        {viewMode === 'referral-wallet' && CUSTOMER_REFERRALS_ENABLED && <ReferralWalletPanel branchId={branchId} />}
+        {viewMode === 'reward-catalog' && CUSTOMER_REFERRALS_ENABLED && ['manager', 'admin'].includes(profile?.role) && <RewardCatalogPanel />}
+        {viewMode === 'treatment-revenue' && <TreatmentRevenueReportPanel branchId={branchId} />}
+        {viewMode === 'payroll' && profile?.role === 'admin' && <PayrollPanel branchId={branchId} isOverall={isOverall} />}
+        {MEMBERSHIP_ENABLED && viewMode === 'memberships' && ['manager','admin'].includes(profile?.role) && <MembershipsPanel branchId={branchId} />}
+        {MEMBERSHIP_ENABLED && viewMode === 'membership-collection' && ['manager','admin'].includes(profile?.role) && <MembershipCollectionPanel />}
+        {MEMBERSHIP_ENABLED && viewMode === 'wallet-usage' && ['manager','admin'].includes(profile?.role) && <WalletUsagePanel />}
+        {VOUCHER_ENABLED && viewMode === 'voucher-overview' && ['manager','admin'].includes(profile?.role) && <VoucherOverviewPanel />}
+        {VOUCHER_ENABLED && viewMode === 'vouchers' && ['manager','admin'].includes(profile?.role) && <VoucherListPanel />}
+        {viewMode === 'package-overview' && ['manager','admin'].includes(profile?.role) && <PackageOverviewPanel />}
+        {viewMode === 'packages' && ['manager','admin'].includes(profile?.role) && <PackageListPanel />}
+        {OUTREACH_ENABLED && viewMode === 'outreach' && profile?.role === 'admin' && <OutreachPanel />}
+        {viewMode === 'infrastructure' && renderInfrastructureView()}
+        {viewMode === 'chairs' && !isOverall && <ChairManagementPanel branchId={branchId} />}
+        {viewMode === 'treatments' && !isOverall && <TreatmentManagementPanel />}
+        {viewMode === 'categories' && !isOverall && <CategoryManagementPanel />}
+        {viewMode === 'payment-methods' && profile?.role === 'admin' && <PaymentMethodsPanel />}
+        {viewMode === 'dentists' && <DentistManagementPanel branchId={branchId} readOnly={isOverall} />}
+        {viewMode === 'audit' && <AuditPanel branchId={branchId} initialRecordId={searchParams.get('recordId') || ''} />}
+        {viewMode === 'new-booking' && !isOverall && <StaffBookingForm onBookingCreated={loadData} />}
+        {viewMode === 'check-booking' && !isOverall && <CheckBookingPanel branchId={branchId} />}
+      </AppShell>
     </>
   );
 };
