@@ -106,7 +106,6 @@ const MembershipCollectionPanel = () => {
     <div className="space-y-4">
       {/* Header */}
       <div>
-        <h3 className="font-heading font-heading-semibold text-lg text-text-primary">Collection</h3>
         <p className="font-body text-sm text-text-secondary">
           Total value collected across {grandTotal.members} membership{grandTotal.members !== 1 ? 's' : ''}, by tier
         </p>

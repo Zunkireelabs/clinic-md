@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Icon from '../../../../components/AppIcon';
 import CustomSelect from '../../../../components/ui/CustomSelect';
 import PaymentMethodSelector from '../../../../components/ui/PaymentMethodSelector';
@@ -9,7 +9,7 @@ import { useOrg } from '../../../../contexts/OrgContext';
 import { buildPaymentMethodTree } from '../../../../services/paymentMethods';
 import {
   fetchMembershipTiers,
-  fetchCustomersLightweight,
+  searchCustomers,
   findOrCreateCustomer,
   enrollMember,
 } from '../../../../services/api';
@@ -43,7 +43,8 @@ const EnrollMemberModal = ({ onClose, onEnrolled, onRenewExisting }) => {
 
   const [tiers, setTiers] = useState([]);
   const [tierId, setTierId] = useState('');
-  const [existingCustomers, setExistingCustomers] = useState([]);
+  const [suggestions, setSuggestions] = useState([]);
+  const [phoneMatches, setPhoneMatches] = useState([]); // customers whose stored phone contains the typed digits (for the exact-match hint)
 
   // Customer details (typed by staff). If `lockedCustomer` is set the fields are
   // disabled and the membership is enrolled against that existing row.
@@ -61,14 +62,11 @@ const EnrollMemberModal = ({ onClose, onEnrolled, onRenewExisting }) => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
-  // Load tier list + org customers (for inline suggestions) on mount.
+  // Load the tier list on mount (customer suggestions are searched server-side as staff types, below).
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [tRes, cRes] = await Promise.all([
-        fetchMembershipTiers(orgId),
-        branchId ? fetchCustomersLightweight(branchId) : Promise.resolve({ data: [] }),
-      ]);
+      const tRes = await fetchMembershipTiers(orgId);
       if (cancelled) return;
       if (tRes.error) {
         setError(tRes.error.message || 'Failed to load tiers.');
@@ -76,10 +74,9 @@ const EnrollMemberModal = ({ onClose, onEnrolled, onRenewExisting }) => {
       }
       setTiers(tRes.data || []);
       if (tRes.data && tRes.data.length > 0) setTierId(tRes.data[0].id);
-      if (!cRes.error && cRes.data) setExistingCustomers(cRes.data);
     })();
     return () => { cancelled = true; };
-  }, [orgId, branchId]);
+  }, [orgId]);
 
   useEffect(() => {
     const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -87,28 +84,38 @@ const EnrollMemberModal = ({ onClose, onEnrolled, onRenewExisting }) => {
     return () => window.removeEventListener('keydown', handleKey);
   }, [onClose]);
 
-  // Suggestions: match by name (substring) OR phone (prefix). Hide when locked.
-  const suggestions = useMemo(() => {
-    if (lockedCustomer) return [];
-    const nameTerm = name.trim().toLowerCase();
+  // Suggestions: match by name (substring) OR phone, searched server-side (debounced ~200ms, stale responses dropped, bounded) with the
+  // membership status attached so the "card depleted / lapsed, renew instead" hint keeps working. Hidden when a customer is locked.
+  const reqRef = useRef(0);
+  useEffect(() => {
+    const id = ++reqRef.current;
+    if (lockedCustomer || !branchId) { setSuggestions([]); setPhoneMatches([]); return undefined; }
+    const nameTerm = name.trim();
     const phoneTerm = normalizePhone(phone);
-    if (nameTerm.length < 2 && phoneTerm.length < 3) return [];
-    return existingCustomers
-      .filter((c) => {
-        const matchName = nameTerm.length >= 2 && (c.full_name || '').toLowerCase().includes(nameTerm);
-        const matchPhone = phoneTerm.length >= 3 && (c.phone || '').includes(phoneTerm);
-        return matchName || matchPhone;
-      })
-      .slice(0, 6);
-  }, [name, phone, existingCustomers, lockedCustomer]);
+    const wantName = nameTerm.length >= 2;
+    const wantPhone = phoneTerm.length >= 3;
+    if (!wantName && !wantPhone) { setSuggestions([]); setPhoneMatches([]); return undefined; }
+    const timer = setTimeout(async () => {
+      const [byName, byPhone] = await Promise.all([
+        wantName ? searchCustomers(branchId, nameTerm, 6, { searchBy: 'name', withMembership: true }) : Promise.resolve({ data: [] }),
+        wantPhone ? searchCustomers(branchId, phoneTerm, 10, { searchBy: 'phone', withMembership: true }) : Promise.resolve({ data: [] }),
+      ]);
+      if (id !== reqRef.current) return; // stale
+      const merged = new Map();
+      [...(byName.data || []), ...(byPhone.data || [])].forEach((c) => merged.set(c.id, c));
+      setSuggestions([...merged.values()].sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')).slice(0, 6));
+      setPhoneMatches(byPhone.data || []);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [name, phone, lockedCustomer, branchId]);
 
   // If staff types a phone that EXACTLY matches an existing customer, surface a
   // gentler "use existing" hint so they don't accidentally create a duplicate.
   const exactPhoneMatch = useMemo(() => {
     const p = normalizePhone(phone);
     if (!p || p.length < 6 || lockedCustomer) return null;
-    return existingCustomers.find((c) => (c.phone || '') === p) || null;
-  }, [phone, existingCustomers, lockedCustomer]);
+    return phoneMatches.find((c) => (c.phone || '') === p) || null;
+  }, [phone, phoneMatches, lockedCustomer]);
 
   const handlePickExisting = (c) => {
     setLockedCustomer(c);

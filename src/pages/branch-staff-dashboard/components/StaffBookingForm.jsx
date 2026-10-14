@@ -2,10 +2,12 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import CountryCodeSelect, { parsePhone } from '../../../components/ui/CountryCodeSelect';
-import { toE164, samePhone } from '../../../utils/phone';
+import { toE164 } from '../../../utils/phone';
 import CustomerAutocomplete from '../../../components/ui/CustomerAutocomplete';
-import { fetchTreatments, createBooking, getCustomerOutstandingBalance, fetchCustomersLightweight } from '../../../services/api';
+import { fetchTreatments, createBooking, getCustomerOutstandingBalance, findCustomerByPhone } from '../../../services/api';
 import { useBranch } from '../../../contexts/BranchContext';
+import BlockOverlapWarning from '../../../components/ui/BlockOverlapWarning';
+import { useBlockOverlap } from '../../../hooks/useBlockOverlap';
 import { CUSTOMER_REFERRALS_ENABLED } from '../../../lib/featureFlags';
 
 const StaffBookingForm = ({ onBookingCreated }) => {
@@ -208,9 +210,8 @@ const StaffBookingForm = ({ onBookingCreated }) => {
     setPreviousDue(data && data.totalDue > 0 ? data : null);
   };
 
-  // Companion to checkPreviousDue, same onBlur trigger. Reuses the same org-wide
-  // customer list CustomerAutocomplete already fetches on mount (fetchCustomersLightweight)
-  // instead of a new RPC — staff is authenticated, so a normal RLS-scoped read suffices.
+  // Companion to checkPreviousDue, same onBlur trigger. A bounded lookup by phone (findCustomerByPhone, confirmed with samePhone)
+  // instead of scanning the whole org list — which silently missed returning patients past PostgREST's 1,000-row cap.
   // Deliberately does NOT touch isExistingCustomer (that stays keyed off picking an
   // autocomplete suggestion, per the comment above). Only runs once BOTH name and phone
   // are filled in, matching CustomerForm.jsx's public-flow gating — the "Referred by"
@@ -222,9 +223,9 @@ const StaffBookingForm = ({ onBookingCreated }) => {
       return;
     }
     setCustomerCheckStatus('checking');
-    const { data } = await fetchCustomersLightweight(branchId);
-    const match = (data || []).some((c) => samePhone(c.phone, e164));
-    setCustomerCheckStatus(match ? 'existing' : 'new');
+    const { data, error } = await findCustomerByPhone(branchId, e164);
+    // On a lookup error we can't tell: treat as new (same as the old behaviour when the list came back empty)
+    setCustomerCheckStatus(!error && data ? 'existing' : 'new');
   };
 
   const resetForm = () => {
@@ -245,7 +246,15 @@ const StaffBookingForm = ({ onBookingCreated }) => {
     setReferringCustomerId('');
   };
 
+  // Warn (and block Next/Create) when the chosen time overlaps a manual block. Client-side only.
+  const { message: blockOverlapMsg } = useBlockOverlap(branchId, {
+    date: selectedDate,
+    startTime: selectedTime,
+    durationMinutes: selectedTreatment?.duration_minutes || 60,
+  });
+
   const canProceed = () => {
+    if (step >= 2 && step <= 4 && blockOverlapMsg) return false;
     switch (step) {
       case 1: return !!selectedTreatment;
       case 2: return !!selectedDate && !!selectedTime;
@@ -292,9 +301,6 @@ const StaffBookingForm = ({ onBookingCreated }) => {
             <Icon name="CalendarPlus" size={18} className="sm:w-5 sm:h-5 text-primary" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-base sm:text-lg font-semibold text-gray-900">
-              New Booking
-            </h2>
             <p className="text-xs text-gray-500 truncate">
               Step {step}/4 — {['Treatment', 'Date & Time', 'Customer', 'Review'][step - 1]}
             </p>
@@ -649,6 +655,8 @@ const StaffBookingForm = ({ onBookingCreated }) => {
           </div>
         )}
       </div>
+
+      {step >= 2 && step <= 4 && <BlockOverlapWarning message={blockOverlapMsg} />}
 
       {/* Navigation - Stack on mobile */}
       <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">

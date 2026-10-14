@@ -38,7 +38,7 @@ jobs:
           envs: GHCR_USER,GHCR_TOKEN,TARGET_SHA,REASON,IMAGE
           script: |
             set -e
-            cd /home/zunkireelabs/devprojects/book-dental-app-prod
+            cd /home/zunkireelabs/devprojects/clinicmd
             echo "Rolling back to $TARGET_SHA"
             echo "Reason: $REASON"
             echo "NOTE: this rolls back CODE ONLY — the database is never touched."

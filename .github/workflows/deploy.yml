@@ -91,7 +91,7 @@ jobs:
           envs: GHCR_USER,GHCR_TOKEN
           script: |
             set -e
-            cd /home/zunkireelabs/devprojects/book-dental-app-prod
+            cd /home/zunkireelabs/devprojects/clinicmd
             git fetch origin main
             git reset --hard origin/main
             git clean -fd

@@ -20,9 +20,9 @@ const ReferralRewardCard = ({ referralReward, pendingWalletDeduction = 0, onAppl
   const projectedBalance = Math.max(round2(walletBalance) - round2(pendingWalletDeduction), 0);
 
   return (
-    <div className="rounded-spa border bg-accent/5 border-accent/20 px-3 py-2.5 space-y-2">
+    <div className="rounded-spa border bg-background border-border px-3 py-2.5 space-y-2">
       <div className="flex items-center space-x-2">
-        <Icon name="Gift" size={14} className="text-accent flex-shrink-0" />
+        <Icon name="Gift" size={14} className="text-text-secondary flex-shrink-0" />
         <span className="font-body font-body-medium text-sm text-text-primary">Referral reward</span>
       </div>
 
@@ -30,13 +30,13 @@ const ReferralRewardCard = ({ referralReward, pendingWalletDeduction = 0, onAppl
         <div className="flex items-center justify-between">
           <span className="font-body font-body-normal text-xs text-text-secondary">Wallet credit</span>
           <div className="flex items-center gap-1.5">
-            <span className={`font-data font-data-medium text-sm text-accent ${pendingWalletDeduction > 0 ? 'line-through text-text-tertiary' : ''}`}>
+            <span className={`font-data font-data-medium text-sm text-text-primary tabular-nums ${pendingWalletDeduction > 0 ? 'line-through text-text-tertiary' : ''}`}>
               {formatNPR(walletBalance)}
             </span>
             {pendingWalletDeduction > 0 && (
               <>
                 <Icon name="ArrowRight" size={12} className="text-text-secondary" />
-                <span className="font-data font-data-medium text-sm text-accent">{formatNPR(projectedBalance)}</span>
+                <span className="font-data font-data-medium text-sm text-text-primary tabular-nums">{formatNPR(projectedBalance)}</span>
               </>
             )}
           </div>
@@ -53,7 +53,7 @@ const ReferralRewardCard = ({ referralReward, pendingWalletDeduction = 0, onAppl
               <button
                 type="button"
                 onClick={() => onApplyVoucher(v)}
-                className="flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-caption font-caption-medium bg-accent/10 text-accent hover:bg-accent/20 spa-transition-fast"
+                className="flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-caption font-caption-medium border border-border bg-surface text-text-primary hover:bg-background spa-transition-fast"
               >
                 Apply
               </button>

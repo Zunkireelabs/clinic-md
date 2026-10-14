@@ -150,7 +150,6 @@ const DiscountsPanel = ({ branchId }) => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="font-heading font-heading-semibold text-xl text-text-primary">Discounts Report</h2>
           <p className="font-body text-sm text-text-secondary">
             All discounts given, with who requested and who approved them.
           </p>

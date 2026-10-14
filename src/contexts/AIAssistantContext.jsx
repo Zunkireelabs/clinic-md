@@ -5,7 +5,18 @@ const AIAssistantContext = createContext(null);
 export const AIAssistantProvider = ({ children }) => {
   const [isOpen, setIsOpen] = useState(false);
 
-  const openAssistant = useCallback(() => setIsOpen(true), []);
+  // A prompt handed over by the command palette ("Ask Assistant: …"); the panel consumes it once and clears it.
+  const [pendingPrompt, setPendingPrompt] = useState(null);
+
+  // openAssistant() opens the panel; openAssistant({ prompt }) also queues a first message. (Called directly or as an event
+  // handler, so anything that isn't a `{ prompt }` option object is ignored.)
+  const openAssistant = useCallback((opts) => {
+    if (opts && typeof opts === 'object' && typeof opts.prompt === 'string' && opts.prompt.trim()) {
+      setPendingPrompt(opts.prompt.trim());
+    }
+    setIsOpen(true);
+  }, []);
+  const consumePrompt = useCallback(() => setPendingPrompt(null), []);
   const closeAssistant = useCallback(() => setIsOpen(false), []);
   const toggleAssistant = useCallback(() => setIsOpen(prev => !prev), []);
 
@@ -13,6 +24,8 @@ export const AIAssistantProvider = ({ children }) => {
     <AIAssistantContext.Provider
       value={{
         isOpen,
+        pendingPrompt,
+        consumePrompt,
         openAssistant,
         closeAssistant,
         toggleAssistant,

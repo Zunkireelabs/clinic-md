@@ -170,7 +170,6 @@ const DentistPerformancePanel = ({ branchId }) => {
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="font-heading font-heading-semibold text-xl text-text-primary">Dentist Performance Index</h2>
           <p className="font-body text-sm text-text-secondary">
             Ranked by weighted performance score. Click a dentist for the full breakdown.
             {data && ` Period: ${data.periodStart} to ${data.periodEnd}`}

@@ -171,6 +171,7 @@ const CheckBookingPanel = ({ branchId }) => {
         onClose={() => setShowRescheduleModal(false)}
         booking={selectedBooking}
         onConfirm={handleRescheduleConfirm}
+        blockCheckBranchId={selectedBooking?.branchId || null}
       />
 
       {pendingCancel && (

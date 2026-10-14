@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Icon from '../../../../components/AppIcon';
 import { getCustomerIntelligence } from '../../../../services/api';
 import { useAuth } from '../../../../contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
 import DuplicateCustomersPanel from './DuplicateCustomersPanel';
 
 const LOYALTY_CONFIG = {
@@ -37,6 +37,13 @@ const CustomersPanel = ({ branchId, readOnly = false }) => { // eslint-disable-l
   const [filterTier, setFilterTier] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const navigate = useNavigate();
+  // `?view=customers&customer=<id>` (from the command palette) opens that patient's chart.
+  const [searchParams] = useSearchParams();
+  const customerParam = searchParams.get('customer');
+  const orgSlug = profile?.organizations?.slug;
+  useEffect(() => {
+    if (customerParam && orgSlug) navigate(`/${orgSlug}/patients/${customerParam}`, { replace: true });
+  }, [customerParam, orgSlug, navigate]);
 
   const loadData = useCallback(async () => {
     if (!branchId) return;

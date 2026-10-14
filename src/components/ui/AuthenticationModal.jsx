@@ -5,7 +5,7 @@ import Input from './Input';
 import Icon from '../AppIcon';
 import CustomSelect from './CustomSelect';
 import { useAuth } from 'contexts/AuthContext';
-import logo from 'assets/logo.png';
+import BrandWordmark from 'components/ui/BrandWordmark';
 
 const AuthenticationModal = ({ isOpen = true, onClose }) => {
   const navigate = useNavigate();
@@ -105,7 +105,7 @@ const AuthenticationModal = ({ isOpen = true, onClose }) => {
         <div className="p-6 border-b border-border">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <img src={logo} alt="ClinicMD" className="h-8 w-auto" />
+              <BrandWordmark size="sm" />
               <div>
                 <h2 className="font-heading font-heading-semibold text-lg text-text-primary">
                   Staff Login

@@ -12,6 +12,11 @@ import { excludeRelatedFromPreviousDue } from '../../services/bookingTransformer
 import { useBranch } from '../../contexts/BranchContext';
 import { CONSULTATION_ENABLED } from '../../lib/featureFlags';
 import { getExtendOptions } from '../../utils/treatmentVariants';
+import BlockOverlapWarning from './BlockOverlapWarning';
+import SidePanel from './SidePanel';
+import { AlertsBlock } from '../../pages/branch-manager-dashboard/components/calendar/BookingHoverCard';
+import { getBookingStatusColors } from '../../utils/bookingStatusColors';
+import { useBlockOverlap } from '../../hooks/useBlockOverlap';
 
 function getNepalNow() {
   return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kathmandu' }));
@@ -47,6 +52,9 @@ function formatCreatedAt(iso) {
 }
 
 // Status badge styles
+// Booking details panel width: 560 on wide screens, shrinking (never below 420) so the calendar isn't starved.
+const BOOKING_PANEL_WIDTH = 'min(560px, max(420px, 100vw - 720px))';
+
 const STATUS_STYLES = {
   pending: 'bg-warning/10 text-warning',
   confirmed: 'bg-success/10 text-success',
@@ -72,7 +80,12 @@ const BookingActionModal = ({
   onRebookStart,
   branchHours,
   defaultNewBookingMode,
-  userRole = 'staff'
+  userRole = 'staff',
+  // variant: 'modal' (default, centered dialog — every other caller) | 'panel' (docked SidePanel, used by the calendar).
+  variant = 'modal',
+  previewBooking = null,   // panel only: the calendar card's already-known data, shown while the full booking loads
+  onRefreshBooking,        // panel only: re-fetch the open booking after an in-place action (status change)
+  guardRef,                // panel only: parent calls guardRef.current(action) to run `action` through the dirty guard
 }) => {
   const { branchId } = useBranch();
   const navigate = useNavigate();
@@ -310,6 +323,27 @@ const BookingActionModal = ({
     return treatments.find(s => s.id === editForm.treatmentId);
   }, [isEditing, editForm.treatmentId, treatments]);
 
+  // Manual-block overlap warnings (client-side, warn-only): editing the date/time, and the
+  // Reschedule/Rebook/Add-treatment form. Both disable their save button while overlapping.
+  const currentDurationMin = parseInt(booking?.duration, 10) || 60;
+  const bookingDentistIds = (booking?.dentists || []).map((d) => d.id);
+  const { message: editBlockMsg } = useBlockOverlap(branchId, {
+    date: editForm.date,
+    startTime: editForm.startTime,
+    durationMinutes: selectedTreatment?.duration_minutes || currentDurationMin,
+    dentistIds: bookingDentistIds,
+    chairId: booking?.chairId || null,
+  }, !!isEditing);
+  const newTreatment = (treatments || []).find((t) => t.id === newBookingForm.treatmentId);
+  const { message: newBookingBlockMsg } = useBlockOverlap(branchId, {
+    date: newBookingForm.date,
+    startTime: newBookingForm.startTime,
+    durationMinutes: newTreatment?.duration_minutes || currentDurationMin,
+    dentistId: newBookingForm.dentistId || null,
+    dentistIds: newBookingForm.dentistId ? [newBookingForm.dentistId] : (newBookingMode === 'rebook' ? bookingDentistIds : []),
+    chairId: newBookingForm.chairId || (newBookingMode === 'rebook' ? booking?.chairId || null : null),
+  }, !!newBookingMode);
+
   // Extend-duration options (same treatment, category, longer duration)
   const [showExtendPanel, setShowExtendPanel] = useState(false);
   const extendPanelRef = useRef(null);
@@ -387,6 +421,7 @@ const BookingActionModal = ({
       setEditError('Customer name is required.');
       return;
     }
+    if (editBlockMsg) return;
 
     setIsLoading(true);
     try {
@@ -460,6 +495,7 @@ const BookingActionModal = ({
       setNewBookingError('Please select a time.');
       return;
     }
+    if (newBookingBlockMsg) return;
 
     setNewBookingSubmitting(true);
     setNewBookingError(null);
@@ -514,10 +550,15 @@ const BookingActionModal = ({
         await onUpdateStatus(booking.bookingId, newStatus, reason);
       }
       setPendingStatus(null);
-      onClose();
       // Starting the visit drops the doctor straight into the consultation.
       if (newStatus === 'in-progress' && CONSULTATION_ENABLED && userRole !== 'admin_viewer' && orgSlug) {
+        onClose();
         navigate(`/${orgSlug}/bookings/${booking.bookingId}/consultation`);
+      } else if (variant === 'panel') {
+        // The panel stays open on the updated booking instead of closing.
+        await onRefreshBooking?.(booking.bookingId);
+      } else {
+        onClose();
       }
     } catch (error) {
       setActionError(error?.message || 'Status update failed. Please try again.');
@@ -550,7 +591,95 @@ const BookingActionModal = ({
     }
   };
 
-  if (!isOpen || !booking) return null;
+  // ── Panel variant: dirty guard + overflow menu ───────────────────────────────────────────
+  const isPanel = variant === 'panel';
+  const [panelConfirm, setPanelConfirm] = useState(null); // { type: 'close' | 'switch', action? }
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef(null);
+  // Two-column Customer | Treatment layout only when the panel body is >= 520px wide (container-based, not viewport-based).
+  const bodyRef = useRef(null);
+  const [wideBody, setWideBody] = useState(false);
+  // Footer width, to collapse the lowest-priority visible actions into ⋯ so the footer never wraps.
+  const footerRef = useRef(null);
+  const [footerW, setFooterW] = useState(0);
+  useEffect(() => {
+    if (!isPanel || !booking) return undefined;
+    const ro = new ResizeObserver(() => {
+      if (bodyRef.current) setWideBody(bodyRef.current.getBoundingClientRect().width >= 520);
+      if (footerRef.current) setFooterW(footerRef.current.getBoundingClientRect().width);
+    });
+    if (bodyRef.current) ro.observe(bodyRef.current);
+    if (footerRef.current) ro.observe(footerRef.current);
+    return () => ro.disconnect();
+  }, [isPanel, booking?.bookingId]);
+  const bookingDentistIdsStr = booking
+    ? (booking.dentists?.length > 0 ? booking.dentists.map(t => t.id) : (booking.dentist?.id ? [booking.dentist.id] : [])).slice().sort().join(',')
+    : '';
+  const isDirty = !!booking && (
+    isEditing || !!newBookingMode || showExtendPanel
+    || !!String(discountValue || '').trim() || !!String(discountReason || '').trim()
+    || (selectedDentists.slice().sort().join(',') !== bookingDentistIdsStr)
+    || ((selectedChair || '') !== (booking.chairId || ''))
+  );
+  useEffect(() => {
+    if (!guardRef) return undefined;
+    guardRef.current = (action) => {
+      if (isPanel && isDirty) setPanelConfirm({ type: 'switch', action });
+      else action();
+    };
+    return () => { guardRef.current = null; };
+  });
+  useEffect(() => { setPanelConfirm(null); setMoreOpen(false); if (booking) setActiveTab('details'); }, [booking?.bookingId]);
+  useEffect(() => {
+    if (!moreOpen) return undefined;
+    const onDown = (e) => { if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [moreOpen]);
+  const requestPanelClose = () => {
+    if (isDirty) setPanelConfirm({ type: 'close' });
+    else onClose?.();
+  };
+
+  if (!isOpen) return null;
+  if (!booking) {
+    // Panel opens instantly from the card's known data; skeleton rows stand in for the rest while it loads.
+    if (!isPanel) return null;
+    const pv = previewBooking || {};
+    const pvStatusLabel = String(pv.status || '').toLowerCase();
+    const pvColors = getBookingStatusColors(pvStatusLabel === 'in-progress' ? 'In-Progress' : pvStatusLabel === 'no show' ? 'No Show' : pvStatusLabel.charAt(0).toUpperCase() + pvStatusLabel.slice(1));
+    // Same tree shape as the loaded panel (fragment > SidePanel) so switching bookings doesn't remount/re-animate it.
+    return (
+      <>
+      <SidePanel
+        isOpen
+        width={BOOKING_PANEL_WIDTH}
+        onClose={onClose}
+        title={(
+          <span className="flex items-center gap-2 min-w-0">
+            <span className="truncate">{pv.customerName || 'Booking'}</span>
+            {pv.status && <span className="px-2 py-0.5 rounded-full text-[11px] font-medium capitalize flex-shrink-0" style={{ backgroundColor: pvColors.fill, color: pvColors.text }}>{pvStatusLabel.replace('-', ' ')}</span>}
+          </span>
+        )}
+      >
+        <div className="p-5 space-y-5" aria-busy="true">
+          <div>
+            <p className="text-[13px] text-text-primary">{pv.treatmentName || pv.treatment || ''}</p>
+            <p className="text-[13px] text-text-secondary mt-0.5">{[pv.date, pv.startTime && pv.endTime ? `${pv.startTime.slice(0, 5)}–${pv.endTime.slice(0, 5)}` : ''].filter(Boolean).join(' · ')}</p>
+          </div>
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="space-y-2 animate-pulse">
+              <div className="h-3 w-24 bg-gray-100 rounded" />
+              <div className="h-4 w-full bg-gray-100 rounded" />
+              <div className="h-4 w-2/3 bg-gray-100 rounded" />
+            </div>
+          ))}
+        </div>
+      </SidePanel>
+      {null}
+      </>
+    );
+  }
 
   const isTerminal = ['completed', 'cancelled', 'no show'].includes(booking.status);
   const isLocked = booking.isLocked || false;
@@ -718,44 +847,166 @@ const BookingActionModal = ({
 
   const inputClasses = 'w-full px-3 py-2 border border-border rounded-spa bg-surface text-text-primary text-sm focus:ring-2 focus:ring-primary focus:border-primary spa-transition-fast';
 
-  // Use Portal to render modal at document body level, escaping any stacking context
-  return createPortal(
-    <>
-      {/* Overlay */}
-      <div
-        className="fixed inset-0 bg-text-primary/50 backdrop-blur-sm z-modal flex items-end sm:items-center justify-center sm:p-4"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="booking-modal-title"
-      >
-        {/* Modal Container - Bottom sheet on mobile (85vh to clear iOS notch), centered card on desktop */}
-        <div className="bg-surface w-full sm:max-w-2xl h-[85vh] sm:h-auto sm:max-h-[90vh] rounded-t-2xl sm:rounded-spa-lg spa-shadow-modal overflow-hidden animate-fade-in flex flex-col">
-          {/* Header - Responsive padding */}
-          <div className="flex items-center justify-between p-4 sm:p-6 border-b border-border flex-shrink-0">
-            <div className="flex items-center space-x-3 min-w-0">
-              <div className="w-9 h-9 sm:w-10 sm:h-10 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
-                <Icon name="Calendar" size={18} className="text-primary sm:w-5 sm:h-5" />
-              </div>
-              <div className="min-w-0">
-                <h2 id="booking-modal-title" className="font-heading font-heading-semibold text-base sm:text-lg text-text-primary truncate">
-                  Booking Management
-                </h2>
-                <p className="font-caption font-caption-normal text-xs sm:text-sm text-text-secondary truncate">
-                  {booking.id} — {booking.customerName}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={onClose}
-              className="p-2 rounded-spa hover:bg-background spa-transition-fast min-h-[44px] min-w-[44px] flex items-center justify-center flex-shrink-0"
-            >
-              <Icon name="X" size={20} className="text-text-secondary" />
-            </button>
-          </div>
 
+  // ── Panel variant: header title, primary footer action, overflow menu ─────────────────────
+  const statusKey = booking.status === 'in-progress' ? 'In-Progress' : booking.status === 'no show' ? 'No Show' : booking.status.charAt(0).toUpperCase() + booking.status.slice(1);
+  const statusColors = getBookingStatusColors(statusKey);
+  const panelTitle = (
+    <span className="flex items-center gap-2 min-w-0">
+      <span className="truncate">{booking.customerName}</span>
+      <span className="px-2 py-0.5 rounded-full text-[11px] font-medium capitalize flex-shrink-0" style={{ backgroundColor: statusColors.fill, color: statusColors.text }}>
+        {booking.status.replace('-', ' ')}
+      </span>
+    </span>
+  );
+
+  // Primary next action for the booking's status; everything else lives in the "⋯" overflow.
+  const primaryStatusTarget = booking.status === 'pending' ? 'confirmed' : booking.status === 'confirmed' ? 'in-progress' : booking.status === 'in-progress' ? 'completed' : null;
+  const primaryAction = (() => {
+    if (isLocked) return null;
+    if (booking.status === 'pending') return { key: 'confirm', label: 'Confirm', run: () => handleStatusUpdate('confirmed') };
+    if (booking.status === 'confirmed') return { key: 'start', label: 'Start', run: () => handleStatusUpdate('in-progress') };
+    if (booking.status === 'in-progress') return { key: 'complete', label: 'Complete', run: () => handleStatusUpdate('completed') };
+    if (canPay) return { key: 'pay', label: 'Collect payment', run: () => { setActiveTab('payment'); setShowPaymentModal(true); } };
+    return null;
+  })();
+  // Visible secondary actions (left), in collapse-priority order; disabled ones are not shown here (only in the overflow).
+  const secondaryVisible = [
+    onCreateBooking && !isEditing && { key: 'rebook', label: rebookLabel, icon: 'CalendarClock', run: () => onRebookStart?.(booking) },
+    onCreateBooking && !isEditing && { key: 'add', label: '+ Treatment', icon: 'PlusCircle', run: () => { setActiveTab('details'); openNewBookingForm('add-treatment'); } },
+    !isTerminal && !isLocked && extendOptions.length > 0 && { key: 'extend', label: 'Extend', icon: 'Timer', run: () => { setActiveTab('details'); setShowExtendPanel(true); } },
+  ].filter(Boolean);
+  // Fit: footer width minus the ⋯ button, the primary action and gaps; each button's width is estimated from its label.
+  const primaryW = primaryAction ? 24 + primaryAction.label.length * 7.5 : 0;
+  let budget = (footerW || 600) - 36 - 8 - primaryW - 8;
+  const shownKeys = [];
+  secondaryVisible.forEach((it) => {
+    const w = 28 + it.label.length * 7 + 8;
+    if (budget >= w) { shownKeys.push(it.key); budget -= w; } else budget = -1; // once one doesn't fit, lower priorities collapse too
+  });
+  const visibleSecondary = secondaryVisible.filter((it) => shownKeys.includes(it.key));
+  const noShowGated = !hasBookingStarted(booking);
+  const overflowItems = [
+    ...secondaryVisible.filter((it) => !shownKeys.includes(it.key)),
+    onEditBooking && !isMutationBlocked && !isEditing && { key: 'edit', label: 'Edit details', icon: 'Pencil', run: () => { setActiveTab('details'); startEditing(); } },
+    onEditBooking && isMutationBlocked && !isEditing && !isTerminal && { key: 'edit', label: 'Edit details', icon: 'Pencil', disabled: true, reason: isLocked ? 'Booking is locked (day closed)' : isSettled ? 'Paid bookings can\'t be edited' : 'Locked once treatment has started', run: () => {} },
+    canPay && primaryAction?.key !== 'pay' && { key: 'pay', label: 'Collect payment', icon: 'CreditCard', run: () => { setActiveTab('payment'); setShowPaymentModal(true); } },
+    // Other status transitions that aren't the primary action (e.g. Pending → Start isn't valid, so only no-show/cancel remain).
+    ...nextStatuses
+      .filter((st) => st !== 'cancelled' && st !== 'no show' && st !== primaryStatusTarget)
+      .map((st) => ({ key: `st-${st}`, label: st === 'in-progress' ? 'Start' : st.charAt(0).toUpperCase() + st.slice(1), icon: 'ArrowRight', run: () => handleStatusUpdate(st) })),
+    !isTerminal && !isLocked && nextStatuses.includes('no show') && { key: 'noshow', label: 'Mark no-show', icon: 'UserX', disabled: noShowGated, reason: "Available after the booking's scheduled time", run: () => setPendingStatus('no show') },
+    !isTerminal && !isLocked && nextStatuses.includes('cancelled') && { key: 'cancel', label: 'Cancel booking', icon: 'XCircle', danger: true, run: () => setPendingStatus('cancelled') },
+  ].filter(Boolean);
+
+  const panelFooter = panelConfirm ? (
+    <div key="confirm" role="alertdialog" aria-label="Unsaved changes" className="flex items-center gap-3">
+      <p className="flex-1 min-w-0 text-[13px] text-text-primary">Discard unsaved changes?</p>
+      <button type="button" onClick={() => setPanelConfirm(null)} className="h-9 px-3 text-[13px] font-body font-body-medium border border-border rounded-spa hover:bg-background spa-transition-fast whitespace-nowrap">Keep editing</button>
+      <button
+        type="button"
+        onClick={() => { const c = panelConfirm; setPanelConfirm(null); if (c.type === 'switch') c.action?.(); else onClose?.(); }}
+        className="h-9 px-3 text-[13px] font-body font-body-medium bg-text-primary text-white rounded-spa hover:opacity-90 spa-transition-fast whitespace-nowrap"
+      >
+        Discard
+      </button>
+    </div>
+  ) : (
+    <div key="actions" ref={footerRef} className="flex items-center gap-2 flex-nowrap whitespace-nowrap">
+      {isEditing && activeTab === 'details' ? (
+        <>
+          <div className="flex-1" />
+          <Button variant="outline" size="sm" onClick={cancelEditing}>Cancel</Button>
+          <Button variant="primary" size="sm" onClick={handleSaveEdit} loading={isLoading} disabled={!!editBlockMsg}>Save changes</Button>
+        </>
+      ) : (
+        <>
+          {visibleSecondary.map((it) => (
+            <button
+              key={it.key}
+              type="button"
+              onClick={it.run}
+              className="h-9 px-3 flex items-center gap-1.5 text-[13px] font-body font-body-medium text-text-primary border border-border rounded-spa hover:bg-background spa-transition-fast flex-shrink-0"
+            >
+              {it.label}
+            </button>
+          ))}
+          <div className="relative flex-shrink-0" ref={moreRef}>
+            <button
+              type="button"
+              aria-label="More actions"
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((v) => !v)}
+              disabled={overflowItems.length === 0}
+              className="h-9 w-9 flex items-center justify-center border border-border rounded-spa text-text-secondary hover:bg-background spa-transition-fast disabled:opacity-40"
+            >
+              <Icon name="MoreHorizontal" size={16} />
+            </button>
+            {moreOpen && (
+              <div role="menu" className="absolute bottom-full left-0 mb-1 w-56 bg-surface border border-border rounded-spa-lg shadow-spa-elevated py-1 z-dropdown">
+                {overflowItems.map((it) => (
+                  <button
+                    key={it.key}
+                    type="button"
+                    role="menuitem"
+                    disabled={it.disabled}
+                    title={it.disabled ? it.reason : undefined}
+                    onClick={() => { setMoreOpen(false); it.run(); }}
+                    className={`w-full flex items-center gap-2 px-3 h-9 text-[13px] font-body text-left hover:bg-background disabled:opacity-40 ${it.danger ? 'text-error' : 'text-text-primary'}`}
+                  >
+                    <Icon name={it.icon} size={14} className={it.danger ? 'text-error' : 'text-text-tertiary'} />
+                    <span>{it.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="flex-1" />
+          {activeTab === 'assign' && !isAssignmentBlocked ? (
+            <Button variant="primary" size="sm" onClick={handleAssignDentist} loading={isLoading} disabled={selectedDentists.length === 0 && !isDentistOptional}>Save assignment</Button>
+          ) : primaryAction ? (
+            <Button variant="primary" size="sm" onClick={primaryAction.run} loading={isLoading}>{primaryAction.label}</Button>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+
+  // Equal-fit tab bar for the panel: never scrolls horizontally.
+  const panelTabs = [
+    { id: 'details', label: 'Details', icon: 'FileText' },
+    { id: 'assign', label: 'Dentists', icon: 'UserCheck' },
+    { id: 'discount', label: 'Discount', icon: 'Percent' },
+    { id: 'payment', label: 'Payment', icon: 'CreditCard' },
+  ];
+  const panelTabsNode = (
+    <div className="sticky top-0 z-10 bg-surface border-b border-border">
+      <nav className="grid grid-cols-4" role="tablist">
+        {panelTabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            onClick={() => { setActiveTab(tab.id); setActionError(null); if (tab.id !== 'details') setIsEditing(false); }}
+            className={`h-11 flex items-center justify-center gap-1.5 text-[13px] font-body font-body-medium border-b-2 -mb-px spa-transition-fast whitespace-nowrap ${
+              activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            <Icon name={tab.icon} size={14} />
+            <span>{tab.label}</span>
+          </button>
+        ))}
+      </nav>
+    </div>
+  );
+
+  const tabsNode = (
+    <>
           {/* Tabs - Horizontal scroll on mobile with padding for last item visibility */}
-          <div className="border-b border-border flex-shrink-0">
-            <nav className="flex overflow-x-auto scrollbar-hide pl-4 sm:pl-6 gap-1 sm:gap-6">
+          <div className={isPanel ? 'border-b border-border flex-shrink-0 sticky top-0 z-10 bg-surface' : 'border-b border-border flex-shrink-0'}>
+            <nav className={`flex overflow-x-auto scrollbar-hide gap-1 sm:gap-6 ${isPanel ? 'pl-3' : 'pl-4 sm:pl-6'}`}>
               {tabs.map((tab, index) => (
                 <button
                   key={tab.id}
@@ -781,11 +1032,16 @@ const BookingActionModal = ({
             </nav>
           </div>
 
+    </>
+  );
+
+  const contentNode = (
+    <>
           {/* Content - Scrollable area takes remaining space, extra bottom padding on mobile for bottom nav */}
-          <div className="p-4 sm:p-6 pb-24 sm:pb-6 overflow-y-auto flex-1">
+          <div ref={bodyRef} className={isPanel ? 'p-5' : 'p-4 sm:p-6 pb-24 sm:pb-6 overflow-y-auto flex-1'}>
             {/* Details Tab */}
             {activeTab === 'details' && (
-              <div className="space-y-4 sm:space-y-6">
+              <div className={isPanel ? 'space-y-5' : 'space-y-4 sm:space-y-6'}>
                 {/* Lock / Immutability Banner — payment-aware on Completed so it complements the Record Payment button */}
                 {isMutationBlocked && (() => {
                   const banner = isLocked
@@ -801,17 +1057,21 @@ const BookingActionModal = ({
                           : isTreatmentStarted
                             ? { bg: 'bg-gray-50', border: 'border-gray-200', iconColor: 'text-gray-500', textColor: 'text-gray-600', icon: 'Lock', label: 'Treatment Started — Locked (Discount/Payment still open)' }
                             : { bg: 'bg-gray-50', border: 'border-gray-200', iconColor: 'text-gray-500', textColor: 'text-gray-600', icon: 'Lock', label: 'Booking Locked' };
+                  const tone = isPanel
+                    ? { bg: 'bg-background', border: 'border-border', iconColor: 'text-text-tertiary', textColor: 'text-text-secondary' }
+                    : banner;
                   return (
-                    <div className={`flex items-center space-x-2 px-3 py-2.5 rounded-spa ${banner.bg} border ${banner.border}`}>
-                      <Icon name={banner.icon} size={16} className={banner.iconColor} />
-                      <span className={`font-body font-body-medium text-xs ${banner.textColor}`}>
+                    <div className={`flex items-center space-x-2 px-3 py-2.5 rounded-spa ${tone.bg} border ${tone.border}`}>
+                      <Icon name={banner.icon} size={16} className={tone.iconColor} />
+                      <span className={`font-body font-body-medium text-xs ${tone.textColor}`}>
                         {banner.label}
                       </span>
                     </div>
                   );
                 })()}
 
-                {/* Status and Actions - Stack on mobile */}
+                {/* Status and Actions - Stack on mobile (modal only: the panel shows status as the header pill and moves transitions to the footer) */}
+                {!isPanel && (
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="flex items-center space-x-2">
                     <span className="font-body font-body-medium text-sm text-text-primary">Status:</span>
@@ -855,13 +1115,120 @@ const BookingActionModal = ({
                     </div>
                   ) : null}
                 </div>
+                )}
 
+                {isPanel && !isEditing && (() => {
+                  // Alerts / previous due come from the calendar card's data (the panel's own fetch doesn't carry them).
+                  const extras = previewBooking && (previewBooking.bookingId || previewBooking.id) === booking.bookingId ? previewBooking : null;
+                  const dlist = (booking.dentists?.length > 0 ? booking.dentists : [booking.dentist]).filter(Boolean);
+                  const mins = parseInt(booking.duration, 10) || 0;
+                  const [sh, sm] = (booking.time || booking.startTime || '').slice(0, 5).split(':').map(Number);
+                  const startM = Number.isFinite(sh) ? sh * 60 + (sm || 0) : null;
+                  const fmt = (m) => `${(Math.floor(m / 60) % 12) || 12}:${String(m % 60).padStart(2, '0')}`;
+                  const ap = (m) => (Math.floor(m / 60) % 24 >= 12 ? 'pm' : 'am');
+                  let range = '';
+                  if (startM !== null) {
+                    const endM = startM + mins;
+                    range = !mins ? `${fmt(startM)}${ap(startM)}`
+                      : ap(startM) === ap(endM) ? `${fmt(startM)}–${fmt(endM)}${ap(endM)}`
+                      : `${fmt(startM)}${ap(startM)}–${fmt(endM)}${ap(endM)}`;
+                  }
+                  const dObj = booking.date ? new Date(`${booking.date}T00:00:00`) : null;
+                  const dateLabel = dObj && !Number.isNaN(dObj.getTime())
+                    ? dObj.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '')
+                    : (booking.date || '');
+                  const pay = booking.paymentStatus === 'paid' ? { label: 'Paid', cls: 'bg-success/10 text-success' }
+                    : booking.paymentStatus === 'partial' ? { label: 'Partially paid', cls: 'bg-warning/10 text-warning' }
+                    : { label: 'Unpaid', cls: 'bg-warning/10 text-warning' };
+                  const npr = (n) => `NPR ${Number(n || 0).toLocaleString('en-IN')}`;
+                  const phone = booking.customerPhone ? String(booking.customerPhone).replace(/^(\+?977)?[-\s]?(\d{10})$/, '+977 $2') : '';
+                  const copy = (v) => { try { navigator.clipboard?.writeText(v); } catch (_) { /* clipboard unavailable */ } };
+                  const copyBtn = (value, label) => (
+                    <button type="button" onClick={() => copy(value)} aria-label={label} title={label}
+                      className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded-spa text-text-tertiary hover:text-primary hover:bg-background spa-transition-fast">
+                      <Icon name="Copy" size={12} />
+                    </button>
+                  );
+                  const sectionHead = 'font-body font-medium text-xs uppercase tracking-wider text-text-tertiary whitespace-nowrap';
+                  return (
+                    <>
+                      <div className="space-y-2" data-booking-summary>
+                        <p className="font-body text-[15px] font-semibold text-text-primary">{dateLabel}{range ? ` · ${range}` : ''}</p>
+                        <p className="font-body text-[13px] text-text-secondary">{booking.treatment}{mins ? ` · ${mins} min` : ''}</p>
+                        {(dlist.length > 0 || booking.chairName) && (
+                          <div className="flex items-center gap-2 text-[13px] text-text-primary min-w-0">
+                            {dlist.length > 0 && (
+                              <span className="flex -space-x-1.5 flex-shrink-0">
+                                {dlist.map((t) => (
+                                  <span key={t.id} className="w-5 h-5 rounded-full bg-gray-100 text-gray-700 ring-2 ring-surface flex items-center justify-center text-[9px] font-medium">
+                                    {String(t.name || '').split(/\s+/).filter((w) => w && !/^dr\.?$/i.test(w)).slice(0, 2).map((w) => w[0]).join('').toUpperCase()}
+                                  </span>
+                                ))}
+                              </span>
+                            )}
+                            <span className="truncate">{dlist.map((t) => t.name).join(', ')}{booking.chairName ? `${dlist.length ? ' · ' : ''}${booking.chairName}` : ''}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center flex-wrap gap-x-2 gap-y-1">
+                          <span className="font-body text-[13px] font-medium text-text-primary tabular-nums">{npr(booking.finalAmount ?? booking.baseAmount)}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${pay.cls}`}>{pay.label}</span>
+                          {booking.paymentStatus !== 'paid' && (
+                            <button type="button" onClick={() => setActiveTab('payment')} className="text-[13px] text-primary hover:underline">Collect payment →</button>
+                          )}
+                          {booking.discountAmount > 0 && <span className="text-xs text-text-tertiary tabular-nums">−{npr(booking.discountAmount)} discount</span>}
+                          {extras?.previousDue?.amount > 0 && <span className="text-xs tabular-nums" style={{ color: '#7A5408' }}>· Prev. due {npr(extras.previousDue.amount)}</span>}
+                        </div>
+                      </div>
+
+                      <AlertsBlock patientNotes={extras?.patientNotes} specialRequests={booking.specialRequests} />
+
+                      <div className="border-t border-border pt-5 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <h3 className={sectionHead}>Patient</h3>
+                          {!isMutationBlocked && onEditBooking && (
+                            <button onClick={startEditing} className="p-1.5 -mr-1.5 rounded-spa hover:bg-background spa-transition-fast text-text-secondary hover:text-primary" title="Edit booking details" aria-label="Edit booking details">
+                              <Icon name="Pencil" size={14} />
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-body text-sm font-medium text-text-primary">{booking.customerName}</p>
+                          {booking.isNewCustomer && <span className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium">New</span>}
+                        </div>
+                        {phone && (
+                          <div className="group flex items-center gap-2 text-[13px] text-text-primary">
+                            <Icon name="Phone" size={14} className="text-text-tertiary flex-shrink-0" />
+                            <a href={`tel:${String(booking.customerPhone).replace(/\s/g, '')}`} className="hover:underline tabular-nums">{phone}</a>
+                            {copyBtn(phone, 'Copy phone')}
+                          </div>
+                        )}
+                        {booking.customerEmail && (
+                          <div className="group flex items-center gap-2 text-[13px] text-text-primary min-w-0">
+                            <Icon name="Mail" size={14} className="text-text-tertiary flex-shrink-0" />
+                            <span className="break-all">{booking.customerEmail}</span>
+                            {copyBtn(booking.customerEmail, 'Copy email')}
+                          </div>
+                        )}
+                      </div>
+
+                      {booking.referredBy && (
+                        <div className="border-t border-border pt-5 space-y-2">
+                          <h3 className={sectionHead}>Referral</h3>
+                          <p className="text-[13px] text-text-primary"><span className="text-text-secondary">Referred by:</span> {booking.referredBy}</p>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+
+                {!(isPanel && !isEditing) && (
+                <>
                 {/* Customer & Treatment Information - Responsive grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                <div className={isPanel ? `grid gap-6 ${wideBody ? 'grid-cols-2' : 'grid-cols-1'}` : 'grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6'}>
                   <div className="space-y-3 sm:space-y-4">
                     <div className="flex items-center justify-between">
-                      <h3 className="font-heading font-heading-medium text-sm sm:text-base text-text-primary">
-                        Customer Information
+                      <h3 className={isPanel ? 'font-body font-medium text-xs uppercase tracking-wider text-text-tertiary whitespace-nowrap' : 'font-heading font-heading-medium text-sm sm:text-base text-text-primary'}>
+                        {isPanel ? 'Customer' : 'Customer Information'}
                       </h3>
                       {!isMutationBlocked && !isEditing && onEditBooking && (
                         <button
@@ -915,8 +1282,8 @@ const BookingActionModal = ({
                   </div>
 
                   <div className="space-y-3 sm:space-y-4">
-                    <h3 className="font-heading font-heading-medium text-sm sm:text-base text-text-primary">
-                      Treatment Details
+                    <h3 className={isPanel ? 'font-body font-medium text-xs uppercase tracking-wider text-text-tertiary whitespace-nowrap' : 'font-heading font-heading-medium text-sm sm:text-base text-text-primary'}>
+                      {isPanel ? 'Treatment' : 'Treatment Details'}
                     </h3>
                     <div className="space-y-2.5 sm:space-y-3">
                       <div>
@@ -970,6 +1337,9 @@ const BookingActionModal = ({
                               className={inputClasses}
                             />
                           </div>
+                        ) : null}
+                        {isEditing ? (
+                          <BlockOverlapWarning message={editBlockMsg} className="mt-2" />
                         ) : (
                           <p className="font-body font-body-normal text-sm text-text-primary">{booking.date} at {to12h(booking.time || booking.startTime)}</p>
                         )}
@@ -1063,6 +1433,8 @@ const BookingActionModal = ({
                     <p className="font-body font-body-normal text-sm text-text-secondary italic">None</p>
                   )}
                 </div>
+                </>
+                )}
 
                 {/* Customer-to-customer referral reward — separate from the legacy
                     staff/dentist referredBy field above. Only present when this
@@ -1120,7 +1492,7 @@ const BookingActionModal = ({
                 )}
 
                 {/* Created-by audit line — only when a staff creator was recorded */}
-                {!isEditing && creator?.createdByName && (
+                {!isPanel && !isEditing && creator?.createdByName && (
                   <div className="pt-3 border-t border-border">
                     <p className="font-caption text-xs text-text-tertiary">
                       <Icon name="UserPlus" size={12} className="inline-block mr-1 -mt-0.5" />
@@ -1128,6 +1500,21 @@ const BookingActionModal = ({
                       <span className="text-text-secondary">{creator.createdByName}</span>
                       {creator.createdAt ? ` · ${formatCreatedAt(creator.createdAt)}` : ''}
                     </p>
+                  </div>
+                )}
+
+                {/* Panel meta line: booking number + created-by audit */}
+                {isPanel && !isEditing && (
+                  <div className="border-t border-border pt-4 group flex items-center flex-wrap gap-x-1 text-xs text-text-tertiary">
+                    <span className="tabular-nums">{booking.id}</span>
+                    {booking.id && (
+                      <button type="button" onClick={() => { try { navigator.clipboard?.writeText(String(booking.id)); } catch (_) { /* clipboard unavailable */ } }}
+                        aria-label="Copy booking number" title="Copy booking number"
+                        className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded-spa hover:text-primary hover:bg-background spa-transition-fast">
+                        <Icon name="Copy" size={12} />
+                      </button>
+                    )}
+                    {creator?.createdByName && <span>· Created by {creator.createdByName}{creator.createdAt ? ` · ${formatCreatedAt(creator.createdAt)}` : ''}</span>}
                   </div>
                 )}
 
@@ -1448,7 +1835,7 @@ const BookingActionModal = ({
                               <>
                                 <div className="flex items-center justify-between">
                                   <span className="font-body font-body-normal text-xs text-text-secondary">Paid Amount</span>
-                                  <span className="font-data text-sm text-success">- NPR {Number(booking.amountPaid || 0).toLocaleString('en-IN')}</span>
+                                  <span className="font-data text-sm text-text-primary tabular-nums">- NPR {Number(booking.amountPaid || 0).toLocaleString('en-IN')}</span>
                                 </div>
                                 <div className="flex items-center justify-between border-t border-border pt-2">
                                   <span className="font-body font-body-medium text-xs text-text-primary">Final Amount</span>
@@ -1815,7 +2202,7 @@ const BookingActionModal = ({
                     <>
                       <div className="flex items-center justify-between">
                         <span className="font-body font-body-normal text-xs text-text-secondary">Already Paid</span>
-                        <span className="font-data text-sm text-success">- NPR {Number(booking.amountPaid || 0).toLocaleString('en-IN')}</span>
+                        <span className="font-data text-sm text-text-primary tabular-nums">- NPR {Number(booking.amountPaid || 0).toLocaleString('en-IN')}</span>
                       </div>
                       <div className="flex items-center justify-between border-t border-border pt-2">
                         <span className="font-body font-body-medium text-xs text-text-primary">Balance Due</span>
@@ -1889,7 +2276,7 @@ const BookingActionModal = ({
                             <div className="flex-1 min-w-0">
                               <div className="font-body text-sm text-text-primary">{pb.treatmentName}</div>
                               <div className="font-caption text-xs text-text-secondary">
-                                #{pb.bookingNumber} · {pb.date}
+                                #{pb.bookingNumber} · {isPanel && pb.date && !Number.isNaN(new Date(`${pb.date}T00:00:00`).getTime()) ? new Date(`${pb.date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : pb.date}
                               </div>
                             </div>
                             <span className="font-data text-sm text-warning flex-shrink-0">NPR {Number(pb.amountDue).toLocaleString('en-IN')}</span>
@@ -1924,7 +2311,7 @@ const BookingActionModal = ({
 
                 {canPay && (
                   <Button
-                    variant="success"
+                    variant="primary"
                     onClick={() => setShowPaymentModal(true)}
                     iconName="CreditCard"
                     iconPosition="left"
@@ -2089,6 +2476,8 @@ const BookingActionModal = ({
                   </div>
                 </div>
 
+                <BlockOverlapWarning message={newBookingBlockMsg} />
+
                 <div className="flex items-center justify-end gap-2 pt-2">
                   <Button variant="outline" onClick={() => setNewBookingMode(null)} className="min-h-[44px] sm:min-h-0">
                     Cancel
@@ -2097,6 +2486,7 @@ const BookingActionModal = ({
                     variant="primary"
                     onClick={handleNewBookingSubmit}
                     loading={newBookingSubmitting}
+                    disabled={!!newBookingBlockMsg}
                     className="min-h-[44px] sm:min-h-0"
                   >
                     {newBookingMode === 'rebook' ? rebookLabel : 'Create Booking'}
@@ -2106,74 +2496,11 @@ const BookingActionModal = ({
             )}
           </div>
 
-          {/* Footer - Responsive with safe area padding for iOS */}
-          <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 p-4 pb-6 sm:p-6 border-t border-border flex-shrink-0">
-            {/* Left side — Add another treatment / Rebook */}
-            {!isEditing && !newBookingMode && !showExtendPanel && onCreateBooking ? (
-              <div className="flex items-stretch gap-2">
-                <button
-                  onClick={() => openNewBookingForm('add-treatment')}
-                  className="flex items-center justify-center text-center px-3 py-1.5 text-xs font-body font-body-medium text-primary border border-primary/30 rounded-spa hover:bg-primary/5 spa-transition-fast min-h-[36px]"
-                >
-                  Add another treatment
-                </button>
-                <button
-                  onClick={() => onRebookStart?.(booking)}
-                  className="flex items-center justify-center text-center px-3 py-1.5 text-xs font-body font-body-medium text-text-secondary border border-border rounded-spa hover:bg-background spa-transition-fast min-h-[36px]"
-                >
-                  {rebookLabel}
-                </button>
-                {!isTerminal && !isLocked && extendOptions.length > 0 && (
-                  <button
-                    onClick={() => setShowExtendPanel(true)}
-                    className="flex items-center justify-center text-center px-3 py-1.5 text-xs font-body font-body-medium text-primary border border-primary/30 rounded-spa hover:bg-primary/5 spa-transition-fast min-h-[36px]"
-                  >
-                    Extend Treatment
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div />
-            )}
+    </>
+  );
 
-            {/* Right side — action buttons */}
-            <div className="flex items-center gap-2">
-              {isEditing && activeTab === 'details' ? (
-                <>
-                  <Button variant="outline" onClick={cancelEditing} className="min-h-[44px] sm:min-h-0">
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="primary"
-                    onClick={handleSaveEdit}
-                    loading={isLoading}
-                    className="min-h-[44px] sm:min-h-0"
-                  >
-                    Save Changes
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button variant="outline" onClick={onClose} className="min-h-[44px] sm:min-h-0">
-                    Close
-                  </Button>
-                  {activeTab === 'assign' && !isAssignmentBlocked && (
-                    <Button
-                      variant="primary"
-                      onClick={handleAssignDentist}
-                      loading={isLoading}
-                      disabled={selectedDentists.length === 0 && !isDentistOptional}
-                      className="min-h-[44px] sm:min-h-0"
-                    >
-                      Save Assignment
-                    </Button>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+  const overlays = (
+    <>
 
       {/* Cancel / No Show confirmation */}
       {pendingStatus && (
@@ -2221,6 +2548,128 @@ const BookingActionModal = ({
           isSubmitting={paymentSubmitting}
         />
       )}
+    </>
+  );
+
+  if (isPanel) {
+    return (
+      <>
+        <SidePanel isOpen={isOpen} width={BOOKING_PANEL_WIDTH} title={panelTitle} onClose={requestPanelClose} footer={panelFooter}>
+          {panelTabsNode}
+          {contentNode}
+        </SidePanel>
+        {createPortal(overlays, document.body)}
+      </>
+    );
+  }
+
+  // Use Portal to render modal at document body level, escaping any stacking context
+  return createPortal(
+    <>
+      {/* Overlay */}
+      <div
+        className="fixed inset-0 bg-text-primary/50 backdrop-blur-sm z-modal flex items-end sm:items-center justify-center sm:p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="booking-modal-title"
+      >
+        {/* Modal Container - Bottom sheet on mobile (85vh to clear iOS notch), centered card on desktop */}
+        <div className="bg-surface w-full sm:max-w-2xl h-[85vh] sm:h-auto sm:max-h-[90vh] rounded-t-2xl sm:rounded-spa-lg spa-shadow-modal overflow-hidden animate-fade-in flex flex-col">
+          {/* Header - Responsive padding */}
+          <div className="flex items-center justify-between p-4 sm:p-6 border-b border-border flex-shrink-0">
+            <div className="flex items-center space-x-3 min-w-0">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                <Icon name="Calendar" size={18} className="text-primary sm:w-5 sm:h-5" />
+              </div>
+              <div className="min-w-0">
+                <h2 id="booking-modal-title" className="font-heading font-heading-semibold text-base sm:text-lg text-text-primary truncate">
+                  Booking Management
+                </h2>
+                <p className="font-caption font-caption-normal text-xs sm:text-sm text-text-secondary truncate">
+                  {booking.id} — {booking.customerName}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-spa hover:bg-background spa-transition-fast min-h-[44px] min-w-[44px] flex items-center justify-center flex-shrink-0"
+            >
+              <Icon name="X" size={20} className="text-text-secondary" />
+            </button>
+          </div>
+
+          {tabsNode}
+          {contentNode}
+          {/* Footer - Responsive with safe area padding for iOS */}
+          <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 p-4 pb-6 sm:p-6 border-t border-border flex-shrink-0">
+            {/* Left side — Add another treatment / Rebook */}
+            {!isEditing && !newBookingMode && !showExtendPanel && onCreateBooking ? (
+              <div className="flex items-stretch gap-2">
+                <button
+                  onClick={() => openNewBookingForm('add-treatment')}
+                  className="flex items-center justify-center text-center px-3 py-1.5 text-xs font-body font-body-medium text-primary border border-primary/30 rounded-spa hover:bg-primary/5 spa-transition-fast min-h-[36px]"
+                >
+                  Add another treatment
+                </button>
+                <button
+                  onClick={() => onRebookStart?.(booking)}
+                  className="flex items-center justify-center text-center px-3 py-1.5 text-xs font-body font-body-medium text-text-secondary border border-border rounded-spa hover:bg-background spa-transition-fast min-h-[36px]"
+                >
+                  {rebookLabel}
+                </button>
+                {!isTerminal && !isLocked && extendOptions.length > 0 && (
+                  <button
+                    onClick={() => setShowExtendPanel(true)}
+                    className="flex items-center justify-center text-center px-3 py-1.5 text-xs font-body font-body-medium text-primary border border-primary/30 rounded-spa hover:bg-primary/5 spa-transition-fast min-h-[36px]"
+                  >
+                    Extend Treatment
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div />
+            )}
+
+            {/* Right side — action buttons */}
+            <div className="flex items-center gap-2">
+              {isEditing && activeTab === 'details' ? (
+                <>
+                  <Button variant="outline" onClick={cancelEditing} className="min-h-[44px] sm:min-h-0">
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={handleSaveEdit}
+                    loading={isLoading}
+                    disabled={!!editBlockMsg}
+                    className="min-h-[44px] sm:min-h-0"
+                  >
+                    Save Changes
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button variant="outline" onClick={onClose} className="min-h-[44px] sm:min-h-0">
+                    Close
+                  </Button>
+                  {activeTab === 'assign' && !isAssignmentBlocked && (
+                    <Button
+                      variant="primary"
+                      onClick={handleAssignDentist}
+                      loading={isLoading}
+                      disabled={selectedDentists.length === 0 && !isDentistOptional}
+                      className="min-h-[44px] sm:min-h-0"
+                    >
+                      Save Assignment
+                    </Button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+      {overlays}
     </>,
     document.body
   );

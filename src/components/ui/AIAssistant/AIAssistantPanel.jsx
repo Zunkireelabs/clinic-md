@@ -49,7 +49,7 @@ const getMockResponse = (message) => {
 };
 
 const AIAssistantPanel = () => {
-  const { isOpen, closeAssistant } = useAIAssistant();
+  const { isOpen, closeAssistant, pendingPrompt, consumePrompt } = useAIAssistant();
   const [messages, setMessages] = useState([
     {
       id: 'welcome',
@@ -96,6 +96,14 @@ const AIAssistantPanel = () => {
     setIsTyping(false);
     setMessages(prev => [...prev, assistantMessage]);
   };
+
+  // A prompt handed over by the command palette is sent once, as the first message, when the panel is open.
+  useEffect(() => {
+    if (!isOpen || !pendingPrompt) return;
+    const prompt = pendingPrompt;
+    consumePrompt();
+    handleSendMessage(prompt);
+  }, [isOpen, pendingPrompt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div

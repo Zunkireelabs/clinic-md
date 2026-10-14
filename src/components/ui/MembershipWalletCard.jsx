@@ -2,10 +2,11 @@ import React from 'react';
 import Icon from '../AppIcon';
 
 const MEMBERSHIP_STATUS_STYLES = {
-  active:   { container: 'bg-primary/5 border-primary/20',    pill: 'bg-success/10 text-success',  label: 'Active' },
-  pending:  { container: 'bg-amber-50 border-amber-200',      pill: 'bg-amber-100 text-amber-800', label: 'Pending' },
-  lapsed:   { container: 'bg-warning/5 border-warning/20',    pill: 'bg-warning/10 text-warning',  label: 'Lapsed' },
-  depleted: { container: 'bg-gray-50 border-gray-200',        pill: 'bg-gray-100 text-gray-600',   label: 'Depleted' },
+  // Neutral hairline card; amber (the Pending tone) only for states that need attention.
+  active:   { container: 'bg-background border-border',       pill: 'bg-gray-100 text-text-secondary', label: 'Active' },
+  pending:  { container: 'bg-background border-border',       pill: 'bg-[#FBF5E6] text-[#7A5408]',     label: 'Pending' },
+  lapsed:   { container: 'bg-background border-border',       pill: 'bg-[#FBF5E6] text-[#7A5408]',     label: 'Lapsed' },
+  depleted: { container: 'bg-background border-border',       pill: 'bg-gray-100 text-text-secondary', label: 'Depleted' },
 };
 
 function formatNPR(amount) {
@@ -62,13 +63,13 @@ const MembershipWalletCard = ({ membership, paidThisVisit = 0, pendingDeduction 
         </p>
       )}
       {membership.status === 'lapsed' && (
-        <p className="mt-1.5 font-caption text-[11px] text-warning">
+        <p className="mt-1.5 font-caption text-[11px] text-[#7A5408]">
           Membership expired on {membership.expiryDate || '—'}. Wallet balance is still spendable but
           discount privileges no longer apply.
         </p>
       )}
       {membership.status === 'pending' && (
-        <p className="mt-1.5 font-caption text-[11px] text-amber-700">
+        <p className="mt-1.5 font-caption text-[11px] text-[#7A5408]">
           Pending activation — wallet is not yet usable for booking payments. Top up to NPR {Number(membership.tierAdvanceAmount).toLocaleString('en-IN')} to activate.
         </p>
       )}

@@ -37,6 +37,25 @@ export const getDashboardPath = (role, orgSlug) => {
 };
 
 /**
+ * Where to send a freshly authenticated user: the page they originally asked for, but only if it is a plain in-app path
+ * inside their OWN org (`/<their-org>/...`). Anything else (another org, an absolute URL, protocol-relative `//host`,
+ * the login page itself) is ignored and the caller falls back to the default dashboard.
+ * @param {{pathname?: string, search?: string, hash?: string}|string|undefined} from - `location.state.from`
+ * @param {string} orgSlug - the authenticated user's org slug
+ * @returns {string|null}
+ */
+export const getSafeRedirect = (from, orgSlug) => {
+  if (!from || !orgSlug) return null;
+  const pathname = typeof from === 'string' ? from.split(/[?#]/)[0] : from.pathname;
+  const rest = typeof from === 'string' ? from.slice(pathname.length) : `${from.search || ''}${from.hash || ''}`;
+  if (typeof pathname !== 'string' || !pathname.startsWith(`/${orgSlug}/`)) return null;
+  if (pathname.startsWith('//') || /[\\]|:\/\//.test(pathname + rest)) return null;
+  if (/(^|\/)\.\.?(\/|$)/.test(pathname)) return null; // no dot-segments
+  if (pathname === `/${orgSlug}/login`) return null;
+  return `${pathname}${rest}`;
+};
+
+/**
  * Fetch a user's staff profile from public.users with branch name.
  *
  * When called with an explicit accessToken (e.g. right after signIn),
@@ -88,6 +107,8 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  // True once supabase has reported the stored session (INITIAL_SESSION), so "no user yet" can be told apart from "no session".
+  const [sessionResolved, setSessionResolved] = useState(false);
 
   // Guard: when signIn() is actively running, the useEffect must not
   // race with its own profile fetch.
@@ -152,6 +173,7 @@ export const AuthProvider = ({ children }) => {
         // Only update state from the listener when signIn is NOT active.
         if (signInActiveRef.current) return;
 
+        setSessionResolved(true);
         if (session?.user) {
           setUser(session.user);
         } else {
@@ -174,7 +196,9 @@ export const AuthProvider = ({ children }) => {
     let cancelled = false;
 
     if (!user) {
-      setLoading(false);
+      // Until the stored session has been reported there is simply no user *yet*; staying in `loading` stops ProtectedRoute
+      // from bouncing a signed-in user (hard reload / deep link) through /login before their session has been restored.
+      if (sessionResolved) setLoading(false);
       return;
     }
 
@@ -195,7 +219,7 @@ export const AuthProvider = ({ children }) => {
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [user?.id]);
+  }, [user?.id, sessionResolved]);
 
   return (
     <AuthContext.Provider value={{ user, profile, loading, signIn, signOut }}>

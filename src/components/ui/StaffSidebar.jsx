@@ -4,17 +4,22 @@ import Icon from '../AppIcon';
 import { useAuth } from 'contexts/AuthContext';
 import { useBranch } from 'contexts/BranchContext';
 import { useIndustry } from 'hooks/useIndustry';
+import { useTransferFeature } from 'hooks/useTransferFeature';
 import { fetchPendingApprovalCount } from 'services/api';
-import { MEMBERSHIP_ENABLED, CUSTOMER_REFERRALS_ENABLED, VOUCHER_ENABLED, OUTREACH_ENABLED } from 'lib/featureFlags';
-import logo from 'assets/logo.png';
+import BrandWordmark from './BrandWordmark';
+import { getNav, navPath, isNavItemActive } from 'navigation/navRegistry';
+import { useOptionalCommandPalette, SHORTCUT_LABEL } from 'components/CommandPalette/useCommandPalette';
 
 const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: propBranch, onCollapseChange }) => {
+  const transfersAvailable = useTransferFeature(); // hide transfer entries unless the DB has the tables
   const location = useLocation();
   const { orgSlug: urlOrgSlug } = useParams();
   const { profile, signOut } = useAuth();
   const { branchName: contextBranchName, branchId, isOverall } = useBranch();
   const [pendingApprovals, setPendingApprovals] = useState(0);
-  const { staffLabelPlural, locationLabelPlural, enableChairs } = useIndustry();
+  const palette = useOptionalCommandPalette(); // null on pages rendered outside the shell
+  const openPalette = palette?.openPalette;
+  const { staffLabelPlural } = useIndustry();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
@@ -35,7 +40,6 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
       clearTimeout(scrollTimeoutRef.current);
     };
   }, []);
-  const [expandedItems, setExpandedItems] = useState(['operations']); // Default expanded
 
   const userRole = profile?.role || propRole || 'staff';
   const userName = profile?.full_name || propName || 'Staff Member';
@@ -75,397 +79,54 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
     await signOut();
   };
 
-  const toggleExpand = (id) => {
-    setExpandedItems((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+  // The nav is generated from the module registry (src/navigation/navRegistry.js): flat items under section labels, Settings pinned
+  // at the bottom. Labels are hidden when the role sees only a handful of items (staff).
+  const { sections, footer, showLabels } = getNav({ role: userRole, isOverall, transfersAvailable, staffLabelPlural });
+
+  // The current `?view=`; the bare dashboard URL is the landing view: the dashboard for managers/admins, the calendar for staff.
+  const onDashboard = location.pathname === basePath;
+  const currentView = onDashboard ? (new URLSearchParams(location.search).get('view') || (userRole === 'staff' ? 'calendar' : 'dashboard')) : null;
+  const isItemActive = (item) => currentView !== null && isNavItemActive(item, currentView);
+
+  // New Booking is no longer a nav item (it is a tab under Bookings); the mobile FAB remains.
+  const showNewBookingFab = !isOverall;
+
+  // Mobile: a few primary pills, everything else in the "More" sheet (grouped by section, Settings last).
+  const flatItems = [
+    ...sections.flatMap((sec) => sec.items.map((item) => ({ ...item, groupLabel: sec.label }))),
+    ...footer.map((item) => ({ ...item, groupLabel: null, isFooter: true })),
+  ].map((item) => ({ ...item, path: navPath(item, basePath) }));
+  const primaryIds = ['dashboard', 'calendar', 'bookings', isManagerOrAdmin ? 'customers' : null].filter(Boolean);
+  const mobilePrimaryItems = primaryIds.map((id) => flatItems.find((i) => i.id === id)).filter(Boolean);
+  const mobileOverflowItems = flatItems.filter((i) => !primaryIds.includes(i.id));
+
+  const renderNavItem = (item) => {
+    const showBadge = item.id === 'dashboard' && pendingApprovals > 0;
+    return (
+      <Link
+        key={item.id}
+        to={navPath(item, basePath)}
+        title={isCollapsed ? item.label : undefined}
+        className={`flex items-center gap-3 px-3 py-2 rounded-md text-[13px] font-medium transition-colors ${
+          isItemActive(item)
+            ? 'bg-white text-gray-900 shadow-[0_0_0_1px_#E9E9EC]'
+            : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+        } ${isCollapsed ? 'justify-center' : ''}`}
+      >
+        <div className="relative flex-shrink-0">
+          <Icon name={item.icon} size={18} />
+          {showBadge && isCollapsed && (
+            <span className="absolute -top-1 -right-1 w-2 h-2 bg-error rounded-full ring-2 ring-surface-sidebar" />
+          )}
+        </div>
+        {!isCollapsed && <span className="flex-1">{item.label}</span>}
+        {showBadge && !isCollapsed && (
+          <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 text-[11px] font-semibold text-white bg-error rounded-full">
+            {pendingApprovals > 99 ? '99+' : pendingApprovals}
+          </span>
+        )}
+      </Link>
     );
-  };
-
-  // Navigation items with collapsible groups (Agentic Commerce style)
-  const navigationItems = [
-    {
-      id: 'dashboard',
-      label: 'Dashboard',
-      icon: 'LayoutDashboard',
-      path: basePath,
-      roles: ['staff', 'manager', 'admin', 'admin_viewer']
-    },
-    {
-      id: 'operations',
-      label: 'Operations',
-      icon: 'ClipboardList',
-      roles: ['staff', 'manager', 'admin', 'admin_viewer'],
-      children: [
-        {
-          id: 'bookings',
-          label: 'Bookings',
-          icon: 'BookOpen',
-          path: `${basePath}?view=bookings`,
-          roles: ['staff', 'manager', 'admin', 'admin_viewer']
-        },
-        {
-          id: 'calendar',
-          label: 'Calendar',
-          icon: 'Calendar',
-          path: `${basePath}?view=calendar`,
-          roles: ['staff', 'manager', 'admin', 'admin_viewer']
-        },
-        {
-          id: 'collect-payment',
-          label: 'Collect Payment',
-          icon: 'CreditCard',
-          path: `${basePath}?view=collect-payment`,
-          roles: ['staff']
-        },
-        {
-          id: 'new-booking',
-          label: 'New Booking',
-          icon: 'CalendarPlus',
-          path: `${basePath}?view=new-booking`,
-          roles: ['staff', 'manager', 'admin', 'admin_viewer'],
-          overallHidden: true
-        },
-        {
-          id: 'check-booking',
-          label: 'Check Booking',
-          icon: 'Search',
-          path: `${basePath}?view=check-booking`,
-          roles: ['staff', 'manager', 'admin', 'admin_viewer'],
-          overallHidden: true
-        },
-        ...(MEMBERSHIP_ENABLED ? [{
-          id: 'new-membership',
-          label: 'New Membership',
-          icon: 'CreditCard',
-          path: `${basePath}?view=new-membership`,
-          roles: ['staff'],
-        }] : []),
-        ...(VOUCHER_ENABLED ? [{
-          id: 'new-voucher',
-          label: 'New Voucher',
-          icon: 'Ticket',
-          path: `${basePath}?view=new-voucher`,
-          roles: ['staff'],
-        }] : []),
-      ]
-    },
-    {
-      id: 'customers',
-      label: 'Patients',
-      icon: 'Users',
-      path: `${basePath}?view=customers`,
-      roles: ['manager', 'admin', 'admin_viewer']
-    },
-    {
-      id: 'insights',
-      label: 'Reports',
-      icon: 'BarChart3',
-      roles: ['manager', 'admin', 'admin_viewer'],
-      children: [
-        {
-          id: 'reports',
-          label: 'Daily Report',
-          icon: 'FileText',
-          path: `${basePath}?view=reports`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-        {
-          id: 'performance',
-          label: 'Performance',
-          icon: 'TrendingUp',
-          path: `${basePath}?view=performance`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-        {
-          id: 'discounts',
-          label: 'Discounts Report',
-          icon: 'Percent',
-          path: `${basePath}?view=discounts`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-        {
-          id: 'attendance-report',
-          label: 'Attendance Report',
-          icon: 'CalendarCheck',
-          path: `${basePath}?view=attendance-report`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-        {
-          id: 'attendance-calendar',
-          label: 'Attendance Calendar',
-          icon: 'CalendarDays',
-          path: orgSlug ? `/${orgSlug}/attendance-calendar` : '/attendance-calendar',
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-        {
-          id: 'outstanding',
-          label: 'Outstanding Report',
-          icon: 'AlertCircle',
-          path: `${basePath}?view=outstanding`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-        {
-          id: 'referrals',
-          label: 'Referrals Report',
-          icon: 'UserPlus',
-          path: `${basePath}?view=referrals`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-        ...(CUSTOMER_REFERRALS_ENABLED ? [{
-          id: 'customer-referrals',
-          label: 'Customer Referrals',
-          icon: 'Users',
-          path: `${basePath}?view=customer-referrals`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        }] : []),
-        ...(CUSTOMER_REFERRALS_ENABLED ? [{
-          id: 'referral-wallet',
-          label: 'Referral Wallet',
-          icon: 'Wallet',
-          path: `${basePath}?view=referral-wallet`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        }] : []),
-        ...(CUSTOMER_REFERRALS_ENABLED ? [{
-          id: 'reward-catalog',
-          label: 'Reward Catalog',
-          icon: 'Gift',
-          path: `${basePath}?view=reward-catalog`,
-          roles: ['manager', 'admin']
-        }] : []),
-        {
-          id: 'treatment-revenue',
-          label: 'Treatment Revenue',
-          icon: 'PieChart',
-          path: `${basePath}?view=treatment-revenue`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-      ]
-    },
-    {
-      id: 'staff-mgmt',
-      label: 'Staff',
-      icon: 'UserCog',
-      roles: ['manager', 'admin', 'admin_viewer'],
-      children: [
-        {
-          id: 'dentists',
-          label: staffLabelPlural,
-          icon: 'Users',
-          path: `${basePath}?view=dentists`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-        {
-          id: 'attendance',
-          label: 'Attendance',
-          icon: 'Clock',
-          path: `${basePath}?view=attendance`,
-          roles: ['manager', 'admin', 'admin_viewer'],
-          overallHidden: true
-        },
-      ]
-    },
-    {
-      id: 'payroll',
-      label: 'Payroll',
-      icon: 'Wallet',
-      path: `${basePath}?view=payroll`,
-      roles: ['admin', 'admin_viewer'],
-    },
-    ...(MEMBERSHIP_ENABLED ? [{
-      id: 'memberships',
-      label: 'Memberships',
-      icon: 'CreditCard',
-      roles: ['manager', 'admin'],
-      children: [
-        {
-          id: 'all-memberships',
-          label: 'All Memberships',
-          icon: 'CreditCard',
-          path: `${basePath}?view=memberships`,
-          roles: ['manager', 'admin'],
-        },
-        {
-          id: 'membership-collection',
-          label: 'Collection',
-          icon: 'PiggyBank',
-          path: `${basePath}?view=membership-collection`,
-          roles: ['manager', 'admin'],
-        },
-        {
-          id: 'wallet-usage',
-          label: 'Wallet Usage',
-          icon: 'Wallet',
-          path: `${basePath}?view=wallet-usage`,
-          roles: ['manager', 'admin'],
-        },
-      ],
-    }] : []),
-    ...(VOUCHER_ENABLED ? [{
-      id: 'vouchers',
-      label: 'Vouchers',
-      icon: 'Ticket',
-      roles: ['manager', 'admin'],
-      children: [
-        {
-          id: 'voucher-overview',
-          label: 'All Voucher',
-          icon: 'LayoutDashboard',
-          path: `${basePath}?view=voucher-overview`,
-          roles: ['manager', 'admin'],
-        },
-        {
-          id: 'voucher-list',
-          label: 'Voucher Issued',
-          icon: 'Ticket',
-          path: `${basePath}?view=vouchers`,
-          roles: ['manager', 'admin'],
-        },
-      ],
-    }] : []),
-    {
-      id: 'packages',
-      label: 'Packages',
-      icon: 'Layers',
-      roles: ['manager', 'admin'],
-      children: [
-        {
-          id: 'package-overview',
-          label: 'All Packages',
-          icon: 'LayoutDashboard',
-          path: `${basePath}?view=package-overview`,
-          roles: ['manager', 'admin'],
-        },
-        {
-          id: 'package-list',
-          label: 'Packages Issued',
-          icon: 'Layers',
-          path: `${basePath}?view=packages`,
-          roles: ['manager', 'admin'],
-        },
-      ],
-    },
-    ...(OUTREACH_ENABLED ? [{
-      id: 'outreach',
-      label: 'Outreach',
-      icon: 'Megaphone',
-      path: `${basePath}?view=outreach`,
-      roles: ['admin'],
-    }] : []),
-    {
-      id: 'infrastructure',
-      label: 'Setup',
-      icon: 'Settings',
-      roles: ['manager', 'admin', 'admin_viewer'],
-      children: [
-        // Only show chairs/locations for industries that use them
-        ...(enableChairs ? [{
-          id: 'chairs',
-          label: locationLabelPlural,
-          icon: 'DoorOpen',
-          path: `${basePath}?view=chairs`,
-          roles: ['manager', 'admin', 'admin_viewer'],
-          overallHidden: true
-        }] : []),
-        {
-          id: 'treatments',
-          label: 'Treatments',
-          icon: 'Sparkles',
-          path: `${basePath}?view=treatments`,
-          roles: ['manager', 'admin', 'admin_viewer'],
-          overallHidden: true
-        },
-        {
-          id: 'categories',
-          label: 'Categories',
-          icon: 'Tags',
-          path: `${basePath}?view=categories`,
-          roles: ['manager', 'admin', 'admin_viewer'],
-          overallHidden: true
-        },
-        {
-          id: 'payment-methods',
-          label: 'Payment Methods',
-          icon: 'CreditCard',
-          path: `${basePath}?view=payment-methods`,
-          roles: ['admin'],
-          overallHidden: true
-        },
-        {
-          id: 'audit',
-          label: 'Audit Log',
-          icon: 'History',
-          path: `${basePath}?view=audit`,
-          roles: ['manager', 'admin', 'admin_viewer']
-        },
-      ]
-    },
-  ];
-
-  // Filter items by role (and, in the Overall aggregate view, hide write/creation items
-  // that have no single target branch).
-  const isVisible = (item) =>
-    item.roles.includes(userRole) && !(isOverall && item.overallHidden);
-
-  const filterByRole = (items) => {
-    return items
-      .filter(isVisible)
-      .map(item => {
-        if (item.children) {
-          return {
-            ...item,
-            children: item.children.filter(isVisible)
-          };
-        }
-        return item;
-      })
-      .filter(item => !item.children || item.children.length > 0);
-  };
-
-  const filteredNavItems = filterByRole(navigationItems);
-
-  // Flatten for mobile nav. Tag each child with its parent group label so the
-  // "More" sheet can render section headers (e.g. Reports, Staff, Setup).
-  const flattenNav = (items) => {
-    const result = [];
-    items.forEach(item => {
-      if (item.children) {
-        // A group can also be a direct link itself (e.g. Memberships) — keep
-        // it reachable from mobile nav alongside its children.
-        if (item.path) {
-          result.push({ id: item.id, label: item.label, icon: item.icon, path: item.path, groupLabel: null });
-        }
-        item.children.forEach(child => result.push({ ...child, groupLabel: item.label }));
-      } else if (item.path) {
-        result.push({ ...item, groupLabel: null });
-      }
-    });
-    return result;
-  };
-
-  const flatNavItems = flattenNav(filteredNavItems);
-  // Pull New Booking out into its own floating FAB; everything else feeds the pill nav + "More" sheet.
-  const newBookingItem = flatNavItems.find(item => item.id === 'new-booking');
-  const mainNavItems = flatNavItems.filter(item => item.id !== 'new-booking');
-  const mobilePrimaryItems = mainNavItems.slice(0, 4);
-  const mobileOverflowItems = mainNavItems.slice(4);
-
-  const isActive = (path) => {
-    if (path.includes('?')) {
-      return `${location.pathname}${location.search}` === path;
-    }
-    return location.pathname === path && !location.search;
-  };
-
-  const isParentActive = (item) => {
-    if (item.path && isActive(item.path)) return true;
-    if (item.children) {
-      return item.children.some(child => isActive(child.path));
-    }
-    return false;
-  };
-
-  const getActiveChildIndex = (children) => {
-    return children.findIndex(child => isActive(child.path));
   };
 
   return (
@@ -475,13 +136,10 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
         isCollapsed ? 'w-16' : 'w-60'
       } hidden lg:flex`}>
         {/* Header */}
-        <div className="px-5 py-3 h-[52px] flex items-center justify-between">
+        <div className="px-5 py-3 h-12 flex items-center justify-between">
           {!isCollapsed && (
-            <Link to={basePath} className="flex items-center gap-3">
-              <img src={logo} alt="ClinicMD" className="h-8 w-auto" />
-              <div>
-                <p className="text-xs text-gray-500">Staff Portal</p>
-              </div>
+            <Link to={basePath} aria-label="ClinicMD Staff Portal" className="flex items-start text-gray-900">
+              <BrandWordmark size="sm" />
             </Link>
           )}
           <button
@@ -490,7 +148,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
               setIsCollapsed(next);
               onCollapseChange?.(next);
             }}
-            className="p-2 rounded-md hover:bg-background transition-colors"
+            className="p-2 rounded-md hover:bg-gray-100 transition-colors"
           >
             <Icon
               name={isCollapsed ? "ChevronRight" : "ChevronLeft"}
@@ -500,182 +158,54 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
           </button>
         </div>
 
-        {/* Navigation — collapsible groups (Agentic Commerce style) */}
-        <nav className="flex-1 overflow-y-auto p-3 space-y-1">
-          {filteredNavItems.map((item) => {
-            const hasChildren = item.children && item.children.length > 0;
-            const isExpanded = expandedItems.includes(item.id);
-            const parentActive = isParentActive(item);
+        {/* "Search or ask… ⌘K": opens the command palette (icon-only in the collapsed rail) */}
+        {openPalette && <div className={`pb-2 ${isCollapsed ? 'flex justify-center' : 'px-3'}`}>
+          {isCollapsed ? (
+            <button
+              type="button"
+              onClick={openPalette}
+              title={`Search or ask (${SHORTCUT_LABEL})`}
+              aria-label="Search or ask"
+              className="h-[var(--control-h)] w-[var(--control-h)] flex items-center justify-center rounded-spa border border-border bg-surface text-text-tertiary hover:text-text-secondary"
+            >
+              <Icon name="Search" size={15} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={openPalette}
+              aria-label="Search or ask"
+              className="w-full h-[var(--control-h)] flex items-center gap-2 px-2.5 rounded-spa border border-border bg-surface text-[13px] text-text-tertiary hover:border-black/20 spa-transition-fast"
+            >
+              <Icon name="Search" size={15} className="flex-shrink-0" />
+              <span className="flex-1 text-left truncate">Search or ask…</span>
+              <kbd className="text-[11px] text-text-tertiary border border-border rounded px-1.5 leading-4">{SHORTCUT_LABEL}</kbd>
+            </button>
+          )}
+        </div>}
 
-            // Collapsible group
-            if (hasChildren) {
-              return (
-                <div key={item.id}>
-                  {/* Parent item — a plain toggle button, unless it also has its own
-                      path (e.g. Memberships), in which case the label navigates and
-                      a separate chevron control expands/collapses the children. */}
-                  {item.path ? (
-                    <div
-                      className={`w-full flex items-center gap-1 rounded-md text-sm font-medium transition-colors ${
-                        parentActive
-                          ? 'bg-background text-gray-900'
-                          : 'text-gray-500 hover:bg-background hover:text-gray-900'
-                      } ${isCollapsed ? 'justify-center' : ''}`}
-                    >
-                      <Link
-                        to={item.path}
-                        onClick={() => {
-                          // Expand immediately (synchronous local state) instead of
-                          // waiting on the route change + page data fetch to settle.
-                          if (!isExpanded) toggleExpand(item.id);
-                        }}
-                        className={`flex-1 flex items-center gap-3 px-3 py-2 rounded-md ${isCollapsed ? 'justify-center' : ''}`}
-                      >
-                        <Icon name={item.icon} size={18} className="flex-shrink-0" />
-                        {!isCollapsed && <span>{item.label}</span>}
-                      </Link>
-                      {!isCollapsed && (
-                        <button
-                          onClick={() => toggleExpand(item.id)}
-                          aria-label={isExpanded ? `Collapse ${item.label}` : `Expand ${item.label}`}
-                          className="px-2.5 py-2 rounded-md hover:bg-background/80 flex-shrink-0"
-                        >
-                          <Icon
-                            name="ChevronDown"
-                            size={16}
-                            className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                          />
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => toggleExpand(item.id)}
-                      className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                        parentActive
-                          ? 'bg-background text-gray-900'
-                          : 'text-gray-500 hover:bg-background hover:text-gray-900'
-                      } ${isCollapsed ? 'justify-center' : ''}`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Icon name={item.icon} size={18} className="flex-shrink-0" />
-                        {!isCollapsed && <span>{item.label}</span>}
-                      </div>
-                      {!isCollapsed && (
-                        <Icon
-                          name="ChevronDown"
-                          size={16}
-                          className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                        />
-                      )}
-                    </button>
-                  )}
-
-                  {/* Children (expanded state) */}
-                  {isExpanded && !isCollapsed && (() => {
-                    const activeIndex = getActiveChildIndex(item.children);
-
-                    return (
-                      <div className="relative mt-1">
-                        {/* Vertical line from parent to active item */}
-                        {activeIndex >= 0 && (
-                          <div
-                            className="absolute bg-gray-300"
-                            style={{
-                              left: '20px',
-                              top: '-4px',
-                              width: '1.5px',
-                              height: `calc(${activeIndex} * 32px + 4px)`
-                            }}
-                          />
-                        )}
-
-                        {item.children.map((child, index) => {
-                          const isChildActive = index === activeIndex;
-
-                          return (
-                            <div key={child.id} className="relative flex items-center pl-3 h-[32px]">
-                              {/* Corner connector for active item */}
-                              {isChildActive && (
-                                <>
-                                  {/* Curved corner */}
-                                  <div
-                                    className="absolute"
-                                    style={{
-                                      left: '19.25px',
-                                      top: 0,
-                                      height: 'calc(50% + 1px)',
-                                      width: '12px',
-                                      borderLeft: '1.5px solid #d1d5db',
-                                      borderBottom: '1.5px solid #d1d5db',
-                                      borderBottomLeftRadius: '6px'
-                                    }}
-                                  />
-                                  {/* Arrow */}
-                                  <div
-                                    className="absolute text-gray-300 text-xs"
-                                    style={{
-                                      left: '30px',
-                                      top: '50%',
-                                      transform: 'translateY(-50%)'
-                                    }}
-                                  >
-                                    →
-                                  </div>
-                                </>
-                              )}
-
-                              {/* Spacer for alignment */}
-                              <div className="w-[38px] shrink-0" />
-
-                              <Link
-                                to={child.path}
-                                className={`flex-1 px-2 py-1.5 rounded-md text-sm transition-colors ${
-                                  isChildActive
-                                    ? 'text-gray-900 font-medium bg-background'
-                                    : 'text-gray-500 hover:text-gray-900'
-                                }`}
-                              >
-                                {child.label}
-                              </Link>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-                </div>
-              );
-            }
-
-            // Regular nav item (no children)
-            const showBadge = item.id === 'dashboard' && pendingApprovals > 0;
-            return (
-              <Link
-                key={item.id}
-                to={item.path}
-                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  isActive(item.path)
-                    ? 'bg-background text-gray-900'
-                    : 'text-gray-500 hover:bg-background hover:text-gray-900'
-                } ${isCollapsed ? 'justify-center' : ''}`}
-              >
-                <div className="relative flex-shrink-0">
-                  <Icon name={item.icon} size={18} />
-                  {showBadge && isCollapsed && (
-                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-error rounded-full ring-2 ring-surface-sidebar" />
-                  )}
-                </div>
-                {!isCollapsed && <span className="flex-1">{item.label}</span>}
-                {showBadge && !isCollapsed && (
-                  <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 text-[11px] font-semibold text-white bg-error rounded-full">
-                    {pendingApprovals > 99 ? '99+' : pendingApprovals}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
+        {/* Navigation — flat items under section labels, generated from navigation/navRegistry.js (no dropdowns) */}
+        <nav className="sidebar-scroll flex-1 overflow-y-auto p-3">
+          {sections.map((sec, si) => (
+            <div key={sec.id}>
+              {isCollapsed ? (
+                si > 0 && <div className="h-px bg-border mx-3 my-2" />
+              ) : showLabels && sec.label && (
+                <p className="px-3 mt-5 mb-1.5 text-[11px] font-medium uppercase tracking-wide text-text-tertiary">{sec.label}</p>
+              )}
+              {!isCollapsed && !showLabels && si > 0 && <div className="h-2" />}
+              <div className="space-y-0.5">{sec.items.map(renderNavItem)}</div>
+            </div>
+          ))}
         </nav>
+
+        {/* Settings, pinned to the bottom of the nav column */}
+        {footer.length > 0 && (
+          <div className="px-3 pb-2">
+            {isCollapsed && <div className="h-px bg-border mx-3 mb-2" />}
+            <div className="space-y-0.5">{footer.map(renderNavItem)}</div>
+          </div>
+        )}
 
         {/* Footer - Powered by Zunkireelabs */}
         <div className="p-3">
@@ -685,9 +215,9 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
             </div>
           ) : (
             <div className="px-3 py-2 flex items-center gap-1.5">
-              <span className="text-xs text-gray-400">A Product of</span>
+              <span className="text-[13px] text-gray-400">A Product of</span>
               <img src="/zunkireelabs-icon.png" alt="Zunkireelabs" className="w-4 h-4" />
-              <span className="text-xs font-medium text-gray-700">zunkireelabs</span>
+              <span className="text-[13px] font-medium text-gray-700">zunkireelabs</span>
             </div>
           )}
         </div>
@@ -710,7 +240,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
                 className={`relative flex flex-col items-center justify-center rounded-full transition-all duration-200 ${
                   isScrolling ? 'px-2 py-1 gap-0.5' : 'px-2.5 py-1.5 gap-0.5'
                 } ${
-                  isActive(item.path)
+                  isItemActive(item)
                     ? 'bg-primary/10 text-primary'
                     : 'text-gray-500 hover:text-gray-900 hover:bg-background'
                 }`}
@@ -765,7 +295,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
               const groups = [];
               const groupMap = new Map();
               mobileOverflowItems.forEach(item => {
-                const key = item.groupLabel || 'Other';
+                const key = item.groupLabel || (item.isFooter ? '__footer' : 'Other');
                 if (!groupMap.has(key)) {
                   const group = { label: key, items: [] };
                   groupMap.set(key, group);
@@ -775,7 +305,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
               });
               return groups.map(group => (
                 <div key={group.label} className="border-b border-border last:border-b-0">
-                  {group.label !== 'Other' && (
+                  {group.label !== 'Other' && group.label !== '__footer' && (
                     <div className="px-4 pt-4 pb-2 font-caption font-caption-medium text-[11px] uppercase tracking-wider text-text-tertiary">
                       {group.label}
                     </div>
@@ -786,7 +316,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
                       to={item.path}
                       onClick={() => setMobileMoreOpen(false)}
                       className={`flex items-center gap-3 px-4 py-3 transition-colors ${
-                        isActive(item.path) ? 'bg-background' : 'hover:bg-background'
+                        isItemActive(item) ? 'bg-background' : 'hover:bg-background'
                       }`}
                     >
                       <Icon name={item.icon} size={20} className="text-text-secondary flex-shrink-0" />
@@ -813,7 +343,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
 
       {/* Mobile floating New Booking FAB — chatbot-style, shrinks while scrolling.
           Routes to the calendar view with ?newBooking=1, which opens the Quick Booking panel. */}
-      {newBookingItem && (
+      {showNewBookingFab && (
         <Link
           to={`${basePath}?view=calendar&newBooking=1`}
           aria-label="New Booking"
