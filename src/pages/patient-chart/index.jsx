@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
-import StaffSidebar from '../../components/ui/StaffSidebar';
-import StaffTopBar from '../../components/ui/StaffTopBar';
+import AppShell from '../../components/ui/AppShell';
+import { useShellHeader } from '../../hooks/useShellHeader';
 import { AIAssistantPanel } from '../../components/ui/AIAssistant';
 import VisitRecord from './VisitRecord';
 import { parseSummarySections } from '../../utils/summarySections';
@@ -38,15 +38,24 @@ const TABS = [
   { key: 'billing', label: 'Billing', icon: 'CreditCard' },
 ];
 
+// The full-page chart lives in the app shell. Kept as its own component so the embedded chart (shown inside the consultation page,
+// which already has the shell) doesn't subscribe to notifications a second time.
+const PatientChartShell = ({ orgSlug, children }) => {
+  const { header, assistantOpen } = useShellHeader(orgSlug);
+  return (
+    <AppShell variant="page" header={header} aside={<AIAssistantPanel />} asideOpen={assistantOpen}>
+      {children}
+    </AppShell>
+  );
+};
+
 const PatientChart = ({ embedded = false, customerId: customerIdProp, onClose }) => {
   const navigate = useNavigate();
   const { customerId: customerIdParam, orgSlug: urlOrgSlug } = useParams();
   const customerId = customerIdProp || customerIdParam;
   const { profile } = useAuth();
-  const userRole = profile?.role || 'staff';
   const orgSlug = urlOrgSlug || profile?.organizations?.slug;
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -315,24 +324,12 @@ const PatientChart = ({ embedded = false, customerId: customerIdProp, onClose })
   if (embedded) return <div className="p-4 sm:p-6">{content}</div>;
 
   return (
-    <div className="min-h-screen bg-surface-sidebar">
-      <StaffSidebar userRole={userRole} onCollapseChange={setSidebarCollapsed} />
-      <div className={`${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-60'} pb-20 lg:pb-0 transition-all duration-200`}>
-        <StaffTopBar orgSlug={orgSlug} />
-        <div className="relative z-0 flex gap-2 sm:gap-3 min-h-[calc(100vh-52px)]">
-          <main
-            className="flex-1 min-w-0 px-3 sm:px-4 md:px-6 lg:px-8 py-3 sm:py-4 bg-surface-dim"
-            style={{ borderRadius: '16px 0 0 0', borderLeft: '1px solid #e5e7eb', borderTop: '1px solid #e5e7eb' }}
-          >
-            <button onClick={goBack} className="inline-flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary mb-3">
-              <Icon name="ArrowLeft" size={16} /> All patients
-            </button>
-            {content}
-          </main>
-          <AIAssistantPanel />
-        </div>
-      </div>
-    </div>
+    <PatientChartShell orgSlug={orgSlug}>
+      <button onClick={goBack} className="inline-flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary mb-3">
+        <Icon name="ArrowLeft" size={16} /> All patients
+      </button>
+      {content}
+    </PatientChartShell>
   );
 };
 

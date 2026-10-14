@@ -3,8 +3,8 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
-import StaffSidebar from '../../components/ui/StaffSidebar';
-import StaffTopBar from '../../components/ui/StaffTopBar';
+import AppShell from '../../components/ui/AppShell';
+import { useShellHeader } from '../../hooks/useShellHeader';
 import { AIAssistantPanel } from '../../components/ui/AIAssistant';
 import PatientChart from '../patient-chart';
 import ImageAnalysisCard from './components/ImageAnalysisCard';
@@ -95,10 +95,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   // ?view=phone (the QR code link) shows a compact capture screen: record + photos only.
   const phoneView = forcePhoneView || searchParams.get('view') === 'phone';
   const { profile } = useAuth();
-  const userRole = profile?.role || 'staff';
   const orgSlug = urlOrgSlug || profile?.organizations?.slug;
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { header: shellHeader, assistantOpen } = useShellHeader(orgSlug);
   const [booking, setBooking] = useState(null);
   const [showChart, setShowChart] = useState(false);
 
@@ -752,16 +751,57 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   }
 
   return (
-    <div className="min-h-screen bg-surface-sidebar">
-      <StaffSidebar userRole={userRole} onCollapseChange={setSidebarCollapsed} />
+    <AppShell
+      variant="page"
+      header={shellHeader}
+      aside={<AIAssistantPanel />}
+      asideOpen={assistantOpen}
+      floating={
+        <>
+      {notice && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-modal-overlay w-[calc(100%-2rem)] max-w-md">
+          <div className="p-4 bg-white border border-success/40 rounded-lg shadow-lg flex items-start gap-3">
+            <Icon name="CheckCircle" size={20} className="text-success shrink-0 mt-0.5" />
+            <div className="flex-1 text-sm">
+              <p className="font-medium text-text-primary">{notice}</p>
+              {dbStatus === 'completed' && (
+                <p className="text-text-secondary mt-1">
+                  It's stored on {booking?.customer_name}'s record. The booking is still In-Progress: mark it Completed from the dashboard when the visit is over.
+                </p>
+              )}
+              <button type="button" onClick={() => navigate(`/${orgSlug}/dashboard`)} className="mt-2 text-primary font-medium">
+                Back to dashboard
+              </button>
+            </div>
+            <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss"><Icon name="X" size={16} className="text-text-tertiary" /></button>
+          </div>
+        </div>
+      )}
 
-      <div className={`${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-60'} pb-20 lg:pb-0 transition-all duration-200`}>
-        <StaffTopBar orgSlug={orgSlug} />
-        <div className="relative z-0 flex gap-2 sm:gap-3 min-h-[calc(100vh-52px)]">
-        <main
-          className="flex-1 min-w-0 bg-surface-dim"
-          style={{ borderRadius: '16px 0 0 0', borderLeft: '1px solid #e5e7eb', borderTop: '1px solid #e5e7eb' }}
-        >
+      {showChart && booking?.customer_id && (
+        <div className="fixed inset-0 z-modal-overlay flex items-center justify-center p-3 sm:p-6" role="dialog" aria-modal="true" aria-label="Patient chart">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowChart(false)} />
+          <div className="relative w-full max-w-4xl h-[92vh] flex flex-col rounded-2xl bg-surface-dim shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3 bg-white border-b border-gray-200 shrink-0">
+              <h2 className="font-heading font-heading-semibold text-text-primary flex items-center gap-2">
+                <Icon name="UserRound" size={18} className="text-primary" /> Patient Chart
+              </h2>
+              <button type="button" onClick={() => setShowChart(false)} aria-label="Close patient chart"
+                      className="p-2 rounded-lg text-text-secondary hover:bg-gray-100 hover:text-text-primary transition">
+                <Icon name="X" size={20} />
+              </button>
+            </div>
+            <div className="overflow-y-auto overscroll-contain">
+              <PatientChart embedded customerId={booking.customer_id} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPhone && <PhoneHandoff orgSlug={orgSlug} bookingId={bookingId} onClose={closeHandoff} phoneCount={link.phones.length} phoneLabel={link.phones[0]?.label} />}
+        </>
+      }
+    >
         {loading && (
           <div className="p-12 text-center">
             <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
@@ -1094,53 +1134,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
             </div>
           </div>
         )}
-        </main>
-        <AIAssistantPanel />
-        </div>
-      </div>
-
-      {notice && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-modal-overlay w-[calc(100%-2rem)] max-w-md">
-          <div className="p-4 bg-white border border-success/40 rounded-lg shadow-lg flex items-start gap-3">
-            <Icon name="CheckCircle" size={20} className="text-success shrink-0 mt-0.5" />
-            <div className="flex-1 text-sm">
-              <p className="font-medium text-text-primary">{notice}</p>
-              {dbStatus === 'completed' && (
-                <p className="text-text-secondary mt-1">
-                  It's stored on {booking?.customer_name}'s record. The booking is still In-Progress: mark it Completed from the dashboard when the visit is over.
-                </p>
-              )}
-              <button type="button" onClick={() => navigate(`/${orgSlug}/dashboard`)} className="mt-2 text-primary font-medium">
-                Back to dashboard
-              </button>
-            </div>
-            <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss"><Icon name="X" size={16} className="text-text-tertiary" /></button>
-          </div>
-        </div>
-      )}
-
-      {showChart && booking?.customer_id && (
-        <div className="fixed inset-0 z-modal-overlay flex items-center justify-center p-3 sm:p-6" role="dialog" aria-modal="true" aria-label="Patient chart">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowChart(false)} />
-          <div className="relative w-full max-w-4xl h-[92vh] flex flex-col rounded-2xl bg-surface-dim shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-3 bg-white border-b border-gray-200 shrink-0">
-              <h2 className="font-heading font-heading-semibold text-text-primary flex items-center gap-2">
-                <Icon name="UserRound" size={18} className="text-primary" /> Patient Chart
-              </h2>
-              <button type="button" onClick={() => setShowChart(false)} aria-label="Close patient chart"
-                      className="p-2 rounded-lg text-text-secondary hover:bg-gray-100 hover:text-text-primary transition">
-                <Icon name="X" size={20} />
-              </button>
-            </div>
-            <div className="overflow-y-auto overscroll-contain">
-              <PatientChart embedded customerId={booking.customer_id} />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showPhone && <PhoneHandoff orgSlug={orgSlug} bookingId={bookingId} onClose={closeHandoff} phoneCount={link.phones.length} phoneLabel={link.phones[0]?.label} />}
-    </div>
+    </AppShell>
   );
 };
 
