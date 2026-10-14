@@ -8,6 +8,7 @@ import { isAfterCheckout } from './dentistBranchWindow';
 import { expandBlockOccurrences } from '../utils/blockRecurrence';
 import { dedupeTransfersByKey, sortTransfersByTime } from './transferDedup';
 import { transferWindowOccurrencesForDate } from '../utils/transferOccurrences';
+import { buildPatientDirectory, localISO } from '../utils/patientDirectory';
 
 // PostgREST puts .in() lists in the URL, which breaks (and supabase-js then retries the network error with backoff,
 // ~7s) once it gets long — so id lists are always sent in chunks of at most this many.
@@ -6850,6 +6851,87 @@ export async function getCustomerIntelligence({ branchId }) {
     };
   } catch (error) {
     console.error('[API] getCustomerIntelligence error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Patients list: every customer of the branch with next/last appointment, balance etc. (derivation in utils/patientDirectory).
+// Both tables are paged with .range() so PostgREST's 1,000-row cap never truncates the list.
+const pageAll = async (buildQuery) => {
+  const PAGE = 1000;
+  const rows = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await buildQuery().range(from, from + PAGE - 1);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if (!data || data.length < PAGE) break;
+  }
+  return rows;
+};
+
+export async function getPatientsDirectory({ branchId, now = new Date() }) {
+  try {
+    if (!branchId) {
+      return { data: null, error: { code: 'BRANCH_REQUIRED', message: 'Branch ID is required.' } };
+    }
+    const [customers, bookings] = await Promise.all([
+      pageAll(() => withBranch(
+        supabase.from('customers').select('id, full_name, phone, email, gender, created_at').order('id'),
+        branchId
+      )),
+      pageAll(() => withBranch(
+        supabase.from('bookings')
+          .select('id, customer_id, status, payment_status, final_amount, date, start_time, treatment_name_snapshot, dentist_id, dentist_name_snapshot, payments(amount)')
+          .not('customer_id', 'is', null)
+          .order('id'),
+        branchId
+      )),
+    ]);
+    const dentists = new Map();
+    for (const b of bookings) if (b.dentist_id && b.dentist_name_snapshot && !dentists.has(b.dentist_id)) dentists.set(b.dentist_id, b.dentist_name_snapshot);
+    const patients = buildPatientDirectory({ customers, bookings, now });
+    return {
+      data: {
+        patients,
+        dentists: [...dentists].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
+      },
+      error: null,
+    };
+  } catch (error) {
+    console.error('[API] getPatientsDirectory error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Side-panel detail for one patient (loaded when the panel opens): today's in-progress booking, the next booking and the last 3 visits.
+export async function getPatientPanelDetail({ customerId, now = new Date() }) {
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('id, booking_number, status, date, start_time, end_time, treatment_name_snapshot, dentist_name_snapshot')
+      .eq('customer_id', customerId)
+      .in('status', ['Pending', 'Confirmed', 'In-Progress', 'Completed'])
+      .order('date', { ascending: false })
+      .order('start_time', { ascending: false })
+      .limit(200);
+    if (error) throw error;
+    const today = localISO(now);
+    const hmNow = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const rows = (data || []).map((b) => ({
+      id: b.id, bookingNumber: b.booking_number, status: b.status, date: b.date,
+      start: (b.start_time || '').slice(0, 5), end: (b.end_time || '').slice(0, 5),
+      treatment: b.treatment_name_snapshot || '', dentist: b.dentist_name_snapshot || '',
+    }));
+    const now_ = rows.find((b) => b.status === 'In-Progress' && b.date === today) || null;
+    const upcoming = rows
+      .filter((b) => ['Pending', 'Confirmed'].includes(b.status) && (b.date > today || (b.date === today && b.start > hmNow)))
+      .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))[0] || null;
+    const recent = rows
+      .filter((b) => ['Completed', 'In-Progress'].includes(b.status) && b.date <= today)
+      .slice(0, 3);
+    return { data: { now: now_, upcoming, recent }, error: null };
+  } catch (error) {
+    console.error('[API] getPatientPanelDetail error:', error.message);
     return { data: null, error };
   }
 }

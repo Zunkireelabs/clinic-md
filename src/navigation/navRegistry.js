@@ -29,7 +29,7 @@ export const NAV_SECTIONS = [
   { id: 'operations', label: 'Operations', items: [
     { id: 'bookings', label: 'Bookings', icon: 'ClipboardList', view: 'bookings', keywords: 'appointments', roles: ALL,
       activeViews: ['bookings', 'new-booking', 'check-booking', 'collect-payment', 'new-membership', 'new-voucher'] },
-    { id: 'customers', label: 'Customers', icon: 'Users', view: 'customers', keywords: 'patients clients', roles: STAFF_UP },
+    { id: 'customers', label: 'Patients', icon: 'Users', view: 'customers', keywords: 'patients customers clients', roles: STAFF_UP },
   ] },
   { id: 'sales', label: 'Sales', items: [
     { id: 'packages', label: 'Packages', icon: 'Layers', view: 'package-overview', keywords: 'sessions bundles', roles: MGR_ADMIN, activeViews: ['package-overview', 'packages'] },

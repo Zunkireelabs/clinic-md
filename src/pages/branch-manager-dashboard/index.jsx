@@ -25,7 +25,7 @@ import TreatmentManagementPanel from './components/MasterData/TreatmentManagemen
 import CategoryManagementPanel from './components/MasterData/CategoryManagementPanel';
 import PaymentMethodsPanel from './components/MasterData/PaymentMethodsPanel';
 import AuditPanel from './components/Governance/AuditPanel';
-import CustomersPanel from './components/CRM/CustomersPanel';
+import PatientsPage from './components/CRM/PatientsPage';
 import BookingsViewPanel from './components/BookingsViewPanel';
 import RevenueCards from './components/RevenueCards';
 import TodayInsightsPanel from './components/TodayInsightsPanel';
@@ -434,7 +434,7 @@ const BranchManagerDashboard = () => {
       </Helmet>
 
       <AppShell
-        variant={viewMode === 'calendar' || isReportsView || isSettingsViewActive || areaForView ? 'fill' : 'page'}
+        variant={viewMode === 'calendar' || viewMode === 'customers' || isReportsView || isSettingsViewActive || areaForView ? 'fill' : 'page'}
         sidebar={{ userRole: 'manager', userName: managerData.name, branchName: managerData.branch }}
         header={{
           realtimeStatus,
@@ -500,7 +500,7 @@ const BranchManagerDashboard = () => {
         {isReportsView && <ReportsLayout view={viewMode} renderReport={renderReportView} />}
         {isSettingsViewActive && <SettingsLayout view={viewMode} renderSetting={renderSettingView} />}
         {areaForView && <AreaTabs area={areaForView} view={viewMode}>{renderAreaView(viewMode)}</AreaTabs>}
-        {viewMode === 'customers' && <CustomersPanel branchId={branchId} readOnly={isOverall} />}
+        {viewMode === 'customers' && <PatientsPage branchId={branchId} readOnly={isOverall} />}
         {OUTREACH_ENABLED && viewMode === 'outreach' && profile?.role === 'admin' && <OutreachPanel />}
       </AppShell>
     </>

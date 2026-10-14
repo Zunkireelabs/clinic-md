@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import AppShell from '../../components/ui/AppShell';
@@ -51,6 +51,7 @@ const PatientChartShell = ({ orgSlug, children }) => {
 
 const PatientChart = ({ embedded = false, customerId: customerIdProp, onClose }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { customerId: customerIdParam, orgSlug: urlOrgSlug } = useParams();
   const customerId = customerIdProp || customerIdParam;
   const { profile } = useAuth();
@@ -77,7 +78,8 @@ const PatientChart = ({ embedded = false, customerId: customerIdProp, onClose })
 
   useEffect(() => { load(); }, [load]);
 
-  const goBack = () => navigate(`/${orgSlug}/dashboard?view=customers`);
+  // The Patients list passes its own URL (segment, search, page, open patient) so "All patients" returns exactly there.
+  const goBack = () => navigate(location.state?.from || `/${orgSlug}/dashboard?view=customers`);
   const c = data?.customer;
   const s = data?.stats;
   const history = data?.history || [];
