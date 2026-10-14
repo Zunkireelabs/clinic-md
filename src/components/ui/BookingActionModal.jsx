@@ -872,6 +872,7 @@ const BookingActionModal = ({
   })();
   // Visible secondary actions (left), in collapse-priority order; disabled ones are not shown here (only in the overflow).
   const secondaryVisible = [
+    CONSULTATION_ENABLED && booking.status === 'in-progress' && userRole !== 'admin_viewer' && orgSlug && !isEditing && { key: 'consult', label: 'Consultation', icon: 'Mic', run: () => navigate(`/${orgSlug}/bookings/${booking.bookingId}/consultation`) },
     onCreateBooking && !isEditing && { key: 'rebook', label: rebookLabel, icon: 'CalendarClock', run: () => onRebookStart?.(booking) },
     onCreateBooking && !isEditing && { key: 'add', label: '+ Treatment', icon: 'PlusCircle', run: () => { setActiveTab('details'); openNewBookingForm('add-treatment'); } },
     !isTerminal && !isLocked && extendOptions.length > 0 && { key: 'extend', label: 'Extend', icon: 'Timer', run: () => { setActiveTab('details'); setShowExtendPanel(true); } },
