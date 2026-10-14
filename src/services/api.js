@@ -3,6 +3,7 @@ import { transformMembership, transformMemberships, toTitleCase } from './bookin
 import { capture } from '../lib/analytics';
 import { MEMBERSHIP_ENABLED, CUSTOMER_REFERRALS_ENABLED, VOUCHER_ENABLED } from '../lib/featureFlags';
 import { toE164, samePhone } from '../utils/phone';
+import { consultationAiError } from '../utils/consultationAiError';
 import { isAfterCheckout } from './dentistBranchWindow';
 import { expandBlockOccurrences } from '../utils/blockRecurrence';
 import { dedupeTransfersByKey, sortTransfersByTime } from './transferDedup';
@@ -11765,10 +11766,9 @@ async function invokeConsultationFunction(name, body) {
 
   let payload = null;
   try { payload = await error.context?.json?.(); } catch { /* not JSON */ }
-  if (payload?.error === 'AI_KEY_MISSING') {
-    return { data: null, error: { code: 'AI_KEY_MISSING', message: 'AI is not set up yet. The API key has not been added, so this step is unavailable.' } };
-  }
-  return { data: null, error: { code: 'AI_FAILED', message: payload?.message || payload?.error || error.message || 'The AI request failed.' } };
+  const status = typeof error.context?.status === 'number' ? error.context.status : null;
+  // AI_KEY_MISSING comes back as a 503 with a JSON body; check the body first, so it isn't mistaken for "unavailable"
+  return { data: null, error: consultationAiError(status, payload) };
 }
 
 export async function transcribeConsultationAudio(audioPath) {
