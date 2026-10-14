@@ -9,6 +9,9 @@ import {
 } from '../../../../utils/patientDirectory';
 import { formatPhoneDisplay } from '../../../../utils/phone';
 import DuplicateCustomersPanel from './DuplicateCustomersPanel';
+import Spotlight, { useSpotlight } from '../../../../components/ui/Spotlight';
+import ConsultationSpotlightArt from '../../../../components/ui/spotlight/ConsultationSpotlightArt';
+import { CONSULTATION_ENABLED } from '../../../../lib/featureFlags';
 import PatientPanel, { InClinicTag } from './PatientPanel';
 
 const PAGE_SIZE = 25;
@@ -145,6 +148,7 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
     setSearchParams(next, { replace: !push });
   }, [setSearchParams]);
 
+  const spotlight = useSpotlight('ai-consultation-v1');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -343,6 +347,26 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
     </div>
   );
 
+  // One banner per page: the AI-consultation announcement, only where consultations can actually be started.
+  const liveNow = patients?.find((p) => p.inProgressId);
+  const laterToday = patients?.some((p) => p.laterTodayConfirmed);
+  const spotlightPrimary = liveNow
+    ? { label: `Start with ${liveNow.fullName.split(' ')[0]}`, onClick: () => navigate(`/${orgSlug}/bookings/${liveNow.inProgressId}/consultation`) }
+    : { label: laterToday ? 'Try it on today\'s first visit' : 'Open today\'s calendar', onClick: () => navigate('?view=calendar') };
+  const banner = CONSULTATION_ENABLED && !readOnly && spotlight.visible && patients && !showDuplicates && (
+    <div className="mt-5">
+      <Spotlight
+        id="ai-consultation-v1"
+        eyebrow="New · AI consultation notes"
+        title="Talk to your patient. The notes write themselves."
+        body="Record the visit, get a transcript and a clinical summary in seconds, then review and save to the chart."
+        primary={spotlightPrimary}
+        art={<ConsultationSpotlightArt />}
+        onDismiss={spotlight.dismiss}
+      />
+    </div>
+  );
+
   if (showDuplicates) {
     return (
       <div className="h-full lg:overflow-y-auto content-scroll px-3 sm:px-4 md:px-6 lg:px-10 pt-6 pb-6">
@@ -459,6 +483,7 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
   return (
     <div className="h-full flex flex-col px-3 sm:px-4 md:px-6 lg:px-10 pt-5 lg:pt-7 overflow-hidden">
       {header}
+      {banner}
       {views}
       {toolbar}
       {payError && <p role="alert" className="text-[13px] text-[#B45309] pb-2">{payError}</p>}
