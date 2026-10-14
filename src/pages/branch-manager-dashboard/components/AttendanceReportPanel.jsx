@@ -383,7 +383,6 @@ const AttendanceReportPanel = ({ branchId }) => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="font-heading font-heading-semibold text-xl text-text-primary">Attendance Report</h2>
           <p className="font-body text-sm text-text-secondary">
             Staff attendance over a period. Period: {formatDate(data?.startDate)} – {formatDate(data?.endDate)}
           </p>

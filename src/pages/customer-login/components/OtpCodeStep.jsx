@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { authInputClass, authButtonClass, AuthError } from 'components/ui/AuthCard';
 import { useCustomerAuth } from 'contexts/CustomerAuthContext';
 
 const RESEND_COOLDOWN_SECONDS = 30;
@@ -66,9 +67,9 @@ const OtpCodeStep = ({ email, orgId, resendPayload, onVerified, onBack }) => {
   return (
     <div className="w-full">
       {error && (
-        <div className="mb-4 p-3 bg-error/10 text-error rounded-[10px] text-sm font-medium">
+        <AuthError>
           {error}
-        </div>
+        </AuthError>
       )}
 
       <p className="mb-5 text-center text-sm text-text-secondary">
@@ -92,14 +93,14 @@ const OtpCodeStep = ({ email, orgId, resendPayload, onVerified, onBack }) => {
             }}
             placeholder="000000"
             disabled={isVerifying}
-            className="w-full px-3.5 py-3 text-center text-lg tracking-[0.5em] bg-surface border border-border rounded-[10px] text-text-primary placeholder:text-text-secondary placeholder:tracking-[0.5em] outline-none transition-all duration-150 focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-background disabled:cursor-not-allowed"
+            className={`${authInputClass(false)} text-center text-lg tracking-[0.5em] placeholder:tracking-[0.5em]`}
           />
         </div>
 
         <button
           type="submit"
           disabled={isVerifying || code.length !== 6}
-          className="w-full py-3 px-5 bg-primary text-primary-foreground rounded-[10px] text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+          className={authButtonClass}
         >
           {isVerifying ? 'Verifying...' : 'Verify'}
         </button>

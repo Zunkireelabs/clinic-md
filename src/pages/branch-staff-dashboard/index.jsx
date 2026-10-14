@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import StaffSidebar from '../../components/ui/StaffSidebar';
 import Icon from '../../components/AppIcon';
-import NotificationBell from '../../components/ui/NotificationBell';
+import AppShell from '../../components/ui/AppShell';
+import AreaTabs from '../branch-manager-dashboard/components/Area/AreaTabs';
+import { getAreaForView } from '../branch-manager-dashboard/components/Area/areaTabsRegistry';
 import QuickFilters from './components/QuickFilters';
 import BookingsList from './components/BookingsList';
 import BookingLookupPanel from './components/BookingLookupPanel';
@@ -22,7 +23,7 @@ import { usePersistentNotifications } from '../../hooks/usePersistentNotificatio
 import { MEMBERSHIP_ENABLED, VOUCHER_ENABLED } from '../../lib/featureFlags';
 
 const BranchStaffDashboard = () => {
-  const { profile, signOut, user } = useAuth();
+  const { profile, user } = useAuth();
   const { branchId, branchName } = useBranch();
   const [searchParams, setSearchParams] = useSearchParams();
   const { items: notifications, markRead: markNotifRead, markAllRead: markAllNotifsRead } = usePersistentNotifications(user?.id);
@@ -33,11 +34,7 @@ const BranchStaffDashboard = () => {
     setSearchParams({ view: 'bookings' });
   };
 
-  const viewMode = searchParams.get('view') || 'dashboard';
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [currentTime, setCurrentTime] = useState(new Date());
-  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
-  const profileDropdownRef = useRef(null);
+  const viewMode = searchParams.get('view') || 'calendar'; // staff land on the calendar; the sidebar's Dashboard link is ?view=dashboard
 
   const [filters, setFilters] = useState({
     dateRange: 'today',
@@ -402,129 +399,65 @@ const BranchStaffDashboard = () => {
     return { data: result.data };
   };
 
-  // Close profile dropdown on outside click
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (profileDropdownRef.current && !profileDropdownRef.current.contains(e.target)) {
-        setShowProfileDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const handleLogout = async () => {
-    setShowProfileDropdown(false);
-    await signOut();
-  };
-
-  // Clock update
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const userName = profile?.full_name || 'Staff Member';
   const userRole = profile?.role || 'staff';
 
+  // Staff get one tabbed area, Bookings (All bookings, New booking, Check booking, Collect payment, ...).
+  const bookingsArea = getAreaForView('bookings');
+  const areaForView = bookingsArea.tabs.some((t) => t.view === viewMode) ? bookingsArea : null;
+  const renderAreaView = (view) => {
+    switch (view) {
+      case 'bookings':
+        return (
+          <BookingLookupPanel
+            dentists={dentists}
+            onStatusUpdate={handleStatusUpdate}
+            onAssignDentist={handleAssignDentist}
+            onRecordPayment={handleRecordPayment}
+            onApplyDiscount={handleApplyDiscount}
+            userRole={profile?.role || 'staff'}
+            onRefresh={loadData}
+          />
+        );
+      case 'collect-payment': return <CollectPaymentPanel onSuccess={showSuccess} />;
+      case 'new-booking': return <StaffBookingForm onBookingCreated={loadData} />;
+      case 'check-booking': return <CheckBookingPanel branchId={branchId} />;
+      case 'new-membership':
+        return MEMBERSHIP_ENABLED ? (
+          <EnrollMemberModal
+            onClose={() => setSearchParams({ view: 'dashboard' })}
+            onEnrolled={() => {
+              setSearchParams({ view: 'dashboard' });
+              showSuccess('Membership created.');
+            }}
+          />
+        ) : null;
+      case 'new-voucher':
+        return VOUCHER_ENABLED ? (
+          <NewVoucherModal
+            userRole={userRole}
+            onClose={() => setSearchParams({ view: 'dashboard' })}
+            onIssued={() => {
+              setSearchParams({ view: 'dashboard' });
+              showSuccess('Voucher issued.');
+            }}
+          />
+        ) : null;
+      default: return null;
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-surface-sidebar">
-      <StaffSidebar
-        onCollapseChange={setSidebarCollapsed}
-      />
-
-      <div className={`${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-60'} lg:pb-0 pb-16 transition-all duration-200 ${viewMode === 'calendar' ? 'h-screen overflow-hidden flex flex-col' : ''}`}>
-        {/* Top Bar - Consistent with Admin */}
-        <header className="bg-surface-sidebar sticky top-0 z-header flex-shrink-0">
-          <div className="px-4 sm:px-6 lg:px-8 py-3">
-            <div className="flex items-center justify-between">
-              {/* Left: Branch + date/time */}
-              <div className="flex items-center space-x-3 min-w-0">
-                <div className="flex items-center space-x-2">
-                  <Icon name="MapPin" size={14} className="text-primary" />
-                  <span className="font-body font-body-medium text-sm text-text-primary">
-                    {branchName || 'Main Branch'}
-                  </span>
-                </div>
-                <div className="hidden sm:block h-5 w-px bg-border"></div>
-                <p className="hidden sm:block font-caption font-caption-normal text-xs text-text-secondary">
-                  {currentTime.toLocaleDateString('en-GB', {
-                    weekday: 'short',
-                    day: 'numeric',
-                    month: 'short'
-                  })} {'\u00B7'} {currentTime.toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  })}
-                </p>
-              </div>
-
-              {/* Right: Real-time status + Role badge + Profile */}
-              <div className="flex items-center space-x-3 flex-shrink-0">
-                {/* Real-time Status Indicator */}
-                <div
-                  className="hidden sm:flex items-center space-x-1.5 px-2 py-1 rounded-full bg-background border border-border"
-                  title={`Real-time: ${realtimeStatus === 'connected' ? 'Live' : realtimeStatus === 'connecting' ? 'Connecting' : 'Offline'}`}
-                >
-                  <span className="relative flex h-2 w-2">
-                    {realtimeStatus === 'connected' && (
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
-                    )}
-                    <span className={`relative inline-flex rounded-full h-2 w-2 ${
-                      realtimeStatus === 'connected' ? 'bg-success' :
-                      realtimeStatus === 'connecting' ? 'bg-warning' : 'bg-error'
-                    }`}></span>
-                  </span>
-                  <span className="text-xs font-caption font-caption-medium text-text-secondary">
-                    {realtimeStatus === 'connected' ? 'Live' : realtimeStatus === 'connecting' ? 'Connecting' : 'Offline'}
-                  </span>
-                </div>
-                <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded text-xs font-caption font-caption-normal capitalize bg-accent/10 text-accent">
-                  {userRole}
-                </span>
-                <NotificationBell
-                  notifications={notifications}
-                  unreadCount={unreadNotifCount}
-                  onMarkAllRead={markAllNotifsRead}
-                  onItemClick={handleNotificationClick}
-                />
-                <div className="relative" ref={profileDropdownRef}>
-                  <button
-                    onClick={() => setShowProfileDropdown(!showProfileDropdown)}
-                    className="flex items-center space-x-2 px-2 py-1 rounded-spa hover:bg-black/5 transition-colors"
-                  >
-                    <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center flex-shrink-0">
-                      <Icon name="User" size={16} className="text-primary" />
-                    </div>
-                    <div className="hidden md:flex flex-col text-left">
-                      <span className="font-body font-body-medium text-sm text-text-primary leading-tight">
-                        {userName}
-                      </span>
-                      <span className="font-caption font-caption-normal text-xs text-text-secondary capitalize leading-tight">
-                        {userRole}
-                      </span>
-                    </div>
-                    <Icon name="ChevronDown" size={14} className={`hidden md:block text-text-secondary transition-transform ${showProfileDropdown ? 'rotate-180' : ''}`} />
-                  </button>
-
-                  {showProfileDropdown && (
-                    <div className="absolute right-0 mt-2 w-56 bg-background rounded-spa spa-shadow-elevated z-dropdown border border-border overflow-hidden">
-                      <button
-                        onClick={handleLogout}
-                        className="w-full flex items-center space-x-2 px-4 py-2.5 text-sm text-error hover:bg-error/5 transition-colors"
-                      >
-                        <Icon name="LogOut" size={16} />
-                        <span className="font-body font-body-medium">Logout</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </header>
-
-        {/* Toast notifications - Responsive positioning */}
+    <AppShell
+      variant={viewMode === 'calendar' || areaForView ? 'fill' : 'page'}
+      header={{
+        realtimeStatus,
+        notifications,
+        unreadCount: unreadNotifCount,
+        onMarkAllRead: markAllNotifsRead,
+        onItemClick: handleNotificationClick,
+      }}
+      floating={
+        <>
         {actionError && (
           <div className="fixed top-16 sm:top-20 left-4 right-4 sm:left-1/2 sm:right-auto sm:transform sm:-translate-x-1/2 z-toast bg-error text-white px-4 sm:px-5 py-3 rounded-spa-lg spa-shadow-elevated animate-fade-in flex items-center space-x-2">
             <span className="font-body font-body-medium text-sm flex-1">{actionError}</span>
@@ -570,113 +503,80 @@ const BranchStaffDashboard = () => {
             </div>
           </div>
         )}
-
-        {/* Main Content Area - Consistent with Admin */}
-        <main className={`${viewMode === 'calendar' ? 'px-0 py-0 flex-1 min-h-0 overflow-hidden' : 'px-3 sm:px-4 md:px-6 lg:px-8 py-3 sm:py-4 min-h-[calc(100vh-52px)]'} bg-surface-dim`} style={{ borderRadius: '16px 0 0 0', borderLeft: '1px solid #e5e7eb', borderTop: '1px solid #e5e7eb' }}>
-          {viewMode === 'dashboard' ? (
-            <div className="flex flex-col gap-2 sm:gap-3 min-h-[calc(100vh-120px)]">
-              {/* Overview Stats */}
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900">{getOverviewTitle()}</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
-                <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4">
-                  <div className="text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">Confirmed</div>
-                  <div className="text-xl sm:text-2xl font-semibold text-emerald-600">{bookingCounts.confirmed}</div>
-                </div>
-                <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4">
-                  <div className="text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">Pending</div>
-                  <div className="text-xl sm:text-2xl font-semibold text-amber-500">{bookingCounts.pending}</div>
-                </div>
-                <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4">
-                  <div className="text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">In Progress</div>
-                  <div className="text-xl sm:text-2xl font-semibold text-blue-600">{bookingCounts.inProgress}</div>
-                </div>
-                <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4">
-                  <div className="text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">Completed</div>
-                  <div className="text-xl sm:text-2xl font-semibold text-gray-400">{bookingCounts.completed}</div>
-                </div>
-              </div>
-
-              {/* Inline Filters */}
-              <QuickFilters
-                onFiltersChange={handleFiltersChange}
-                bookingCounts={bookingCounts}
-              />
-
-              {/* Main Grid - Responsive: stack on mobile, side-by-side on lg */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 sm:gap-3 flex-1">
-                {/* Bookings List - Full width on mobile/tablet, 9 cols on desktop */}
-                <div className="lg:col-span-9 order-1">
-                  {loading ? (
-                    <div className="bg-white rounded-lg border border-gray-200 p-8 sm:p-12 text-center">
-                      <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
-                      <p className="text-sm text-gray-500">Loading bookings...</p>
-                    </div>
-                  ) : (
-                    <BookingsList
-                      bookings={filteredBookings}
-                      dentists={dentists}
-                      onStatusUpdate={handleStatusUpdate}
-                      onAssignDentist={handleAssignDentist}
-                      onRecordPayment={handleRecordPayment}
-                      onApplyDiscount={handleApplyDiscount}
-                      userRole={profile?.role || 'staff'}
-                      onRefresh={loadData}
-                      dateRange={filters.dateRange}
-                    />
-                  )}
-                </div>
-
-                {/* Dentist Panel - Below bookings on mobile, sidebar on desktop */}
-                <div className="lg:col-span-3 order-2">
-                  <DentistAvailability
-                    dentists={dentists}
-                    pendingBookings={bookings.filter(b => b.status === 'pending' && !b.dentist)}
-                    onAssignDentist={handleAssignDentist}
-                  />
-                </div>
-              </div>
+        </>
+      }
+    >
+      {viewMode === 'dashboard' ? (
+        <div className="flex flex-col gap-2 sm:gap-3 min-h-[calc(100vh-120px)]">
+          {/* Overview Stats */}
+          <h2 className="text-base sm:text-lg font-semibold text-gray-900">{getOverviewTitle()}</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+            <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4">
+              <div className="text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">Confirmed</div>
+              <div className="text-xl sm:text-2xl font-semibold text-emerald-600">{bookingCounts.confirmed}</div>
             </div>
-          ) : viewMode === 'bookings' ? (
-            <BookingLookupPanel
-              dentists={dentists}
-              onStatusUpdate={handleStatusUpdate}
-              onAssignDentist={handleAssignDentist}
-              onRecordPayment={handleRecordPayment}
-              onApplyDiscount={handleApplyDiscount}
-              userRole={profile?.role || 'staff'}
-              onRefresh={loadData}
-            />
-          ) : viewMode === 'calendar' ? (
-            <OperationalCalendar branchId={branchId} />
-          ) : viewMode === 'collect-payment' ? (
-            <CollectPaymentPanel onSuccess={showSuccess} />
-          ) : viewMode === 'new-booking' ? (
-            <StaffBookingForm onBookingCreated={loadData} />
-          ) : viewMode === 'check-booking' ? (
-            <CheckBookingPanel branchId={branchId} />
-          ) : viewMode === 'new-membership' && MEMBERSHIP_ENABLED ? (
-            <EnrollMemberModal
-              onClose={() => setSearchParams({ view: 'dashboard' })}
-              onEnrolled={() => {
-                setSearchParams({ view: 'dashboard' });
-                showSuccess('Membership created.');
-              }}
-            />
-          ) : viewMode === 'new-voucher' && VOUCHER_ENABLED ? (
-            <NewVoucherModal
-              userRole={userRole}
-              onClose={() => setSearchParams({ view: 'dashboard' })}
-              onIssued={() => {
-                setSearchParams({ view: 'dashboard' });
-                showSuccess('Voucher issued.');
-              }}
-            />
-          ) : (
-            <StaffBookingForm onBookingCreated={loadData} />
-          )}
-        </main>
-      </div>
-    </div>
+            <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4">
+              <div className="text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">Pending</div>
+              <div className="text-xl sm:text-2xl font-semibold text-amber-500">{bookingCounts.pending}</div>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4">
+              <div className="text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">In Progress</div>
+              <div className="text-xl sm:text-2xl font-semibold text-blue-600">{bookingCounts.inProgress}</div>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4">
+              <div className="text-[10px] sm:text-xs font-medium text-gray-500 mb-0.5 sm:mb-1">Completed</div>
+              <div className="text-xl sm:text-2xl font-semibold text-gray-400">{bookingCounts.completed}</div>
+            </div>
+          </div>
+
+          {/* Inline Filters */}
+          <QuickFilters
+            onFiltersChange={handleFiltersChange}
+            bookingCounts={bookingCounts}
+          />
+
+          {/* Main Grid - Responsive: stack on mobile, side-by-side on lg */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 sm:gap-3 flex-1">
+            {/* Bookings List - Full width on mobile/tablet, 9 cols on desktop */}
+            <div className="lg:col-span-9 order-1">
+              {loading ? (
+                <div className="bg-white rounded-lg border border-gray-200 p-8 sm:p-12 text-center">
+                  <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
+                  <p className="text-sm text-gray-500">Loading bookings...</p>
+                </div>
+              ) : (
+                <BookingsList
+                  bookings={filteredBookings}
+                  dentists={dentists}
+                  onStatusUpdate={handleStatusUpdate}
+                  onAssignDentist={handleAssignDentist}
+                  onRecordPayment={handleRecordPayment}
+                  onApplyDiscount={handleApplyDiscount}
+                  userRole={profile?.role || 'staff'}
+                  onRefresh={loadData}
+                  dateRange={filters.dateRange}
+                />
+              )}
+            </div>
+
+            {/* Dentist Panel - Below bookings on mobile, sidebar on desktop */}
+            <div className="lg:col-span-3 order-2">
+              <DentistAvailability
+                dentists={dentists}
+                pendingBookings={bookings.filter(b => b.status === 'pending' && !b.dentist)}
+                onAssignDentist={handleAssignDentist}
+              />
+            </div>
+          </div>
+        </div>
+      ) : viewMode === 'calendar' ? (
+        <OperationalCalendar branchId={branchId} />
+      ) : areaForView ? (
+        <AreaTabs area={areaForView} view={viewMode}>{renderAreaView(viewMode)}</AreaTabs>
+      ) : (
+        <StaffBookingForm onBookingCreated={loadData} />
+      )}
+    </AppShell>
   );
 };
 

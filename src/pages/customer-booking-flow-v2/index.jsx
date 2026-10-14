@@ -13,7 +13,7 @@ import BookingSuccess from '../customer-booking-flow/components/BookingSuccess';
 import { useTenant } from '../../contexts/TenantContext';
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext';
 import { splitE164 } from '../../utils/phone';
-import logo from 'assets/logo.png';
+import BrandWordmark from 'components/ui/BrandWordmark';
 
 // v2 of the customer booking flow: identical business logic and steps to
 // pages/customer-booking-flow, except Treatment Selection + Date & Time are collapsed into a
@@ -576,7 +576,7 @@ const CustomerBookingFlowV2 = () => {
         <div className="max-w-4xl mx-auto px-4 py-8">
           <div className="text-center">
             <div className="flex items-center justify-center mb-4">
-              <img src={logo} alt="ClinicMD" className="h-8 w-auto" />
+              <BrandWordmark size="sm" />
             </div>
             <p className="font-body font-body-normal text-sm text-text-secondary mb-4">
               Nepal's premier spa booking platform

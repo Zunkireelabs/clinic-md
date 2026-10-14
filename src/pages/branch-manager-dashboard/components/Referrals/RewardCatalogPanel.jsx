@@ -108,7 +108,6 @@ const RewardCatalogPanel = () => {
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h3 className="font-heading font-heading-semibold text-lg text-text-primary">Gift Voucher Catalog</h3>
           <p className="font-body text-sm text-text-secondary">
             Options staff can pick from when logging a customer referral as a Gift Voucher. Wallet rewards
             don't need a catalog entry — staff enter that amount directly.

@@ -150,7 +150,6 @@ const WalletUsagePanel = () => {
     <div className="space-y-4">
       {/* Header */}
       <div>
-        <h3 className="font-heading font-heading-semibold text-lg text-text-primary">Wallet Usage</h3>
         <p className="font-body text-sm text-text-secondary">
           {memberRows.length} member{memberRows.length !== 1 ? 's' : ''} · {transactions.length} treatment-usage transaction{transactions.length !== 1 ? 's' : ''}
         </p>

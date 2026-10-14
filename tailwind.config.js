@@ -8,27 +8,28 @@ module.exports = {
       extend: {
         colors: {
           // Primary Colors
-          'primary': '#0F6E8C', // clinical teal-blue
+          'primary': '#7B2FF7', // brand purple (landing CTA)
           'primary-foreground': '#FFFFFF', // white
 
           // Secondary Colors
-          'secondary': '#2B4C6F', // deep clinical navy
+          'secondary': '#0E0D0C', // brand ink
           'secondary-foreground': '#FFFFFF', // white
 
           // Accent Colors
-          'accent': '#3FB8AF', // fresh mint teal
-          'accent-foreground': '#1A1A1A', // near-black
-          
+          'accent': '#146EF4', // brand blue (links)
+          'accent-foreground': '#FFFFFF', // white
+
           // Background Colors
-          'background': '#FAFAF9', // soft off-white
+          'background': '#FAFAFB', // brand grey
           'surface': '#FFFFFF', // pure white
-          
+
           // Text Colors
-          'text-primary': '#1A1A1A', // near-black
-          'text-secondary': '#6B7280', // medium gray
-          
+          'text-primary': '#0E0D0C', // brand ink
+          'text-secondary': '#515152', // brand muted
+          'text-tertiary': '#8A8A90', // brand soft
+
           // Status Colors
-          'success': '#10B981', // emerald green (distinct from primary)
+          'success': '#1F9D6C', // brand green
           'success-foreground': '#FFFFFF', // white
           
           'warning': '#D97706', // warm amber
@@ -38,17 +39,36 @@ module.exports = {
           'error-foreground': '#FFFFFF', // white
           
           // Border Colors
-          'border': '#E1E3E5', // soft gray (Shopify-style)
-          'border-muted': 'rgba(225, 227, 229, 0.5)', // soft gray with opacity
-          'surface-sidebar': '#EBEBEB',   // sidebar shell background
-          'surface-dim': '#F1F1F1',       // main content area background
+          'border': '#E9E9EC', // brand hairline
+          'border-muted': 'rgba(233, 233, 236, 0.5)', // soft gray with opacity
+          'surface-sidebar': '#F9F9F9',   // sidebar shell background
+          'surface-dim': '#FFFFFF',       // main content area background
+
+          // Neutral scale remapped to the landing page's cool greys so the
+          // hundreds of gray-* utilities follow the brand without edits.
+          'gray': {
+            50: '#FAFAFB',
+            100: '#F4F4F6',
+            200: '#E9E9EC',
+            300: '#DCDCE0',
+            400: '#9A9AA0',
+            500: '#6B6B6E',
+            600: '#515152',
+            700: '#3A3A40',
+            800: '#2A2A30',
+            900: '#0E0D0C',
+            950: '#080914',
+          },
         },
         fontFamily: {
           'heading': ['Inter', 'sans-serif'],
           'body': ['Inter', 'sans-serif'],
           'caption': ['Inter', 'sans-serif'],
           'accent': ['Inter', 'sans-serif'],
-          'data': ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+          'data': ['Inter', 'sans-serif'],
+          'mono': ['Inter', 'sans-serif'],
+          'sans': ['Inter', 'sans-serif'],
+          'serif': ['Inter', 'sans-serif'],
         },
         fontWeight: {
           'heading-normal': '400',
@@ -60,13 +80,14 @@ module.exports = {
           'data-normal': '400',
         },
         boxShadow: {
-          'spa-resting': '0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06)',
-          'spa-elevated': '0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06)',
-          'spa-modal': '0 10px 15px rgba(0,0,0,0.1), 0 4px 6px rgba(0,0,0,0.05)',
+          // Brand is flat: hairline borders do the work, shadows only lift overlays.
+          'spa-resting': '0 1px 2px rgba(14,13,12,0.04)',
+          'spa-elevated': '0 12px 32px rgba(14,13,12,0.08), 0 0 0 1px #E9E9EC',
+          'spa-modal': '0 20px 40px rgba(14,13,12,0.12), 0 0 0 1px #E9E9EC',
         },
         borderRadius: {
-          'spa': '8px',
-          'spa-lg': '12px',
+          'spa': '6px',
+          'spa-lg': '8px',
         },
         transitionDuration: {
           'fast': '150ms',

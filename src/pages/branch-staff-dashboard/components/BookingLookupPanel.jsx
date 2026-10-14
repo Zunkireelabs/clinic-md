@@ -93,9 +93,6 @@ const BookingLookupPanel = ({
               <Icon name="Search" size={20} className="text-primary" />
             </div>
             <div>
-              <h2 className="font-heading font-heading-semibold text-lg text-text-primary">
-                Booking Lookup
-              </h2>
               <p className="font-caption text-xs text-text-secondary">
                 Search by booking ID, customer name, phone, or email
               </p>

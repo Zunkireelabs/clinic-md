@@ -2,10 +2,18 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Icon from '../../../../components/AppIcon';
 import CustomSelect from '../../../../components/ui/CustomSelect';
 import FilterBar from '../../../../components/ui/FilterBar';
+import TransferManagementModal from '../../../../components/ui/TransferManagementModal';
+import BlockScopeDialog from '../calendar/BlockScopeDialog';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { useTransferFeature } from '../../../../hooks/useTransferFeature';
 import {
   fetchAttendance,
   fetchAttendanceSummary,
   markAttendance,
+  fetchPendingTransfers,
+  fetchDentistTransferStatus,
+  cancelScheduledTransfer,
+  revertStaffTransferNow,
 } from '../../../../services/api';
 
 const ATTENDANCE_OPTIONS = [
@@ -50,6 +58,9 @@ function SummaryCard({ icon, iconBg, iconColor, label, value, highlight }) {
 }
 
 const AttendancePanel = ({ branchId }) => {
+  const { profile } = useAuth();
+  const transfersAvailable = useTransferFeature() === true; // fail open: hide all transfer UI if the DB lacks the tables
+  const canTransfer = transfersAvailable && ['manager', 'admin'].includes(profile?.role);
   const today = new Date().toISOString().split('T')[0];
 
   const [selectedDate, setSelectedDate] = useState(today);
@@ -58,6 +69,12 @@ const AttendancePanel = ({ branchId }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dayLocked, setDayLocked] = useState(false);
+
+  // Transfers (fail open: if the transfer tables/RPCs don't exist, these stay empty and nothing renders)
+  const [pendingByDentist, setPendingByDentist] = useState({});
+  const [transferStatusByDentist, setTransferStatusByDentist] = useState({});
+  const [transferTarget, setTransferTarget] = useState(null);   // { dentistId, dentistName }
+  const [transferCancel, setTransferCancel] = useState(null);   // { kind: 'scheduled'|'active', item }
   const [toast, setToast] = useState(null);
 
   // Track local edits per dentist: { [dentistId]: { status, checkInTime, checkOutTime, notes, dirty } }
@@ -101,10 +118,54 @@ const AttendancePanel = ({ branchId }) => {
     }
   };
 
+  // Away (transferred out, or scheduled to go) and visiting dentists for this branch.
+  const fmtWhen = (iso) => (iso ? new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).replace(' am', 'am').replace(' pm', 'pm') : null);
+  const transferredOut = useMemo(() => {
+    const active = Object.values(transferStatusByDentist)
+      .filter((s) => s.applied && !s.reverted && s.revertAt && s.fromBranchId === branchId && s.toBranchId !== branchId)
+      .map((s) => ({ ...s, isPending: false }));
+    const pending = Object.values(pendingByDentist).map((p) => ({
+      id: p.id, dentistId: p.dentistId, dentistName: p.dentistName, toBranch: p.toBranch,
+      effectiveDate: p.effectiveDate, startTime: p.startTime, revertAt: p.revertAt, isPending: true,
+    }));
+    return [...active, ...pending];
+  }, [transferStatusByDentist, pendingByDentist, branchId]);
+  const visitorStatus = (dentistId) => {
+    const st = transferStatusByDentist[dentistId];
+    return st?.applied && !st?.reverted && st?.revertAt && st?.toBranchId === branchId ? st : null;
+  };
+
+  const handleConfirmTransferCancel = async () => {
+    const req = transferCancel;
+    setTransferCancel(null);
+    if (!req) return;
+    const { error: cancelError } = req.kind === 'scheduled'
+      ? await cancelScheduledTransfer(req.item.id)
+      : await revertStaffTransferNow({ transferId: req.item.id, revertedAt: null });
+    if (cancelError) {
+      showToast(cancelError.message?.replace(/^revert_staff_transfer_now:\s*/, '') || 'Failed to cancel transfer.', 'error');
+      return;
+    }
+    showToast(req.kind === 'scheduled' ? 'Scheduled transfer cancelled.' : `${req.item.dentistName} is back at this branch.`);
+    await loadData();
+  };
+
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   };
+
+  const loadPendingTransfers = useCallback(async () => {
+    if (!branchId) return;
+    const [{ data }, { data: statusMap }] = await Promise.all([
+      fetchPendingTransfers(branchId),
+      fetchDentistTransferStatus(branchId),
+    ]);
+    const map = {};
+    (data || []).forEach((t) => { map[t.dentistId] = t; });
+    setPendingByDentist(map);
+    setTransferStatusByDentist(statusMap || {});
+  }, [branchId]);
 
   const loadData = useCallback(async () => {
     if (!branchId) return;
@@ -115,6 +176,7 @@ const AttendancePanel = ({ branchId }) => {
     const [attendanceResult, summaryResult] = await Promise.all([
       fetchAttendance({ branchId, date: selectedDate }),
       fetchAttendanceSummary({ branchId, date: selectedDate }),
+      loadPendingTransfers(),
     ]);
 
     if (attendanceResult.error) {
@@ -145,7 +207,7 @@ const AttendancePanel = ({ branchId }) => {
     }
 
     setLoading(false);
-  }, [branchId, selectedDate]);
+  }, [branchId, selectedDate, loadPendingTransfers]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -361,7 +423,6 @@ const AttendancePanel = ({ branchId }) => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="font-heading font-heading-semibold text-xl text-text-primary">Staff Attendance</h2>
           <p className="font-body text-sm text-text-secondary">Mark daily attendance for active staff.</p>
         </div>
         <div className="flex items-center space-x-3">
@@ -548,6 +609,16 @@ const AttendancePanel = ({ branchId }) => {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-body font-body-medium text-sm text-text-primary truncate">{t.dentistName}</span>
+                        {transfersAvailable && visitorStatus(t.dentistId) && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-caption bg-primary/10 text-primary">
+                            Visiting from {visitorStatus(t.dentistId).fromBranch} · until {fmtWhen(visitorStatus(t.dentistId).revertAt)}
+                          </span>
+                        )}
+                        {transfersAvailable && pendingByDentist[t.dentistId] && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-caption bg-background text-text-secondary border border-border">
+                            Transfer scheduled → {pendingByDentist[t.dentistId].toBranch}
+                          </span>
+                        )}
                         {edit.status && (
                           <span className={`md:hidden inline-flex items-center px-2 py-0.5 rounded text-[10px] font-caption font-caption-medium ${
                             edit.status === 'Present' ? 'bg-success/10 text-success' :
@@ -608,6 +679,16 @@ const AttendancePanel = ({ branchId }) => {
 
                   {/* Actions */}
                   <div className="flex justify-center items-center gap-1.5">
+                    {canTransfer && (
+                      <button
+                        onClick={() => setTransferTarget({ dentistId: t.dentistId, dentistName: t.dentistName })}
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-spa border border-border text-text-secondary hover:bg-background spa-transition-fast"
+                        title="Transfer to another branch"
+                        aria-label={`Transfer ${t.dentistName}`}
+                      >
+                        <Icon name="ArrowRightLeft" size={15} />
+                      </button>
+                    )}
                     <button
                       onClick={() => handleSave(t.dentistId)}
                       disabled={isDisabled || !isDirty}
@@ -631,6 +712,72 @@ const AttendancePanel = ({ branchId }) => {
           </div>
         )}
       </div>
+
+      {/* Transferred-out dentists (away or scheduled to go) */}
+      {transfersAvailable && transferredOut.length > 0 && (
+        <div className="bg-surface rounded-spa-lg border border-border">
+          <div className="px-5 py-3 border-b border-border flex items-center gap-2">
+            <Icon name="ArrowRightLeft" size={15} className="text-text-secondary" />
+            <h3 className="font-heading font-heading-semibold text-sm text-text-primary">Transferred out ({transferredOut.length})</h3>
+          </div>
+          <div className="divide-y divide-border">
+            {transferredOut.map((s) => (
+              <div key={`${s.isPending ? 'p' : 'a'}-${s.id}`} className="px-5 py-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => canTransfer && setTransferTarget({ dentistId: s.dentistId, dentistName: s.dentistName })}
+                    className="font-body font-body-medium text-sm text-text-primary hover:underline truncate text-left"
+                  >
+                    {s.dentistName}
+                  </button>
+                  <p className="font-body text-xs text-text-secondary">
+                    {s.isPending
+                      ? `Scheduled → ${s.toBranch} on ${s.effectiveDate}${s.startTime ? ` at ${s.startTime.slice(0, 5)}` : ''}`
+                      : `At ${s.toBranch} · back ${fmtWhen(s.revertAt)}`}
+                  </p>
+                </div>
+                {canTransfer && (
+                  <button
+                    type="button"
+                    onClick={() => setTransferCancel({ kind: s.isPending ? 'scheduled' : 'active', item: s })}
+                    className="px-3 py-1.5 text-[13px] font-body font-body-medium border border-border rounded-spa hover:bg-background spa-transition-fast flex-shrink-0"
+                  >
+                    {s.isPending ? 'Cancel transfer' : 'Bring back now'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {transferTarget && (
+        <TransferManagementModal
+          dentistId={transferTarget.dentistId}
+          dentistName={transferTarget.dentistName}
+          currentBranchId={branchId}
+          defaultStartDate={selectedDate}
+          onClose={() => setTransferTarget(null)}
+          onSuccess={(message) => {
+            setTransferTarget(null);
+            if (message) showToast(message);
+            loadData();
+          }}
+        />
+      )}
+
+      {transferCancel && (
+        <BlockScopeDialog
+          title={transferCancel.kind === 'scheduled'
+            ? `Cancel ${transferCancel.item.dentistName}'s scheduled transfer?`
+            : `Bring ${transferCancel.item.dentistName} back to this branch now?`}
+          recurring={false}
+          confirmLabel={transferCancel.kind === 'scheduled' ? 'Cancel transfer' : 'Bring back now'}
+          onCancel={() => setTransferCancel(null)}
+          onChoose={handleConfirmTransferCancel}
+        />
+      )}
 
       {/* Toast */}
       {toast && (

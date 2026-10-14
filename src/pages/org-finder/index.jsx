@@ -4,7 +4,7 @@ import Icon from '../../components/AppIcon';
 import { useAuth } from '../../contexts/AuthContext';
 import { fetchOrganizationBySlug } from '../../services/api';
 import { supabase } from '../../lib/supabase';
-import logo from 'assets/logo.png';
+import BrandWordmark from 'components/ui/BrandWordmark';
 
 const OrgFinder = () => {
   const navigate = useNavigate();
@@ -71,7 +71,7 @@ const OrgFinder = () => {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex flex-col items-center space-y-4">
-          <img src={logo} alt="ClinicMD" className="h-10 w-auto animate-pulse" />
+          <BrandWordmark size="md" className="animate-pulse" />
           <p className="text-sm text-text-secondary">Loading...</p>
         </div>
       </div>
@@ -83,7 +83,7 @@ const OrgFinder = () => {
       {/* Minimal Header */}
       <header className="flex-shrink-0 px-6 md:px-8 py-5 flex justify-between items-center">
         <div className="flex items-center gap-2.5">
-          <img src={logo} alt="ClinicMD" className="h-7 w-auto" />
+          <BrandWordmark size="sm" />
         </div>
 
         <div className="flex items-center gap-2 text-sm text-text-secondary">
@@ -108,7 +108,7 @@ const OrgFinder = () => {
       <main className="flex-1 flex flex-col items-center px-5 py-10 overflow-y-auto">
         <div className="w-full max-w-[380px] mx-auto flex flex-col items-center">
           {/* Logo */}
-          <img src={logo} alt="ClinicMD" className="h-14 w-auto mb-6" />
+          <BrandWordmark size="lg" className="mb-6" />
 
           {/* Title & Subtitle */}
           <h1 className="text-[28px] font-semibold text-text-primary mb-2 text-center tracking-tight">

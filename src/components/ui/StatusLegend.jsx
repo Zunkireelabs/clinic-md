@@ -1,16 +1,17 @@
 import React from 'react';
+import { BOOKING_STATUS_COLORS, UNPAID_DOT_COLOR } from '../../utils/bookingStatusColors';
 
 const STATUS_ITEMS = [
-  { key: 'pending', label: 'Pending', color: '#f59e0b' },
-  { key: 'confirmed', label: 'Confirmed', color: '#3b82f6' },
-  { key: 'in-progress', label: 'In Progress', color: '#6366f1' },
-  { key: 'completed', label: 'Completed', color: '#22c55e' },
-  { key: 'cancelled', label: 'Cancelled', color: '#991b1b' },
-  { key: 'no show', label: 'No Show', color: '#6b7280' },
+  { key: 'pending', label: 'Pending', color: BOOKING_STATUS_COLORS['Pending'].bar },
+  { key: 'confirmed', label: 'Confirmed', color: BOOKING_STATUS_COLORS['Confirmed'].bar },
+  { key: 'in-progress', label: 'In Progress', color: BOOKING_STATUS_COLORS['In-Progress'].bar },
+  { key: 'completed', label: 'Completed', color: BOOKING_STATUS_COLORS['Completed'].bar },
+  { key: 'cancelled', label: 'Cancelled', color: BOOKING_STATUS_COLORS['Cancelled'].bar },
+  { key: 'no show', label: 'No Show', color: BOOKING_STATUS_COLORS['No Show'].bar },
 ];
 
 const PAYMENT_ITEMS = [
-  { key: 'unpaid', label: 'Unpaid', borderColor: '#facc15' },
+  { key: 'unpaid', label: 'Unpaid', borderColor: UNPAID_DOT_COLOR },
 ];
 
 const StatusLegend = ({ showPayment = false, compact = false }) => {

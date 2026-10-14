@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Icon from '../AppIcon';
-import { fetchCustomersLightweight } from 'services/api';
+import { searchCustomers } from 'services/api';
 
 // Color tokens for the inline membership pill (mirrors MembershipsPanel).
 const MEMBERSHIP_PILL_STYLES = {
@@ -22,7 +22,7 @@ const CustomerAutocomplete = ({
   onBlur,
   required = false,
 }) => {
-  const [customers, setCustomers] = useState([]);
+  const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const containerRef = useRef(null);
@@ -30,33 +30,21 @@ const CustomerAutocomplete = ({
   const internalRef = useRef(null);
   const ref = externalRef || internalRef;
 
-  // Fetch customers once on mount / when branchId changes
+  // Bounded server-side search as the user types (>= 2 chars, ~200ms debounce, 8 results). A request id drops responses that are
+  // older than the latest query; there is no whole-list fetch on mount. Matches the field's `searchBy` (name / phone / email).
+  const reqIdRef = useRef(0);
   useEffect(() => {
-    if (!branchId) return;
-    let cancelled = false;
-    (async () => {
-      const { data, error } = await fetchCustomersLightweight(branchId);
-      if (error) {
-        console.error('[CustomerAutocomplete] Failed to load customers:', error.message || error);
-        return;
-      }
-      if (!cancelled && data) setCustomers(data);
-    })();
-    return () => { cancelled = true; };
-  }, [branchId]);
-
-  // Filter suggestions client-side
-  const suggestions = useMemo(() => {
-    if (!value || value.trim().length < 2) return [];
-    const term = value.toLowerCase();
-    return customers
-      .filter((c) => {
-        if (searchBy === 'phone') return c.phone && c.phone.includes(term);
-        if (searchBy === 'email') return c.email && c.email.toLowerCase().includes(term);
-        return c.full_name.toLowerCase().includes(term);
-      })
-      .slice(0, 8);
-  }, [value, customers]);
+    const term = (value || '').trim();
+    const id = ++reqIdRef.current;
+    if (!branchId || term.length < 2) { setSuggestions([]); return undefined; }
+    const timer = setTimeout(async () => {
+      const { data, error } = await searchCustomers(branchId, term, 8, { searchBy, withMembership: true });
+      if (id !== reqIdRef.current) return; // stale
+      if (error) { console.error('[CustomerAutocomplete] Search failed:', error.message || error); return; }
+      setSuggestions(data || []);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [value, branchId, searchBy]);
 
   // Show/hide suggestions based on matches
   useEffect(() => {

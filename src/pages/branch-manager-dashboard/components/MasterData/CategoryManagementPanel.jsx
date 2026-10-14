@@ -159,7 +159,6 @@ const CategoryManagementPanel = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-heading font-heading-semibold text-lg text-text-primary">Category Management</h3>
           <p className="font-body text-sm text-text-secondary">
             {categories.length} categor{categories.length !== 1 ? 'ies' : 'y'} configured — used to organize treatments
           </p>

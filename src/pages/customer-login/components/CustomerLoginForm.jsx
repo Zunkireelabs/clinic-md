@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { authInputClass, authButtonClass, AuthError } from 'components/ui/AuthCard';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useCustomerAuth } from 'contexts/CustomerAuthContext';
 import { useTenant } from 'contexts/TenantContext';
@@ -67,7 +68,7 @@ const CustomerLoginForm = () => {
   return (
     <div className="w-full">
       {error && (
-        <div className="mb-4 p-3 bg-error/10 text-error rounded-[10px] text-sm font-medium">
+        <AuthError>
           {error}
           {error.includes('sign up') && (
             <>
@@ -77,7 +78,7 @@ const CustomerLoginForm = () => {
               </Link>
             </>
           )}
-        </div>
+        </AuthError>
       )}
 
       <form onSubmit={handleSubmit} autoComplete="off">
@@ -93,16 +94,14 @@ const CustomerLoginForm = () => {
             }}
             placeholder="Enter your email address"
             disabled={isLoading}
-            className={`w-full px-3.5 py-3 text-sm bg-surface border rounded-[10px] text-text-primary placeholder:text-text-secondary outline-none transition-all duration-150 focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-background disabled:cursor-not-allowed ${
-              error ? 'border-error' : 'border-border'
-            }`}
+            className={authInputClass(!!error)}
           />
         </div>
 
         <button
           type="submit"
           disabled={isLoading}
-          className="w-full py-3 px-5 bg-primary text-primary-foreground rounded-[10px] text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+          className={authButtonClass}
         >
           {isLoading ? 'Sending code...' : 'Send code'}
         </button>

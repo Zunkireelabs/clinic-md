@@ -100,7 +100,6 @@ const ReferralWalletPanel = ({ branchId }) => {
     <div className="space-y-4">
       {/* Header */}
       <div>
-        <h3 className="font-heading font-heading-semibold text-lg text-text-primary">Referral Wallet</h3>
         <p className="font-body text-sm text-text-secondary">
           {loading ? 'Loading…' : `${filtered.length} referral${filtered.length !== 1 ? 's' : ''} · who referred whom, how much they got, and what's left`}
         </p>
