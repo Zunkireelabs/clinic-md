@@ -3,7 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import { createPhonePairing } from '../../../services/api';
-import { buildPairingUrl, secondsLeft, formatShortCode } from '../../../utils/phonePairing';
+import { buildPairingUrl, secondsLeft } from '../../../utils/phonePairing';
 
 // Shows a QR code that signs a phone in as this user and opens the Doctor phone
 // page. Scanning needs no typing: the code is single-use and valid for 3 minutes.
@@ -27,12 +27,12 @@ const PhoneHandoff = ({ orgSlug, bookingId, onClose, phoneCount = 0, phoneLabel 
   const newCode = useCallback(async () => {
     setLoading(true);
     setFailed(false);
-    const { code, shortCode, expiresAt, error } = await createPhonePairing();
+    const { code, expiresAt, error } = await createPhonePairing();
     if (error) {
       setPairing(null);
       setFailed(true);
     } else {
-      setPairing({ code, shortCode, expiresAt });
+      setPairing({ code, expiresAt });
       setLeft(secondsLeft(expiresAt));
     }
     setLoading(false);
@@ -107,13 +107,6 @@ const PhoneHandoff = ({ orgSlug, bookingId, onClose, phoneCount = 0, phoneLabel 
 
           {!loading && pairing && !expired && (
             <p className="text-xs text-text-tertiary">Valid for {formatLeft(left)} · works once</p>
-          )}
-
-          {!loading && pairing && !expired && pairing.shortCode && (
-            <div className="bg-background rounded-lg border border-border p-3">
-              <p className="text-xs text-text-tertiary mb-1">Using the Doctor app on the Home Screen? Type this code there:</p>
-              <p className="font-mono text-3xl tracking-widest text-text-primary">{formatShortCode(pairing.shortCode)}</p>
-            </div>
           )}
 
           <p className="text-sm text-text-secondary">

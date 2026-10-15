@@ -1,5 +1,5 @@
 import { encodeBase64 } from 'https://deno.land/std@0.224.0/encoding/base64.ts';
-import { authenticate, corsHeaders, json, keyMissing } from '../_shared/consultation.ts';
+import { authenticate, corsHeaders, json, keyMissing, providerFailed } from '../_shared/consultation.ts';
 
 const PROMPTS: Record<string, string> = {
   xray: `You are assisting a dentist reviewing dental radiographs (X-rays). Describe visible findings: bone levels, caries, periapical areas, restorations, impacted or missing teeth, and anything abnormal. Be factual, note image-quality limits, and do not state a definitive diagnosis; the dentist makes the final assessment.`,
@@ -11,7 +11,7 @@ const PROMPTS: Record<string, string> = {
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
-  const auth = await authenticate(req);
+  const auth = await authenticate(req, { requireStaff: true, quota: true });
   if (auth instanceof Response) return auth;
 
   const apiKey = Deno.env.get('OPENAI_API_KEY');
@@ -41,7 +41,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       messages: [{ role: 'user', content }],
     }),
   });
-  if (!res.ok) return json({ error: 'Image analysis failed', detail: (await res.text()).slice(0, 500) }, 502);
+  if (!res.ok) return providerFailed('AI_FAILED', "Couldn't process this. Try again.", await res.text());
 
   const result = await res.json();
   return json({ analysis: result.choices?.[0]?.message?.content ?? '' });

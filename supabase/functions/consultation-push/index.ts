@@ -12,7 +12,7 @@ import { createPairingCode } from '../_shared/pairing.ts';
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
-  const auth = await authenticate(req);
+  const auth = await authenticate(req, { requireStaff: true });
   if (auth instanceof Response) return auth;
 
   const publicKey = Deno.env.get('VAPID_PUBLIC_KEY');
@@ -74,9 +74,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   let expiresAt: string | null = null;
   if (sent > 0) {
     const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-    const created = await createPairingCode(admin, auth.user.id, 5 * 60 * 1000);
-    shortCode = created?.shortCode ?? null;
-    expiresAt = created?.expiresAt ?? null;
+    const created = await createPairingCode(admin, auth.user.id, 5 * 60 * 1000, 'verify');
+    if (created && created !== 'rate_limited') { shortCode = created.shortCode; expiresAt = created.expiresAt; }
   }
   return json({ sent, removed: expired.length, shortCode, expiresAt });
 });

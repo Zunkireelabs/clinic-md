@@ -17,9 +17,9 @@ const PhoneUnlockPrompt = () => {
   useEffect(() => {
     if (!profile?.id || isMobileDevice()) return undefined;
     const channel = supabase
-      .channel(`phone-unlock-${profile.id}`, { config: { broadcast: { self: false } } })
+      .channel(`phone-unlock-${profile.id}`, { config: { private: true, broadcast: { self: false } } })
       .on('broadcast', { event: 'request' }, async ({ payload }) => {
-        const { shortCode, expiresAt, error } = await createPhonePairing();
+        const { shortCode, expiresAt, error } = await createPhonePairing({ purpose: 'verify' });
         if (!error) setRequest({ label: payload?.label || 'phone', shortCode, expiresAt });
       })
       .subscribe();

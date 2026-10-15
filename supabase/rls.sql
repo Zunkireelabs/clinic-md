@@ -542,49 +542,10 @@ CREATE POLICY "Authenticated update treatment images" ON storage.objects FOR UPD
 CREATE POLICY "Authenticated delete treatment images" ON storage.objects FOR DELETE TO authenticated
   USING (bucket_id = 'treatment-images');
 
--- Consultations: org-scoped. Read-only admins can read but not write.
+-- Consultations and their storage buckets: RLS is enabled here, but the POLICIES live in migration-006-consultations.sql
+-- (branch-scoped like bookings, with created_by / reference integrity checks). They are deliberately not repeated here: an older
+-- org-wide policy kept in this file would be OR-ed with the branch rule and silently defeat it.
 ALTER TABLE public.consultations ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Staff can read own org consultations" ON public.consultations FOR SELECT TO authenticated
-  USING (org_id = public.get_user_org_id());
-
-CREATE POLICY "Staff can create own org consultations" ON public.consultations FOR INSERT TO authenticated
-  WITH CHECK (
-    org_id = public.get_user_org_id()
-    AND public.get_user_role() IN ('staff', 'manager', 'admin')
-    AND EXISTS (
-      SELECT 1 FROM public.bookings bk
-      JOIN public.branches b ON b.id = bk.branch_id
-      WHERE bk.id = consultations.booking_id AND b.org_id = public.get_user_org_id()
-    )
-  );
-
-CREATE POLICY "Staff can update own org consultations" ON public.consultations FOR UPDATE TO authenticated
-  USING (org_id = public.get_user_org_id() AND public.get_user_role() IN ('staff', 'manager', 'admin'))
-  WITH CHECK (org_id = public.get_user_org_id() AND public.get_user_role() IN ('staff', 'manager', 'admin'));
-
--- Storage: private consultation-audio / consultation-images buckets. Objects
--- live under "<org_id>/<booking_id>/<file>" so policies can match the first
--- path segment against the caller's org.
-INSERT INTO storage.buckets (id, name, public, file_size_limit)
-VALUES
-  ('consultation-audio', 'consultation-audio', false, 52428800),
-  ('consultation-images', 'consultation-images', false, 10485760)
-ON CONFLICT (id) DO NOTHING;
-
-CREATE POLICY "Org staff read consultation files" ON storage.objects FOR SELECT TO authenticated
-  USING (bucket_id IN ('consultation-audio', 'consultation-images')
-         AND (storage.foldername(name))[1] = public.get_user_org_id()::text);
-
-CREATE POLICY "Org staff upload consultation files" ON storage.objects FOR INSERT TO authenticated
-  WITH CHECK (bucket_id IN ('consultation-audio', 'consultation-images')
-              AND (storage.foldername(name))[1] = public.get_user_org_id()::text
-              AND public.get_user_role() IN ('staff', 'manager', 'admin'));
-
-CREATE POLICY "Org staff delete consultation files" ON storage.objects FOR DELETE TO authenticated
-  USING (bucket_id IN ('consultation-audio', 'consultation-images')
-         AND (storage.foldername(name))[1] = public.get_user_org_id()::text
-         AND public.get_user_role() IN ('staff', 'manager', 'admin'));
 
 -- Push subscriptions: each user manages only their own.
 ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;

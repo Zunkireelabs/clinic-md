@@ -1,9 +1,11 @@
 import { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-// One-time codes that tie a phone to a logged-in user. Used to sign a phone in
-// (phone-pair) and to confirm the person holding the phone is at the computer
-// when they tap a notification (consultation-push + phone-pair 'verify').
-// Only hashes are stored; codes are random, expire, and work once.
+// One-time codes that tie a phone to a logged-in user. Two kinds, stored in phone_pairings.purpose:
+//   'signin'  the 256-bit long code in the QR link. The ONLY thing that can sign a phone in.
+//   'verify'  a 6-digit code typed on a phone that is ALREADY signed in as the same user (after a notification tap / opening the
+//             Doctor app), to prove the person holding it is at the computer. It can never sign anything in.
+// Only hashes are stored; codes are random, expire, and work once. Rate limiting and attempt counting happen inside SQL functions
+// (see migration-006) so they are atomic.
 
 export const sha256Hex = async (text: string): Promise<string> => {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
@@ -23,44 +25,39 @@ export const randomShortCode = (): string => {
 
 export const shortHash = (shortCode: string): Promise<string> => sha256Hex(`short:${shortCode}`);
 
-/** Creates a code row for the user. Retries on the rare clash of two open 6-digit codes. */
+export type CodePurpose = 'signin' | 'verify';
+export interface CreatedCode { code: string; shortCode: string | null; expiresAt: string }
+
+/**
+ * Creates a code for the user. 'signin' returns only the long code; 'verify' returns the 6-digit code.
+ * Returns 'rate_limited' when the user already minted 5 codes in the last 10 minutes, null on any other failure.
+ */
 export const createPairingCode = async (
   admin: SupabaseClient,
   userId: string,
   ttlMs: number,
-): Promise<{ code: string; shortCode: string; expiresAt: string } | null> => {
+  purpose: CodePurpose,
+): Promise<CreatedCode | 'rate_limited' | null> => {
   const code = randomCode();
   const expiresAt = new Date(Date.now() + ttlMs).toISOString();
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const shortCode = randomShortCode();
-    const { error } = await admin.from('phone_pairings').insert({
-      user_id: userId,
-      code_hash: await sha256Hex(code),
-      short_hash: await shortHash(shortCode),
-      expires_at: expiresAt,
+    const shortCode = purpose === 'verify' ? randomShortCode() : null;
+    const { data, error } = await admin.rpc('phone_pairing_create', {
+      p_user: userId,
+      p_code_hash: await sha256Hex(code),
+      p_short_hash: shortCode ? await shortHash(shortCode) : null,
+      p_purpose: purpose,
+      p_expires: expiresAt,
     });
-    if (!error) return { code, shortCode, expiresAt };
-    if (error.code !== '23505') return null;
+    if (!error) {
+      if (data === 'rate_limited') return 'rate_limited';
+      return { code, shortCode, expiresAt };
+    }
+    if (error.code !== '23505') { console.error('[PAIRING_CREATE]', error.message); return null; } // 23505: two of this user's open 6-digit codes clashed; retry
   }
   return null;
 };
 
-// Wrong 6-digit guesses are counted so a 6-digit code cannot be brute-forced.
-const FAIL_WINDOW_MS = 10 * 60 * 1000;
-const MAX_FAILS_PER_IP = 5;
-const MAX_FAILS_TOTAL = 20;
-
-export const clientIp = (req: Request): string =>
-  (req.headers.get('cf-connecting-ip') || req.headers.get('x-forwarded-for') || 'unknown').split(',')[0].trim();
-
-/** True when too many wrong guesses happened recently (from this address, or overall). */
-export const isLockedOut = async (admin: SupabaseClient, ip: string): Promise<boolean> => {
-  const since = new Date(Date.now() - FAIL_WINDOW_MS).toISOString();
-  const [{ count: fromIp }, { count: total }] = await Promise.all([
-    admin.from('phone_pairing_failures').select('id', { count: 'exact', head: true }).eq('ip', ip).gt('created_at', since),
-    admin.from('phone_pairing_failures').select('id', { count: 'exact', head: true }).gt('created_at', since),
-  ]);
-  return (fromIp ?? 0) >= MAX_FAILS_PER_IP || (total ?? 0) >= MAX_FAILS_TOTAL;
-};
-
-export const recordFailure = (admin: SupabaseClient, ip: string) => admin.from('phone_pairing_failures').insert({ ip });
+// The caller's address, only from the header the gateway sets itself (a client can't forge it). Informational only: attempt
+// limits are counted per user and per code, so a missing address must not become one shared "unknown" bucket.
+export const clientIp = (req: Request): string | null => req.headers.get('cf-connecting-ip')?.trim() || null;

@@ -1,11 +1,11 @@
-import { authenticate, corsHeaders, json, keyMissing } from '../_shared/consultation.ts';
+import { authenticate, corsHeaders, json, keyMissing, providerFailed } from '../_shared/consultation.ts';
 
 // Transcribes a consultation recording already uploaded to the private
 // consultation-audio bucket. Body: { audioPath: string }.
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
-  const auth = await authenticate(req);
+  const auth = await authenticate(req, { requireStaff: true, quota: true });
   if (auth instanceof Response) return auth;
 
   const apiKey = Deno.env.get('OPENAI_API_KEY');
@@ -28,7 +28,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     headers: { Authorization: `Bearer ${apiKey}` },
     body: form,
   });
-  if (!res.ok) return json({ error: 'Transcription failed', detail: (await res.text()).slice(0, 500) }, 502);
+  if (!res.ok) return providerFailed('AI_FAILED', "Couldn't process this. Try again.", await res.text());
 
   const result = await res.json();
   return json({ text: result.text ?? '', language: result.language ?? null });

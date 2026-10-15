@@ -22,9 +22,24 @@ export interface AuthedRequest {
   user: User;
 }
 
+export interface AuthOptions {
+  /** Require an active users row with role staff / manager / admin (patients and self-registered customers are rejected). */
+  requireStaff?: boolean;
+  /** Count this call against the per-user hourly AI quota (cost control). */
+  quota?: boolean;
+}
+
+export const AI_CALLS_PER_HOUR = 60;
+
+// A provider error is logged on the server and the client gets a generic message + a code. Never forward provider text.
+export const providerFailed = (code: string, message: string, detail: string, status = 502): Response => {
+  console.error(`[${code}]`, detail.slice(0, 500));
+  return json({ error: code, message }, status);
+};
+
 // Verifies the caller's JWT and returns a client that acts as that user, so
-// storage reads still go through RLS (org-scoped consultation buckets).
-export const authenticate = async (req: Request): Promise<AuthedRequest | Response> => {
+// storage reads still go through RLS (branch-scoped consultation buckets).
+export const authenticate = async (req: Request, opts: AuthOptions = {}): Promise<AuthedRequest | Response> => {
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) return json({ error: 'Missing Authorization header' }, 401);
 
@@ -35,5 +50,18 @@ export const authenticate = async (req: Request): Promise<AuthedRequest | Respon
   );
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user) return json({ error: 'Invalid or expired session' }, 401);
+
+  if (opts.requireStaff) {
+    const { data: profile } = await supabase.from('users').select('role, is_active').eq('id', data.user.id).maybeSingle();
+    if (!profile || profile.is_active === false || !['staff', 'manager', 'admin'].includes(profile.role)) {
+      return json({ error: 'FORBIDDEN', message: 'Your account cannot use consultation AI.' }, 403);
+    }
+  }
+  if (opts.quota) {
+    const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { data: allowed, error: quotaError } = await admin.rpc('consume_ai_quota', { p_user: data.user.id, p_limit: AI_CALLS_PER_HOUR });
+    if (quotaError) console.error('[AI_QUOTA_CHECK]', quotaError.message); // fail open on a quota-store problem, never block clinical work
+    else if (allowed === false) return json({ error: 'AI_QUOTA', message: 'Too many AI requests this hour. Try again later.' }, 429);
+  }
   return { supabase, user: data.user };
 };

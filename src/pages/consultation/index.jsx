@@ -225,7 +225,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     if (phoneView || !loaded || phoneCalledRef.current || link.phones.length === 0) return;
     phoneCalledRef.current = true;
     link.openOnPhone(bookingId);
-    createPhonePairing().then(({ shortCode, expiresAt, error }) => {
+    createPhonePairing({ purpose: 'verify' }).then(({ shortCode, expiresAt, error }) => {
       if (!error) setPhoneCode({ shortCode, expiresAt, via: 'app' });
     });
   }, [phoneView, loaded, link, bookingId]);

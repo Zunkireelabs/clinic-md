@@ -12179,32 +12179,36 @@ export async function notifyDoctorPhone(bookingId) {
   return { sent: data?.sent ?? 0, shortCode: data?.shortCode ?? null, expiresAt: data?.expiresAt ?? null, error: null };
 }
 
-/** Phone (already signed in): check the code shown on the computer before opening a patient. */
+/** Phone (already signed in): check the code shown on the computer before opening a patient. Never signs anyone in. */
 export async function verifyPhoneCode(shortCode) {
   const { error } = await supabase.functions.invoke('phone-pair', { body: { action: 'verify', shortCode } });
   if (!error) return { ok: true, error: null };
   let payload = null;
   try { payload = await error.context?.json?.(); } catch { /* not JSON */ }
-  return { ok: false, error: { message: payload?.error || 'That code could not be checked.' } };
-}
-
-/** Computer: get one-time codes (valid 3 minutes): a long one for the QR link and 6 digits to type. */
-export async function createPhonePairing() {
-  const { data, error } = await supabase.functions.invoke('phone-pair', { body: { action: 'create' } });
-  if (error) return { code: null, shortCode: null, expiresAt: null, error: { message: 'Could not create a pairing code.' } };
-  return { code: data.code, shortCode: data.shortCode, expiresAt: data.expiresAt, error: null };
+  return { ok: false, error: { code: payload?.error, message: payload?.message || 'That code could not be checked.' } };
 }
 
 /**
- * Phone: sign this phone in with a pairing code. Pass { code } (from the QR
- * link) or { shortCode } (the 6 digits typed in the Doctor app).
+ * Computer: get a one-time code. purpose 'signin' (default): the long code for the QR link, the only thing that can sign a phone in.
+ * purpose 'verify': 6 digits to type on a phone that is already signed in as this user.
  */
-export async function redeemPhonePairing({ code, shortCode }) {
-  const { data, error } = await supabase.functions.invoke('phone-pair', { body: { action: 'redeem', code, shortCode } });
+export async function createPhonePairing({ purpose = 'signin' } = {}) {
+  const { data, error } = await supabase.functions.invoke('phone-pair', { body: { action: 'create', purpose } });
   if (error) {
     let payload = null;
     try { payload = await error.context?.json?.(); } catch { /* not JSON */ }
-    return { error: { message: payload?.error || 'This code could not be used.' } };
+    return { code: null, shortCode: null, expiresAt: null, error: { code: payload?.error, message: payload?.message || 'Could not create a pairing code.' } };
+  }
+  return { code: data.code ?? null, shortCode: data.shortCode ?? null, expiresAt: data.expiresAt, error: null };
+}
+
+/** Phone: sign this phone in with the long pairing code from the QR link. (6-digit codes cannot sign in.) */
+export async function redeemPhonePairing({ code }) {
+  const { data, error } = await supabase.functions.invoke('phone-pair', { body: { action: 'redeem', code } });
+  if (error) {
+    let payload = null;
+    try { payload = await error.context?.json?.(); } catch { /* not JSON */ }
+    return { error: { message: payload?.message || 'This code could not be used.' } };
   }
   const { error: verifyError } = await supabase.auth.verifyOtp({ token_hash: data.tokenHash, type: 'magiclink' });
   if (verifyError) return { error: { message: 'Could not sign this phone in. Show a new code on the computer.' } };

@@ -1,4 +1,4 @@
-import { authenticate, corsHeaders, json, keyMissing } from '../_shared/consultation.ts';
+import { authenticate, corsHeaders, json, keyMissing, providerFailed } from '../_shared/consultation.ts';
 
 const SYSTEM = `You are a clinical documentation assistant for a dental clinic. Write clear, factual notes for the treating dentist from the material provided. Never invent findings, diagnoses or medications that are not in the material. If something is unclear, say so. Use short headed sections and bullet points.`;
 
@@ -35,7 +35,7 @@ const part = (label: string, value?: string) => (value?.trim() ? `### ${label}\n
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
-  const auth = await authenticate(req);
+  const auth = await authenticate(req, { requireStaff: true, quota: true });
   if (auth instanceof Response) return auth;
 
   const apiKey = Deno.env.get('OPENAI_API_KEY');
@@ -70,13 +70,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
         ],
       }),
     });
-    if (!noteRes.ok) return json({ error: 'Summary failed', detail: (await noteRes.text()).slice(0, 500) }, 502);
+    if (!noteRes.ok) return providerFailed('AI_FAILED', "Couldn't process this. Try again.", await noteRes.text());
     const noteJson = await noteRes.json();
     try {
       const note = JSON.parse(noteJson.choices?.[0]?.message?.content ?? '{}');
       return json({ note });
     } catch {
-      return json({ error: 'Summary failed', detail: 'The model did not return valid JSON' }, 502);
+      return providerFailed('AI_FAILED', "Couldn't process this. Try again.", 'The model did not return valid JSON');
     }
   }
 
@@ -104,7 +104,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       ],
     }),
   });
-  if (!res.ok) return json({ error: 'Summary failed', detail: (await res.text()).slice(0, 500) }, 502);
+  if (!res.ok) return providerFailed('AI_FAILED', "Couldn't process this. Try again.", await res.text());
 
   const result = await res.json();
   return json({ summary: result.choices?.[0]?.message?.content ?? '' });
