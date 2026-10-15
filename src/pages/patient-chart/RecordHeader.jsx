@@ -63,7 +63,7 @@ const RecordHeader = ({ customer, patient, ids, customerId, onBack, onGoTo, read
         {!readOnly && (
           <div className="flex items-center gap-2">
             <Menu canDuplicates={canDuplicates} onDuplicates={onDuplicates} />
-            {patient.balance > 0 && <button type="button" onClick={onCollect} className="h-8 px-3 rounded-md border border-border bg-white text-[13px] font-medium hover:bg-[#FAFAFB]">Collect {npr(patient.balance)}</button>}
+            {patient.balance - (patient.lockedDue || 0) > 0 && <button type="button" onClick={onCollect} className="h-8 px-3 rounded-md border border-border bg-white text-[13px] font-medium hover:bg-[#FAFAFB]">Collect {npr(patient.balance - (patient.lockedDue || 0))}</button>}
             <button type="button" onClick={onNewBooking} className="h-8 px-3 rounded-md bg-primary text-white text-[13px] font-medium inline-flex items-center gap-1.5 shadow-[0_1px_2px_rgba(123,47,247,.25),inset_0_1px_0_rgba(255,255,255,.15)] hover:opacity-95">
               <Icon name="Plus" size={15} />New booking
             </button>

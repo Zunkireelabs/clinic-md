@@ -81,6 +81,34 @@ describe('classifyBooking: robustness and rounding', () => {
   it('roundMoney strips float residue', () => { expect(roundMoney(0.1 + 0.2)).toBe(0.3); });
 });
 
+describe('refunds (payments − payment_refunds)', () => {
+  const withRefund = (b, amounts) => ({ ...b, payment_refunds: amounts.map((amount) => ({ amount })) });
+  it('paid is payments minus refunds, so a refunded visit is due again', () => {
+    const m = c(withRefund(mk('Completed', '2026-10-12', 1000, 1000), [400]));
+    expect(m).toMatchObject({ paid: 600, due: 400, refunded: 400, credit: 0 });
+  });
+  it('a fully refunded visit owes its full price', () => {
+    expect(c(withRefund(mk('Completed', '2026-10-12', 1000, 1000), [1000]))).toMatchObject({ paid: 0, due: 1000 });
+  });
+  it('credit on a void booking is what is still held after refunds', () => {
+    expect(c(withRefund(mk('Cancelled', '2026-10-12', 1000, 500), []))).toMatchObject({ kind: 'void', credit: 500 });
+    expect(c(withRefund(mk('Cancelled', '2026-10-12', 1000, 500), [500]))).toMatchObject({ credit: 0, paid: 0 });
+    expect(c(withRefund(mk('No Show', '2026-10-12', 1000, 500), [200]))).toMatchObject({ credit: 300 });
+  });
+  it('a deposit on a future booking shrinks by its refund', () => {
+    expect(c(withRefund(mk('Confirmed', '2026-10-19', 3000, 1000), [400]))).toMatchObject({ deposit: 600, upcoming: 2400 });
+  });
+  it('refunds are paisa-exact and never push paid below zero', () => {
+    expect(c(withRefund({ status: 'Completed', date: '2026-10-12', final_amount: 99.99, payments: [{ amount: 99.99 }] }, [33.33, 33.33, 33.33]))).toMatchObject({ paid: 0, due: 99.99 });
+    expect(c(withRefund(mk('Completed', '2026-10-12', 100, 50), [80]))).toMatchObject({ paid: 0 });
+  });
+  it('paid to date in the summary excludes refunded money', () => {
+    const s = summarizeMoney([withRefund(mk('Completed', '2026-10-12', 1000, 1000, { id: 'a' }), [300]), mk('Completed', '2026-10-13', 500, 500, { id: 'b' })], { today: TODAY });
+    expect(s.paidToDate).toBe(1200);
+    expect(s.due).toBe(300);
+  });
+});
+
 describe('stale In-Progress', () => {
   it('In-Progress before today is flagged stale and still due', () => {
     expect(c(mk('In-Progress', '2026-10-14', 8000, 0))).toMatchObject({ kind: 'rendered', stale: true, due: 8000, atStake: 0 });

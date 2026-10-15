@@ -124,7 +124,6 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   const [sessionDate, setSessionDate] = useState(todayIso());
   const [phase, setPhase] = useState('active'); // 'active' | 'review'
   const [processing, setProcessing] = useState(null); // 'transcribing' | 'summarizing' | 'final'
-  const [failedRecording, setFailedRecording] = useState(null); // phone view only; the desktop uses `queue`
   const [queue, setQueue] = useState([]); // desktop: recordings not yet safely uploaded AND transcribed
   const queueRef = useRef(queue);
   queueRef.current = queue;
@@ -333,50 +332,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     else navigate(`/${orgSlug}/dashboard`);
   };
 
-  const generatePreliminary = useCallback(async (transcript) => {
-    setProcessing('summarizing');
-    const { summary, error: aiError } = await summarizeConsultation({ mode: 'preliminary', transcript });
-    setProcessing(null);
-    if (aiError) {
-      setError(aiError.message);
-      return;
-    }
-    patchForm({ preliminarySummary: summary });
-  }, [patchForm]);
-
-  // Upload → transcribe → summarise. The recording is kept even if a later
-  // step fails, and `failedRecording` lets the doctor retry without re-recording.
-  const processRecording = useCallback(async ({ blob, mimeType, durationSeconds, audioPath: existingPath }) => {
-    setError(null);
-    setProcessing('transcribing');
-    let audioPath = existingPath;
-
-    if (!audioPath) {
-      const { path, error: upError } = await uploadConsultationFile(bookingId, blob, 'audio');
-      if (upError) {
-        setFailedRecording({ blob, mimeType, durationSeconds });
-        setError(`Could not save the recording: ${upError.message}`);
-        setProcessing(null);
-        return;
-      }
-      audioPath = path;
-      setForm((f) => ({ ...f, audioPaths: [...f.audioPaths, path], durationSeconds: f.durationSeconds + durationSeconds }));
-    }
-
-    const { text, language, error: tError } = await transcribeConsultationAudio(audioPath);
-    if (tError) {
-      setFailedRecording({ blob, mimeType, durationSeconds, audioPath });
-      setError(tError.message);
-      setProcessing(null);
-      return;
-    }
-
-    setFailedRecording(null);
-    const transcript = [formRef.current.transcript, text].filter(Boolean).join('\n\n');
-    patchForm({ transcript, language: language || formRef.current.language });
-    if (transcript.trim()) await generatePreliminary(transcript);
-    else setProcessing(null);
-  }, [bookingId, generatePreliminary, patchForm]);
+  // Recording pipeline (upload → transcribe, queued and retryable) is shared by the computer and the phone: see runQueueItem below.
 
   const handleStart = async () => {
     setNotice(null);
@@ -385,7 +341,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
 
   const handleStop = async () => {
     const result = await recorder.stop();
-    if (result) processRecording(result);
+    if (result) acceptRecordingRef.current?.(result);
   };
 
   // Commands from the other device (computer -> phone).
@@ -605,9 +561,10 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     queueRef.current = queueRef.current.filter((q) => q.id !== itemId); // done: uploaded AND transcribed
     setQueue(queueRef.current);
     if (queueBusy(queueRef.current)) return; // more recordings are still queued behind this one
+    if (phoneView) { dispatchFlow({ type: 'TRANSCRIPT_ONLY', language }); return; } // the phone only captures: the computer drafts the note
     if (!isNoteEmpty(noteRef.current)) { dispatchFlow({ type: 'TRANSCRIPT_ONLY', language }); return; }
     await runDraft();
-  }, [bookingId, patchForm, runDraft, markTranscribed]);
+  }, [bookingId, patchForm, runDraft, markTranscribed, phoneView]);
 
   const submitToQueue = useCallback((item) => {
     queueRef.current = enqueue(queueRef.current, item);
@@ -632,10 +589,10 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     const failed = failedItems(queueRef.current);
     const orphans = untranscribedPaths(formRef.current.audioPaths, transcribedRef.current)
       .filter((pth) => !queueRef.current.some((q) => q.audioPath === pth));
-    if (failed.length === 0 && orphans.length === 0) { await runDraft(); return; }
+    if (failed.length === 0 && orphans.length === 0) { if (!phoneView) await runDraft(); return; }
     orphans.forEach((pth) => submitToQueue(newQueueItem({ blob: null, mimeType: 'audio/webm', durationSeconds: null, audioPath: pth })));
     failed.forEach((q) => { chainRef.current = chainRef.current.then(() => runQueueItem(q.id)).catch(() => {}); });
-  }, [runDraft, runQueueItem, submitToQueue]);
+  }, [runDraft, runQueueItem, submitToQueue, phoneView]);
 
   const redraft = () => {
     const edited = draftMdRef.current && noteToMarkdown(noteRef.current) !== draftMdRef.current;
@@ -703,7 +660,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   stageRef.current = stage;
   const bookingInProgress = booking?.status === 'In-Progress';
   // Leaving would lose audio while recording, or while any recording has not been uploaded yet.
-  useLeaveGuard(!phoneView && (recorder.isRecording || hasUnuploaded(queue)), 'A recording has not been saved yet. If you leave now, it will be lost. Stop and let it upload first.');
+  useLeaveGuard(recorder.isRecording || hasUnuploaded(queue), 'A recording has not been saved yet. If you leave now, it will be lost. Stop and let it upload first.');
   useEffect(() => { if (!toast) return undefined; const t = setTimeout(() => setToast(null), 8000); return () => clearTimeout(t); }, [toast]);
 
   const userName = profile?.full_name || 'you';
@@ -819,8 +776,8 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
                 <Icon name="AlertCircle" size={16} className="text-error mt-0.5 shrink-0" />
                 <div className="flex-1 text-sm text-text-secondary">
                   {error}
-                  {failedRecording && (
-                    <button type="button" className="ml-2 text-primary font-medium" disabled={busy} onClick={() => processRecording(failedRecording)}>Retry</button>
+                  {(failedItems(queue).length > 0 || orphanCount > 0) && (
+                    <button type="button" className="ml-2 text-primary font-medium" disabled={busy} onClick={retryDraft}>Retry</button>
                   )}
                 </div>
                 <button onClick={() => setError(null)} aria-label="Dismiss"><Icon name="X" size={14} className="text-text-tertiary" /></button>

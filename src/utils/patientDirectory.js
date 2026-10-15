@@ -1,7 +1,7 @@
 // Pure derivation for the Patients list: one row per patient with next/last appointment, in-clinic flag, balance, etc.
 // "Today"/"now" come from the caller's local clock (never toISOString(), which shifts the date in Nepal).
 
-import { summarizeMoney } from './bookingMoney';
+import { summarizeMoney, roundMoney } from './bookingMoney';
 
 const LAPSED_DAYS = 180;
 const VISIT_STATUSES = ['Completed', 'In-Progress'];
@@ -107,11 +107,13 @@ export function buildPatientDirectory({ customers = [], bookings = [], now = new
       isFirstTime: visits === 0, // no Completed/In-Progress visit yet
       balance: money.due, // owed now (rendered visits only)
       unpaidVisits: money.dueCount,
+      // Owed on bookings of CLOSED (locked) days: still debt, but it can't be collected from here until the closed-day policy is decided.
+      lockedDue: roundMoney(money.dueBookings.filter((b) => b.is_locked).reduce((x, b) => x + b.money.due, 0)),
       upcoming: money.upcoming, // scheduled, not yet owed
       deposit: money.deposit,
       credit: money.credit,
-      unclosed: money.unclosed.map((b) => ({ id: b.id, date: String(b.date).slice(0, 10), treatment: b.treatment_name_snapshot || '', status: b.status, atStake: b.money.atStake })),
-      staleInProgress: money.staleInProgress.map((b) => ({ id: b.id, date: String(b.date).slice(0, 10), treatment: b.treatment_name_snapshot || '', status: b.status })),
+      unclosed: money.unclosed.map((b) => ({ id: b.id, date: String(b.date).slice(0, 10), treatment: b.treatment_name_snapshot || '', status: b.status, atStake: b.money.atStake, isLocked: !!b.is_locked })),
+      staleInProgress: money.staleInProgress.map((b) => ({ id: b.id, date: String(b.date).slice(0, 10), treatment: b.treatment_name_snapshot || '', status: b.status, isLocked: !!b.is_locked })),
       lifetime, // paid to date: every payment recorded
       isNew: String(c.created_at || '').slice(0, 7) === monthPrefix, // created_at is UTC; month granularity is close enough
       lapsed,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
@@ -59,10 +59,14 @@ const PatientChart = ({ customerId: customerIdProp }) => {
   const [toast, setToast] = useState(null);
   const notify = (msg, type = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
 
+  // Latest-request guard: moving to the next patient (j/k) while the previous record is still loading must not show the old one.
+  const loadSeq = useRef(0);
   const load = useCallback(async (quiet = false) => {
-    if (!quiet) setLoading(true);
+    const seq = ++loadSeq.current;
+    if (!quiet) { setLoading(true); setData(null); }
     setError(null);
     const res = await getPatientRecord(customerId);
+    if (seq !== loadSeq.current) return;
     if (res.error) setError(res.error.message || 'Could not load this patient.');
     else setData(res.data);
     setLoading(false);
@@ -95,7 +99,7 @@ const PatientChart = ({ customerId: customerIdProp }) => {
     };
   }, [data, bookings, consultations, patient, today]);
 
-  const { startCollect, modal: payModal, error: payError } = useCollectPayment({ branchId: customer?.branch_id, onPaid: () => load(true) });
+  const { startCollect, modal: payModal, error: payError, lockedNote } = useCollectPayment({ branchId: customer?.branch_id, customerId: customer?.id, onPaid: () => load(true) }); // same scope as the balance shown: by customer id
 
   const listState = location.state;
   const goBack = () => navigate(listState?.from || `/${orgSlug}/dashboard?view=customers`);
@@ -109,7 +113,7 @@ const PatientChart = ({ customerId: customerIdProp }) => {
   };
 
   const save = async (fields, okMsg) => {
-    const { data: row, error: err } = await updateCustomerFields(customerId, fields);
+    const { data: row, error: err } = await updateCustomerFields(customer.id, fields); // the LOADED record's id, never the route param (they can differ mid-navigation)
     if (err) { notify(err.message || 'Could not save.', 'error'); return false; }
     setData((d) => ({ ...d, customer: { ...d.customer, date_of_birth: row.date_of_birth, notes: row.notes } }));
     notify(okMsg);
@@ -151,8 +155,8 @@ const PatientChart = ({ customerId: customerIdProp }) => {
             onNewBooking={newBooking} onCollect={() => startCollect(customer.phone)}
             onDuplicates={() => navigate(`/${orgSlug}/dashboard?view=customers&segment=duplicates`)}
           />
-          {payError && <p role="alert" className="text-[13px] text-[#B45309] mt-2">{payError}</p>}
-          <div className="mt-4"><UnclosedNudge unclosed={patient.unclosed} stale={patient.staleInProgress} readOnly={readOnly} onChanged={() => load(true)} onSeeAll={() => setTab('visits')} /></div>
+          {(payError || lockedNote) && <p role="alert" className="text-[13px] text-[#B45309] mt-2">{payError || lockedNote}</p>}
+          <div className="mt-4"><UnclosedNudge key={patient.id} unclosed={patient.unclosed} stale={patient.staleInProgress} readOnly={readOnly} onChanged={() => load(true)} onSeeAll={() => setTab('visits')} /></div>
           <SummaryStrip patient={patient} bookings={bookings} today={today} />
 
           <div className="flex gap-6 border-b border-border mt-7 mb-5 overflow-x-auto overflow-y-hidden" role="tablist" aria-label="Patient record">

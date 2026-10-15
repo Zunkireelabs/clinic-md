@@ -1,8 +1,8 @@
 // The one money model. Everything that shows "owed", "upcoming", "deposit" or "credit" goes through here.
 // Amounts are handled as integer paisa internally (Math.round(x * 100)) and converted back to rupees on the way out, so
-// 0.1 + 0.2 and 3 × 33.33 behave. `paid` is always the sum of payments[] — never derived from payment_status.
+// 0.1 + 0.2 and 3 × 33.33 behave. `paid` is always payments[] MINUS payment_refunds[] — never derived from payment_status.
 //
-//   void       Cancelled / No Show      nothing owed; any payment is credit
+//   void       Cancelled / No Show      nothing owed; any payment still held (payments − refunds) is credit
 //   rendered   In-Progress / Completed  due = price − paid; overpayment is credit
 //   scheduled  Pending / Confirmed, date ≥ today   nothing owed; upcoming = price − paid; paid so far is a deposit
 //   (In-Progress with date < today is also flagged `stale`: unfinished, but its money is already in due)
@@ -15,8 +15,12 @@ export const isVoidStatus = (s) => s === 'Cancelled' || s === 'No Show';
 export const isRenderedStatus = (s) => s === 'In-Progress' || s === 'Completed';
 const isScheduledStatus = (s) => s === 'Pending' || s === 'Confirmed';
 
-/** Sum of recorded payments in paisa. */
-export const paidPaisa = (b) => (b?.payments || []).reduce((s, p) => s + toPaisa(p.amount), 0);
+/** Sum of recorded payments in paisa (gross, before refunds). */
+export const grossPaidPaisa = (b) => (b?.payments || []).reduce((s, p) => s + toPaisa(p.amount), 0);
+/** Sum of refunds paid back on the booking, in paisa (payment_refunds.amount). */
+export const refundedPaisa = (b) => (b?.payment_refunds || []).reduce((s, r) => s + toPaisa(r.amount), 0);
+/** Money the clinic actually holds for the booking: payments minus refunds (never below zero). Every figure uses this. */
+export const paidPaisa = (b) => Math.max(grossPaidPaisa(b) - refundedPaisa(b), 0);
 
 /**
  * @param {{ id?, date, status, final_amount, payments? }} b
@@ -57,6 +61,7 @@ export function classifyBooking(b, { today }) {
     credit: toRupees(out.credit),
     atStake: toRupees(out.atStake),
     stale: !!out.stale,
+    refunded: toRupees(refundedPaisa(b)),
   };
 }
 

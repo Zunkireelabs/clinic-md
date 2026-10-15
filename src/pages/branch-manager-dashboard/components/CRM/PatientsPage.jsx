@@ -162,15 +162,21 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
   const searchRef = useRef(null);
   const today = localISO(new Date());
 
+  // Latest-request guard: a slow response for the previous branch must never overwrite the branch now selected.
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
     if (!branchId) return;
+    const seq = ++loadSeq.current;
     setLoading(true);
     setError(null);
     const result = await getPatientsDirectory({ branchId });
+    if (seq !== loadSeq.current) return;
     if (result.error) setError(result.error.message || 'Failed to load patients.');
     else setData(result.data);
     setLoading(false);
   }, [branchId]);
+  // Switching branch: drop the old branch's list immediately (no stale rows, no stale open panel while the new one loads).
+  useEffect(() => { setData(null); }, [branchId]);
   useEffect(() => { load(); }, [load]);
 
   // Possible-duplicates count (managers see only pairs touching their branch, same as the duplicates panel).
@@ -266,7 +272,7 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
     state: { prefill: { fullName: p.fullName, phone: p.phone, email: p.email, gender: p.gender } },
   });
 
-  const { startCollect, modal: payModal, error: payError } = useCollectPayment({ branchId, onPaid: load });
+  const { startCollect, modal: payModal, error: payError, lockedNote } = useCollectPayment({ branchId, onPaid: load });
 
   const exportCsv = () => {
     const header = ['Name', 'Phone', 'Email', 'Next appointment', 'Last visit', 'Visits', 'Balance', 'Paid to date'];
@@ -480,7 +486,7 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
       {banner}
       {views}
       {toolbar}
-      {payError && <p role="alert" className="text-[13px] text-[#B45309] pb-2">{payError}</p>}
+      {(payError || lockedNote) && <p role="alert" className="text-[13px] text-[#B45309] pb-2">{payError || lockedNote}</p>}
       <div className="flex-1 min-h-0 overflow-y-auto content-scroll">
         {error ? (
           <div className="border border-error/20 bg-error/5 rounded-lg p-4 flex items-center gap-3 text-[13px] text-error">
@@ -525,7 +531,7 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
         canCollect={!readOnly}
         onClose={() => patchParams({ patient: '' })}
         onNewBooking={() => openPatient && bookFor(openPatient)}
-        onCollect={() => openPatient && startCollect(openPatient.phone)}
+        onCollect={() => openPatient && startCollect(openPatient.phone, openPatient.id)}
         onOpenChart={() => openPatient && openChart(openPatient)}
         onClosed={load}
         onOpenBooking={(bookingId) => navigate(`?view=calendar&booking=${bookingId}`)}

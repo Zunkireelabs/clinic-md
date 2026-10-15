@@ -108,11 +108,26 @@ describe('money (from bookingMoney)', () => {
     expect(p.upcoming).toBe(2000);
     expect(p.deposit).toBe(1000);
     expect(p.credit).toBe(0);
-    expect(p.unclosed).toEqual([{ id: undefined, date: '2026-10-12', treatment: 'Filling', status: 'Confirmed', atStake: 700 }]);
+    expect(p.unclosed).toEqual([{ id: undefined, date: '2026-10-12', treatment: 'Filling', status: 'Confirmed', atStake: 700, isLocked: false }]);
+  });
+  it('reports locked-day debt separately and flags closed-day unclosed bookings', () => {
+    const q = one([
+      bk('a', { payment_status: 'unpaid', final_amount: 800, is_locked: true, id: 'L' }),
+      bk('a', { payment_status: 'unpaid', final_amount: 200, id: 'U' }),
+      bk('a', { status: 'Confirmed', date: '2026-10-12', payment_status: 'unpaid', final_amount: 50, is_locked: true, id: 'X' }),
+    ]);
+    expect(q.balance).toBe(1000);
+    expect(q.lockedDue).toBe(800);
+    expect(q.unclosed[0]).toMatchObject({ id: 'X', isLocked: true });
+  });
+  it('refunds reduce paid to date and put the money back on the balance', () => {
+    const q = one([bk('a', { final_amount: 1000, payment_refunds: [{ amount: 400 }] })]);
+    expect(q.lifetime).toBe(600);
+    expect(q.balance).toBe(400);
   });
   it('flags a previous-day In-Progress visit as stale without adding to at-stake', () => {
     const q = one([bk('a', { status: 'In-Progress', date: '2026-10-13', payment_status: 'unpaid', final_amount: 800, id: 'ip' })]);
-    expect(q.staleInProgress).toEqual([{ id: 'ip', date: '2026-10-13', treatment: 'Cleaning', status: 'In-Progress' }]);
+    expect(q.staleInProgress).toEqual([{ id: 'ip', date: '2026-10-13', treatment: 'Cleaning', status: 'In-Progress', isLocked: false }]);
     expect(q.balance).toBe(800);
     expect(q.unclosed).toEqual([]);
   });

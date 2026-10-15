@@ -79,8 +79,8 @@ const PatientPanel = ({ patient, today, readOnly, canCollect, onClose, onNewBook
             <Icon name="Plus" size={15} />New booking
           </button>
         )}
-        {!readOnly && canCollect && p.balance > 0 && (
-          <button type="button" onClick={onCollect} className="h-8 px-3 rounded-md border border-[#E9E9EC] bg-white text-[13px] font-medium hover:bg-[#FAFAFB]">Collect {npr(p.balance)}</button>
+        {!readOnly && canCollect && p.balance - (p.lockedDue || 0) > 0 && (
+          <button type="button" onClick={onCollect} className="h-8 px-3 rounded-md border border-[#E9E9EC] bg-white text-[13px] font-medium hover:bg-[#FAFAFB]">Collect {npr(p.balance - (p.lockedDue || 0))}</button>
         )}
         <button type="button" onClick={onOpenChart} className="h-8 px-3 rounded-md border border-[#E9E9EC] bg-white text-[13px] font-medium inline-flex items-center gap-1.5 ml-auto hover:bg-[#FAFAFB]">
           <Icon name="FileText" size={14} />Open chart
@@ -93,7 +93,7 @@ const PatientPanel = ({ patient, today, readOnly, canCollect, onClose, onNewBook
     <SidePanel isOpen={!!patient} onClose={onClose} title="Patient" titleId="patient-panel-title" width="460px" header={header}>
       {p && (
         <div className="px-5 py-[18px] flex flex-col gap-[22px]">
-          <UnclosedNudge unclosed={p.unclosed} stale={p.staleInProgress} readOnly={readOnly} onChanged={onClosed} onSeeAll={onOpenChart} />
+          <UnclosedNudge key={p.id} unclosed={p.unclosed} stale={p.staleInProgress} readOnly={readOnly} onChanged={onClosed} onSeeAll={onOpenChart} />
           {failed && <p className="text-[13px] text-[#B45309]">Couldn’t load this patient’s appointments. Close and reopen to retry.</p>}
 
           {detail?.now && (
@@ -170,6 +170,7 @@ const PatientPanel = ({ patient, today, readOnly, canCollect, onClose, onNewBook
 /** Grey subline under the Balance figure: whichever of unpaid visits / upcoming / deposit / credit apply. */
 export const balanceSub = (p) => [
   p.balance > 0 && `${p.unpaidVisits} unpaid visit${p.unpaidVisits === 1 ? '' : 's'}`,
+  p.lockedDue > 0 && `${npr(p.lockedDue)} on closed days, can’t be collected here`,
   p.upcoming > 0 && `+ ${npr(p.upcoming)} upcoming`,
   p.deposit > 0 && `${npr(p.deposit)} deposit held`,
   p.credit > 0 && `${npr(p.credit)} credit`,

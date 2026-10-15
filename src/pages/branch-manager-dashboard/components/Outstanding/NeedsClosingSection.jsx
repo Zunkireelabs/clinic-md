@@ -27,13 +27,15 @@ const NeedsClosingSection = ({ branchId, from, to }) => {
     if (data && searchParams.get('section') === 'needs-closing') sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const lockedCount = data ? data.unclosed.filter((b) => b.isLocked).length : 0;
+
   if (error) return <p className="font-body text-sm text-error">{error}</p>;
   if (!data) return null;
 
   return (
     <section id="needs-closing" ref={sectionRef} aria-label="Needs closing" className="space-y-3 pt-2 scroll-mt-4">
       <div>
-        <h3 className="font-heading font-heading-semibold text-base text-text-primary">Needs closing {data.unclosed.length > 0 && <span className="text-text-tertiary font-normal">· {data.unclosed.length}</span>}</h3>
+        <h3 className="font-heading font-heading-semibold text-base text-text-primary">Needs closing {data.unclosed.length > 0 && <span className="text-text-tertiary font-normal">· {data.unclosed.length - lockedCount}{lockedCount > 0 ? ` + ${lockedCount} on closed days` : ''}</span>}</h3>
         <p className="font-caption text-xs text-text-tertiary mt-0.5">Past bookings still Pending or Confirmed, and visits left In-Progress from an earlier day. Nothing extra is owed until they are closed (in-progress visits are already in Outstanding).{data.unclosed.length > 0 && ` ${npr(data.unclosedAtStake)} at stake.`}</p>
       </div>
       {data.unclosed.length === 0 ? (
@@ -51,7 +53,7 @@ const NeedsClosingSection = ({ branchId, from, to }) => {
               {data.unclosed.map((b) => (
                 <tr key={b.bookingId} className="border-b border-border last:border-0 text-sm">
                   <td className="px-4 py-2.5 whitespace-nowrap">{fmtDate(b.date)}{b.startTime ? <span className="text-text-tertiary"> · {b.startTime}</span> : null}</td>
-                  <td className="px-4 py-2.5">{b.customerName}<span className="block text-xs text-text-tertiary">{b.bookingNumber} · {b.stillInProgress ? 'Still in progress' : b.status}</span></td>
+                  <td className="px-4 py-2.5">{b.customerName}<span className="block text-xs text-text-tertiary">{b.bookingNumber} · {b.stillInProgress ? 'Still in progress' : b.status}{b.isLocked ? ' · Closed day: can’t be changed' : ''}</span></td>
                   <td className="px-4 py-2.5">{b.treatmentName}</td>
                   <td className="px-4 py-2.5">{b.dentistName}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums whitespace-nowrap">{b.stillInProgress ? <span className="text-text-tertiary">—</span> : npr(b.atStake)}</td>

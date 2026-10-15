@@ -31,13 +31,14 @@ const UnclosedNudge = ({ unclosed = [], stale = [], readOnly, onChanged, onSeeAl
         <span className="text-[#8A6A2E]"> · {first.stale ? `since ${shortDate(first.date)} · ${first.treatment}` : `${shortDate(first.date)} ${first.treatment} (${first.status})`}</span>
         {more > 0 && <>{' '}<button type="button" onClick={onSeeAll} className="underline text-[#7A4A06]">+{more} more</button></>}
       </p>
-      {!readOnly && !askReason && (
+      {first.isLocked && <p className="mt-1 text-[12.5px] text-[#8A6A2E]">Closed day: can’t be changed.</p>}
+      {!readOnly && !first.isLocked && !askReason && (
         <div className="flex gap-2 mt-2">
           <button type="button" disabled={busy} onClick={() => run('completed')} className="h-7 px-2.5 rounded-md border border-[#E8C98C] bg-white text-[12.5px] font-medium disabled:opacity-60 hover:bg-[#FFF5E0]">Mark completed</button>
           {!first.stale && <button type="button" disabled={busy} onClick={() => setAskReason(true)} className="h-7 px-2.5 rounded-md border border-[#E8C98C] bg-white text-[12.5px] font-medium disabled:opacity-60 hover:bg-[#FFF5E0]">Mark no-show</button>}
         </div>
       )}
-      {!readOnly && askReason && (
+      {!readOnly && !first.isLocked && askReason && (
         <div className="mt-2 flex gap-2 items-center">
           <input aria-label="No-show reason" autoFocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (required)" className="h-7 flex-1 min-w-0 border border-[#E8C98C] rounded-md px-2 text-[12.5px] bg-white" />
           <button type="button" disabled={busy || !reason.trim()} onClick={() => run('no_show', reason.trim())} className="h-7 px-2.5 rounded-md bg-[#0E0D0C] text-white text-[12.5px] font-medium disabled:opacity-50">Confirm</button>
