@@ -10,7 +10,7 @@ import MembershipWalletCard from './MembershipWalletCard';
 import { fetchRelatedUnpaidBookings, fetchBookingCreator, fetchDiscountApprovers, fetchDueHolderNames, getCustomerOutstandingBalance, fetchMembershipForBooking, fetchCustomerReferralForBooking, resolveCustomerReferralReward } from '../../services/api';
 import { excludeRelatedFromPreviousDue } from '../../services/bookingTransformers';
 import { useBranch } from '../../contexts/BranchContext';
-import { CONSULTATION_ENABLED } from '../../lib/featureFlags';
+import { useAiConsultationEnabled } from '../../hooks/useAiConsultationEnabled';
 import { getExtendOptions } from '../../utils/treatmentVariants';
 import BlockOverlapWarning from './BlockOverlapWarning';
 import SidePanel from './SidePanel';
@@ -87,6 +87,7 @@ const BookingActionModal = ({
   onRefreshBooking,        // panel only: re-fetch the open booking after an in-place action (status change)
   guardRef,                // panel only: parent calls guardRef.current(action) to run `action` through the dirty guard
 }) => {
+  const aiConsultationOn = useAiConsultationEnabled(); // build flag AND this clinic's AI switch
   const { branchId } = useBranch();
   const navigate = useNavigate();
   const { orgSlug } = useParams();
@@ -551,7 +552,7 @@ const BookingActionModal = ({
       }
       setPendingStatus(null);
       // Starting the visit drops the doctor straight into the consultation.
-      if (newStatus === 'in-progress' && CONSULTATION_ENABLED && userRole !== 'admin_viewer' && orgSlug) {
+      if (newStatus === 'in-progress' && aiConsultationOn && userRole !== 'admin_viewer' && orgSlug) {
         onClose();
         navigate(`/${orgSlug}/bookings/${booking.bookingId}/consultation`);
       } else if (variant === 'panel') {
@@ -872,7 +873,7 @@ const BookingActionModal = ({
   })();
   // Visible secondary actions (left), in collapse-priority order; disabled ones are not shown here (only in the overflow).
   const secondaryVisible = [
-    CONSULTATION_ENABLED && booking.status === 'in-progress' && userRole !== 'admin_viewer' && orgSlug && !isEditing && { key: 'consult', label: 'Consultation', icon: 'Mic', run: () => navigate(`/${orgSlug}/bookings/${booking.bookingId}/consultation`) },
+    aiConsultationOn && booking.status === 'in-progress' && userRole !== 'admin_viewer' && orgSlug && !isEditing && { key: 'consult', label: 'Consultation', icon: 'Mic', run: () => navigate(`/${orgSlug}/bookings/${booking.bookingId}/consultation`) },
     onCreateBooking && !isEditing && { key: 'rebook', label: rebookLabel, icon: 'CalendarClock', run: () => onRebookStart?.(booking) },
     onCreateBooking && !isEditing && { key: 'add', label: '+ Treatment', icon: 'PlusCircle', run: () => { setActiveTab('details'); openNewBookingForm('add-treatment'); } },
     !isTerminal && !isLocked && extendOptions.length > 0 && { key: 'extend', label: 'Extend', icon: 'Timer', run: () => { setActiveTab('details'); setShowExtendPanel(true); } },
@@ -1080,10 +1081,10 @@ const BookingActionModal = ({
                       {booking.status.replace('-', ' ')}
                     </span>
                   </div>
-                  {(CONSULTATION_ENABLED && booking.status === 'in-progress' && userRole !== 'admin_viewer' && orgSlug)
+                  {(aiConsultationOn && booking.status === 'in-progress' && userRole !== 'admin_viewer' && orgSlug)
                     || (!isTerminal && !isLocked && nextStatuses.length > 0) ? (
                     <div className="flex flex-wrap gap-2">
-                      {CONSULTATION_ENABLED && booking.status === 'in-progress' && userRole !== 'admin_viewer' && orgSlug && (
+                      {aiConsultationOn && booking.status === 'in-progress' && userRole !== 'admin_viewer' && orgSlug && (
                         <Button
                           variant="primary"
                           size="sm"

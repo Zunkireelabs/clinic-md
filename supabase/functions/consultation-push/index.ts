@@ -12,7 +12,7 @@ import { createPairingCode } from '../_shared/pairing.ts';
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
-  const auth = await authenticate(req, { requireStaff: true });
+  const auth = await authenticate(req, { requireStaff: true, requireAiEnabled: true });
   if (auth instanceof Response) return auth;
 
   const publicKey = Deno.env.get('VAPID_PUBLIC_KEY');

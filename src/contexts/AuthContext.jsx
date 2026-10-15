@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { identify, reset, setGroup } from '../lib/analytics';
+import { CONSULTATION_ENABLED } from '../lib/featureFlags';
+import { loadOrgAiEnabled } from '../utils/aiConsultation';
 
 const AuthContext = createContext(null);
 
@@ -109,6 +111,10 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   // True once supabase has reported the stored session (INITIAL_SESSION), so "no user yet" can be told apart from "no session".
   const [sessionResolved, setSessionResolved] = useState(false);
+  // Per-clinic AI switch (organizations.ai_consultation_enabled via org_ai_enabled()), read once per signed-in profile. Fails closed.
+  // aiFor is the profile id the flag was read for; aiLoading is derived from it, so there is never a render where the profile is
+  // present but the flag is "off only because it hasn't been read yet" (route guards wait instead of redirecting).
+  const [aiState, setAiState] = useState({ for: null, enabled: false });
 
   // Guard: when signIn() is actively running, the useEffect must not
   // race with its own profile fetch.
@@ -221,8 +227,24 @@ export const AuthProvider = ({ children }) => {
     return () => { cancelled = true; };
   }, [user?.id, sessionResolved]);
 
+  useEffect(() => {
+    if (!CONSULTATION_ENABLED || !profile?.id) {
+      setAiState({ for: null, enabled: false });
+      return undefined;
+    }
+    let cancelled = false;
+    const id = profile.id;
+    loadOrgAiEnabled((fn) => supabase.rpc(fn)).then((on) => {
+      if (!cancelled) setAiState({ for: id, enabled: on });
+    });
+    return () => { cancelled = true; };
+  }, [profile?.id]);
+
+  const aiLoading = CONSULTATION_ENABLED && !!profile?.id && aiState.for !== profile.id;
+  const aiEnabled = !aiLoading && aiState.for === profile?.id && aiState.enabled;
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, profile, loading, aiEnabled, aiLoading, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

@@ -17,4 +17,9 @@ describe('consultationAiError', () => {
     expect(e.code).toBe('AI_FAILED');
     expect(e.message).toBe("Couldn't process this. Your recording is saved; try again.");
   });
+  it('AI_DISABLED (403, clinic switch off) gets its own message and is not the generic FORBIDDEN', () => {
+    const e = consultationAiError(403, { error: 'AI_DISABLED' });
+    expect(e.code).toBe('AI_DISABLED');
+    expect(e.message).toBe("AI consultation isn't switched on for this clinic. You can still type the transcript and notes.");
+  });
 });

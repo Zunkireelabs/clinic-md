@@ -25,6 +25,8 @@ export interface AuthedRequest {
 export interface AuthOptions {
   /** Require an active users row with role staff / manager / admin (patients and self-registered customers are rejected). */
   requireStaff?: boolean;
+  /** Require this caller's clinic to have the AI switch on (organizations.ai_consultation_enabled). Checked BEFORE the quota is consumed; fails closed. */
+  requireAiEnabled?: boolean;
   /** Count this call against the per-user hourly AI quota (cost control). */
   quota?: boolean;
 }
@@ -55,6 +57,13 @@ export const authenticate = async (req: Request, opts: AuthOptions = {}): Promis
     const { data: profile } = await supabase.from('users').select('role, is_active').eq('id', data.user.id).maybeSingle();
     if (!profile || profile.is_active === false || !['staff', 'manager', 'admin'].includes(profile.role)) {
       return json({ error: 'FORBIDDEN', message: 'Your account can’t use this feature.' }, 403); // generic: also returned by phone-pair and consultation-push
+    }
+  }
+  if (opts.requireAiEnabled) {
+    const { data: aiOn, error: aiError } = await supabase.rpc('org_ai_enabled');
+    if (aiError) console.error('[AI_SWITCH_CHECK]', aiError.message);
+    if (aiError || aiOn !== true) { // fail CLOSED: an error or a missing function means the clinic is not switched on
+      return json({ error: 'AI_DISABLED', message: 'AI consultation is not switched on for this clinic.' }, 403);
     }
   }
   if (opts.quota) {

@@ -13,7 +13,7 @@ import Spotlight, { useSpotlight } from '../../../../components/ui/Spotlight';
 import MoneyNoticeSpotlight from '../../../../components/ui/MoneyNoticeSpotlight';
 import { pickSpotlight, canSeeMoneyNotice } from '../../../../utils/spotlightPriority';
 import ConsultationSpotlightArt from '../../../../components/ui/spotlight/ConsultationSpotlightArt';
-import { CONSULTATION_ENABLED } from '../../../../lib/featureFlags';
+import { useAiConsultationEnabled } from '../../../../hooks/useAiConsultationEnabled';
 import PatientPanel, { InClinicTag } from './PatientPanel';
 
 const PAGE_SIZE = 25;
@@ -110,6 +110,7 @@ const csvEscape = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
 
 // readOnly is true for the Overall (all branches) view: no booking or payment actions there.
 const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
+  const aiConsultationOn = useAiConsultationEnabled(); // build flag AND this clinic's AI switch
   const { profile } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -346,7 +347,7 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
       ? { label: 'Try it on today\'s first visit', onClick: () => navigate(`?view=calendar&booking=${laterToday.laterTodayConfirmedId}`) }
       : { label: 'Open today\'s calendar', onClick: () => navigate('?view=calendar') };
   // One banner at a time: the AI-consultation announcement wins; the money notice waits until it is dismissed.
-  const showAi = CONSULTATION_ENABLED && !readOnly && spotlight.visible && !!patients && !showDuplicates;
+  const showAi = aiConsultationOn && !readOnly && spotlight.visible && !!patients && !showDuplicates;
   const showMoney = canSeeMoneyNotice(role) && moneySpotlight.visible && !!patients && !showDuplicates;
   const winner = pickSpotlight([{ id: 'ai', show: showAi }, { id: 'money', show: showMoney }]);
   const banner = winner && (

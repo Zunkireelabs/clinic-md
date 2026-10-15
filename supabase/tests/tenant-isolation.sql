@@ -382,6 +382,12 @@ DO $ai$
 DECLARE
   oa uuid; ob uuid; ua uuid; r text; n int; last_r text;
 BEGIN
+  -- a database that has not had migration-010 yet (e.g. a pre-010 production copy) skips this whole section
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'organizations' AND column_name = 'ai_consultation_enabled')
+     OR to_regprocedure('public.org_ai_enabled()') IS NULL THEN
+    INSERT INTO t_res VALUES ('AISWITCH', '-', 'migration-010 checks', 'INFO', 'skipped: ai_consultation_enabled / org_ai_enabled() not present (migration-010 not applied)');
+    RETURN;
+  END IF;
   SELECT org, uid INTO oa, ua FROM t_actor WHERE name = 'admin';
   SELECT org INTO ob FROM t_actor WHERE name = 'admin_of_OTHER_org';
 

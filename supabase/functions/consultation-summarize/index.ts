@@ -36,7 +36,7 @@ const part = (label: string, value?: string) => (value?.trim() ? `### ${label}\n
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
-  const auth = await authenticate(req, { requireStaff: true, quota: true });
+  const auth = await authenticate(req, { requireStaff: true, requireAiEnabled: true, quota: true });
   if (auth instanceof Response) return auth;
 
   const apiKey = Deno.env.get('OPENAI_API_KEY');

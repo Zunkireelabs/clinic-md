@@ -4,7 +4,7 @@ import SidePanel from '../../../../components/ui/SidePanel';
 import UnclosedNudge from '../../../../components/ui/UnclosedNudge';
 import { getPatientPanelDetail } from '../../../../services/api';
 import { formatPhoneDisplay } from '../../../../utils/phone';
-import { CONSULTATION_ENABLED } from '../../../../lib/featureFlags';
+import { useAiConsultationEnabled } from '../../../../hooks/useAiConsultationEnabled';
 import { initials, monthYear, dayBlock, relativeDayLabel } from '../../../../utils/patientDirectory';
 
 const npr = (n) => `NPR ${Number(n || 0).toLocaleString('en-IN')}`;
@@ -33,6 +33,7 @@ const StatusPill = ({ status }) => (
 const SkeletonCard = () => <div className="h-[66px] rounded-lg border border-[#E9E9EC] animate-pulse bg-[#FAFAFB]" />;
 
 const PatientPanel = ({ patient, today, readOnly, canCollect, onClose, onNewBooking, onCollect, onOpenChart, onOpenBooking, onOpenConsultation, onClosed }) => {
+  const aiConsultationOn = useAiConsultationEnabled(); // build flag AND this clinic's AI switch
   const [detail, setDetail] = useState(null);
   const [failed, setFailed] = useState(false);
   const id = patient?.id;
@@ -105,7 +106,7 @@ const PatientPanel = ({ patient, today, readOnly, canCollect, onClose, onNewBook
                   <p className="text-[13.5px] font-medium truncate">{detail.now.treatment} <span className="text-[#515152] font-normal">· in progress</span></p>
                   <p className="text-[12.5px] text-[#8A8A90] truncate">{range(detail.now)}{detail.now.dentist ? ` · ${detail.now.dentist}` : ''}</p>
                 </div>
-                {CONSULTATION_ENABLED && !readOnly && (
+                {aiConsultationOn && !readOnly && (
                   <button type="button" onClick={(e) => { e.stopPropagation(); onOpenConsultation(detail.now.id); }} className="h-[26px] px-2.5 rounded-md border border-[#E9E9EC] bg-white text-[12px] font-medium inline-flex items-center gap-1.5 hover:bg-[#FAFAFB]">
                     <Icon name="Mic" size={13} />Consultation
                   </button>

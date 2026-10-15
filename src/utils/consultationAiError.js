@@ -5,6 +5,7 @@ export function consultationAiError(status, payload) {
     return { code: 'AI_KEY_MISSING', message: "AI isn't set up for this clinic yet. You can still type the transcript and notes." };
   }
   if (payload?.error === 'AI_QUOTA') return { code: 'AI_QUOTA', message: 'Too many AI requests this hour. Try again later, or write the note yourself.' };
+  if (payload?.error === 'AI_DISABLED') return { code: 'AI_DISABLED', message: "AI consultation isn't switched on for this clinic. You can still type the transcript and notes." };
   if (payload?.error === 'FORBIDDEN') return { code: 'FORBIDDEN', message: 'Your account cannot use consultation AI.' };
   if (payload?.error === 'FILE_TOO_LARGE') return { code: 'FILE_TOO_LARGE', message: 'That recording is too large to transcribe. Record in shorter parts.' };
   // 404 / no response at all: the function isn't deployed or the network is down
