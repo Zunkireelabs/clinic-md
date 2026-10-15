@@ -6,7 +6,7 @@ import BookingActionModal from '../../../components/ui/BookingActionModal';
 import StatusLegend from '../../../components/ui/StatusLegend';
 import { fetchBookingById } from '../../../services/api';
 import { transformBooking } from '../../../services/bookingTransformers';
-import { CONSULTATION_ENABLED } from '../../../lib/featureFlags';
+import { useAiConsultationEnabled } from '../../../hooks/useAiConsultationEnabled';
 
 const DATE_RANGE_LABELS = {
   today: "Today's Appointments",
@@ -32,6 +32,7 @@ const STATUS_STYLES = {
 };
 
 const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist, onRecordPayment, onApplyDiscount, userRole = 'staff', onRefresh, dateRange = 'today' }) => {
+  const aiConsultationOn = useAiConsultationEnabled(); // build flag AND this clinic's AI switch
   const navigate = useNavigate();
   const { orgSlug } = useParams();
   const [selectedBooking, setSelectedBooking] = useState(null);
@@ -112,7 +113,7 @@ const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist
         )}
         {booking.status === 'in-progress' && (
           <>
-            {CONSULTATION_ENABLED && userRole !== 'admin_viewer' && orgSlug && (
+            {aiConsultationOn && userRole !== 'admin_viewer' && orgSlug && (
               <Button
                 variant="default"
                 size={buttonSize}

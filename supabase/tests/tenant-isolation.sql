@@ -377,6 +377,56 @@ BEGIN
   EXECUTE 'RESET ROLE';
 END $fdyn$;
 
+-- ───────────────────────────── 3c. PER-CLINIC AI SWITCH + PHONE CODE LIMITS (migration-010) ─────────────────────────────
+DO $ai$
+DECLARE
+  oa uuid; ob uuid; ua uuid; r text; n int; last_r text;
+BEGIN
+  -- a database that has not had migration-010 yet (e.g. a pre-010 production copy) skips this whole section
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'organizations' AND column_name = 'ai_consultation_enabled')
+     OR to_regprocedure('public.org_ai_enabled()') IS NULL THEN
+    INSERT INTO t_res VALUES ('AISWITCH', '-', 'migration-010 checks', 'INFO', 'skipped: ai_consultation_enabled / org_ai_enabled() not present (migration-010 not applied)');
+    RETURN;
+  END IF;
+  SELECT org, uid INTO oa, ua FROM t_actor WHERE name = 'admin';
+  SELECT org INTO ob FROM t_actor WHERE name = 'admin_of_OTHER_org';
+
+  -- (a) nobody but the platform may flip the switch: a clinic admin's / manager's UPDATE must touch 0 rows (no UPDATE policy on organizations)
+  FOR r IN SELECT unnest(ARRAY['admin', 'manager_2_branches', 'admin_of_OTHER_org']) LOOP
+    INSERT INTO t_res VALUES ('AISWITCH', r, 'UPDATE organizations SET ai_consultation_enabled',
+      CASE WHEN pg_temp.fn_try(r, format('UPDATE organizations SET ai_consultation_enabled = true WHERE id IN (%L, %L) RETURNING 1', oa, ob)) IN ('ok:0', 'denied') THEN 'PASS' ELSE 'FAIL' END,
+      'got ' || pg_temp.fn_try(r, format('UPDATE organizations SET ai_consultation_enabled = true WHERE id IN (%L, %L) RETURNING 1', oa, ob)));
+  END LOOP;
+
+  -- (b) org_ai_enabled(): false by default, true only for an enabled clinic, never callable by anon
+  INSERT INTO t_res VALUES ('AISWITCH', 'admin', 'org_ai_enabled() default org is false',
+    CASE WHEN pg_temp.fn_try('admin', 'SELECT 1 WHERE org_ai_enabled()') = 'ok:0' THEN 'PASS' ELSE 'FAIL' END, 'default is off');
+  UPDATE organizations SET ai_consultation_enabled = true WHERE id = ob;   -- as the table owner, rolled back with the test
+  INSERT INTO t_res VALUES ('AISWITCH', 'admin_of_OTHER_org', 'org_ai_enabled() enabled org is true',
+    CASE WHEN pg_temp.fn_try('admin_of_OTHER_org', 'SELECT 1 WHERE org_ai_enabled()') = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'enabled org B');
+  INSERT INTO t_res VALUES ('AISWITCH', 'admin', 'org_ai_enabled() still false for org A while B is on',
+    CASE WHEN pg_temp.fn_try('admin', 'SELECT 1 WHERE org_ai_enabled()') = 'ok:0' THEN 'PASS' ELSE 'FAIL' END, 'org A unaffected');
+  INSERT INTO t_res VALUES ('AISWITCH', 'anon', 'org_ai_enabled() denied',
+    CASE WHEN pg_temp.fn_try('anon', 'SELECT org_ai_enabled()') = 'denied' THEN 'PASS' ELSE 'FAIL' END, 'anon has no EXECUTE');
+  INSERT INTO t_res VALUES ('AISWITCH', 'customer_no_staff_row', 'org_ai_enabled() is false without a clinic',
+    CASE WHEN pg_temp.fn_try('customer_no_staff_row', 'SELECT 1 WHERE org_ai_enabled()') = 'ok:0' THEN 'PASS' ELSE 'FAIL' END, 'no staff row');
+
+  -- (c) phone code limits (service_role function, called here as the table owner): signin 5 / 10 min, verify 30 / 10 min, counted per purpose
+  last_r := '';
+  FOR n IN 1..6 LOOP
+    last_r := phone_pairing_create(ua, 'h-signin-' || n, 's-signin-' || n, 'signin', now() + interval '5 minutes');
+    IF n = 5 THEN INSERT INTO t_res VALUES ('PAIRLIMIT', 'service', 'signin code #5', CASE WHEN last_r = 'ok' THEN 'PASS' ELSE 'FAIL' END, last_r); END IF;
+  END LOOP;
+  INSERT INTO t_res VALUES ('PAIRLIMIT', 'service', 'signin code #6 is rate limited', CASE WHEN last_r = 'rate_limited' THEN 'PASS' ELSE 'FAIL' END, last_r);
+  FOR n IN 1..31 LOOP
+    last_r := phone_pairing_create(ua, 'h-verify-' || n, 's-verify-' || n, 'verify', now() + interval '5 minutes');
+    IF n = 30 THEN INSERT INTO t_res VALUES ('PAIRLIMIT', 'service', 'verify code #30 (after 5 signin)', CASE WHEN last_r = 'ok' THEN 'PASS' ELSE 'FAIL' END, last_r); END IF;
+  END LOOP;
+  INSERT INTO t_res VALUES ('PAIRLIMIT', 'service', 'verify code #31 is rate limited', CASE WHEN last_r = 'rate_limited' THEN 'PASS' ELSE 'FAIL' END, last_r);
+  INSERT INTO t_res VALUES ('PAIRLIMIT', 'authenticated', 'phone_pairing_create is not callable by clients',
+    CASE WHEN pg_temp.fn_try('admin', format('SELECT phone_pairing_create(%L, ''x'', ''y'', ''verify'', now())', ua)) = 'denied' THEN 'PASS' ELSE 'FAIL' END, 'service_role only');
+END $ai$;
+
 -- COVERAGE: RLS tables that this test does not seed (static checks above still apply)
 INSERT INTO t_res
 SELECT 'COVERAGE', '-', c.relname, 'INFO', 'not seeded: dynamic matrix skipped (static policy checks apply)'

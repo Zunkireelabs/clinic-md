@@ -7,7 +7,7 @@ import { useShellHeader } from '../../hooks/useShellHeader';
 import { useCollectPayment } from '../../hooks/useCollectPayment';
 import { AIAssistantPanel } from '../../components/ui/AIAssistant';
 import { useAuth } from '../../contexts/AuthContext';
-import { CONSULTATION_ENABLED } from '../../lib/featureFlags';
+import { useAiConsultationEnabled } from '../../hooks/useAiConsultationEnabled';
 import { getPatientRecord, updateCustomerFields } from '../../services/api';
 import { localISO } from '../../utils/patientDirectory';
 import { buildActivity, latestClinicalSummary, careTeam, treatmentCounts, mediaGroups, mediaCount } from '../../utils/patientRecord';
@@ -30,6 +30,7 @@ const PatientChartShell = ({ orgSlug, children }) => {
 const TAB_KEYS = ['overview', 'visits', 'notes', 'media', 'billing'];
 
 const PatientChart = ({ customerId: customerIdProp }) => {
+  const aiConsultationOn = useAiConsultationEnabled(); // build flag AND this clinic's AI switch
   const navigate = useNavigate();
   const location = useLocation();
   const { customerId: customerIdParam, orgSlug: urlOrgSlug } = useParams();
@@ -121,7 +122,7 @@ const PatientChart = ({ customerId: customerIdProp }) => {
   };
 
   const nowBooking = bookings.find((b) => b.status === 'In-Progress' && String(b.date).slice(0, 10) === today);
-  const canStart = CONSULTATION_ENABLED && !readOnly && !!nowBooking;
+  const canStart = aiConsultationOn && !readOnly && !!nowBooking;
   const startConsultation = () => navigate(`/${orgSlug}/bookings/${nowBooking.id}/consultation`);
 
   const tabs = derived && [

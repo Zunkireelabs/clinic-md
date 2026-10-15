@@ -71,6 +71,9 @@ jobs:
             VITE_ENABLE_MEMBERSHIP=true
             VITE_ENABLE_VOUCHERS=true
             VITE_ENABLE_CUSTOMER_REFERRALS=false
+            VITE_ENABLE_CONSULTATION=${{ vars.VITE_ENABLE_CONSULTATION }}
+            VITE_VAPID_PUBLIC_KEY=${{ vars.VITE_VAPID_PUBLIC_KEY }}
+            VITE_PUBLIC_APP_URL=${{ vars.VITE_PUBLIC_APP_URL }}
 
   deploy:
     name: Deploy

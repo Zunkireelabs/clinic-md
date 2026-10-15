@@ -4,7 +4,8 @@ import ScrollToTop from "components/ScrollToTop";
 import ErrorBoundary from "components/ErrorBoundary";
 import ProtectedRoute from "components/ProtectedRoute";
 import { TenantProvider } from "contexts/TenantContext";
-import { useAuth } from "contexts/AuthContext";
+import { useAuth, getDashboardPath } from "contexts/AuthContext";
+import { useAiConsultationEnabled } from "hooks/useAiConsultationEnabled";
 import CustomerBookingFlowV2 from "pages/customer-booking-flow-v2";
 import StaffLoginAuthentication from "pages/login";
 import BranchStaffDashboard from "pages/branch-staff-dashboard";
@@ -85,8 +86,19 @@ const UnifiedDashboard = () => {
   return <BranchStaffDashboard />;
 };
 
+// Consultation page: only for clinics whose AI switch is on. Waits for the flag to be read, then renders the page or quietly
+// sends the user to the same home they land on after login (no error toast).
+const AiConsultationGate = ({ children }) => {
+  const { profile, aiLoading } = useAuth();
+  const enabled = useAiConsultationEnabled();
+  if (aiLoading) return null;
+  if (!enabled) return <Navigate to={getDashboardPath(profile?.role, profile?.organizations?.slug)} replace />;
+  return children;
+};
+
 const AppRoutes = () => {
   const location = useLocation();
+  const aiConsultationOn = useAiConsultationEnabled();
   return (
     <>
       <ErrorBoundary key={location.pathname}>
@@ -140,7 +152,9 @@ const AppRoutes = () => {
             <Route path="/:orgSlug/bookings/:bookingId/consultation" element={
               <TenantWrapper>
                 <ProtectedRoute allowedRoles={['staff', 'manager', 'admin']}>
-                  <ConsultationPage />
+                  <AiConsultationGate>
+                    <ConsultationPage />
+                  </AiConsultationGate>
                 </ProtectedRoute>
               </TenantWrapper>
             } />
@@ -215,7 +229,7 @@ const AppRoutes = () => {
       </RouterRoutes>
       </ErrorBoundary>
       {/* Shows the doctor's phone-unlock code on whatever screen is open on the computer. */}
-      {CONSULTATION_ENABLED && <PhoneUnlockPrompt />}
+      {aiConsultationOn && <PhoneUnlockPrompt />}
     </>
   );
 };
