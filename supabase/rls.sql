@@ -526,3 +526,18 @@ CREATE POLICY "customer reads own treatment notes" ON public.treatment_notes FOR
   WHERE ((customer_accounts.auth_user_id = auth.uid()) AND (customer_accounts.customer_id IS NOT NULL)))));
 
 ALTER TABLE public.treatment_notes ENABLE ROW LEVEL SECURITY;
+
+-- Storage: treatment-images bucket. The bucket itself (public=true) is
+-- provisioned via the Storage API, not SQL — these policies just cover
+-- storage.objects, which still enforces RLS for writes even on a public bucket.
+CREATE POLICY "Public read treatment images" ON storage.objects FOR SELECT
+  USING (bucket_id = 'treatment-images');
+
+CREATE POLICY "Authenticated upload treatment images" ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'treatment-images');
+
+CREATE POLICY "Authenticated update treatment images" ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id = 'treatment-images');
+
+CREATE POLICY "Authenticated delete treatment images" ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'treatment-images');
