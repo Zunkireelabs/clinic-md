@@ -249,6 +249,134 @@ BEGIN
   END LOOP;
 END $matrix$;
 
+-- ───────────────────────────── 3b. FUNCTIONS (SECURITY DEFINER) ─────────────────────────────
+-- Static: a SECURITY DEFINER function bypasses RLS, so who may EXECUTE it matters. Anon (anyone on the internet) may only run the
+-- explicit public-booking allow-list; trigger functions must not be callable by anon/authenticated at all.
+DO $fstatic$
+DECLARE
+  r record;
+  public_allow constant text[] := ARRAY[
+    'public_check_branch_bookings_range', 'public_check_customer_exists', 'public_check_slot_availability',
+    'public_find_customer_match', 'public_get_booking_by_id', 'public_lookup_referrer_by_phone',
+    'public_record_customer_referral', 'public_search_booking', 'find_customer_for_booking', 'upsert_customer_for_booking'
+  ];
+BEGIN
+  FOR r IN SELECT p.oid::regprocedure::text AS sig, p.proname, (p.prorettype = 'trigger'::regtype) AS is_trigger,
+                  has_function_privilege('anon', p.oid, 'EXECUTE') AS anon_x, has_function_privilege('authenticated', p.oid, 'EXECUTE') AS auth_x,
+                  coalesce(p.proacl::text, '') LIKE '%{=X/%' OR coalesce(p.proacl::text, '') LIKE '%,=X/%' AS public_x
+           FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.prosecdef ORDER BY p.proname LOOP
+    INSERT INTO t_res VALUES ('FUNC', 'anon', r.sig,
+      CASE WHEN r.anon_x AND NOT r.proname = ANY (public_allow) THEN 'FAIL' ELSE 'PASS' END,
+      CASE WHEN r.anon_x AND r.proname = ANY (public_allow) THEN 'anon may execute (public booking allow-list)'
+           WHEN r.anon_x THEN 'SECURITY DEFINER function EXECUTE-able by anon and not on the public allow-list'
+           ELSE 'anon cannot execute' END);
+    IF r.public_x THEN
+      INSERT INTO t_res VALUES ('FUNC', 'PUBLIC', r.sig, 'FAIL', 'EXECUTE granted to PUBLIC (everyone)');
+    END IF;
+    IF r.is_trigger AND (r.anon_x OR r.auth_x) THEN
+      INSERT INTO t_res VALUES ('FUNC', 'authenticated', r.sig, 'FAIL', 'trigger function callable by anon/authenticated');
+    END IF;
+  END LOOP;
+  -- future-proofing: a new function must not be executable by anon/authenticated until granted explicitly
+  IF EXISTS (SELECT 1 FROM pg_default_acl d WHERE d.defaclrole = 'postgres'::regrole AND d.defaclobjtype = 'f'
+             AND d.defaclnamespace = 'public'::regnamespace AND d.defaclacl::text ~ '(anon|authenticated)=X')
+     OR NOT EXISTS (SELECT 1 FROM pg_default_acl d WHERE d.defaclrole = 'postgres'::regrole AND d.defaclobjtype = 'f' AND d.defaclnamespace = 0) THEN
+    INSERT INTO t_res VALUES ('FUNC', '-', 'default privileges', 'FAIL', 'new functions in public are still executable by anon/authenticated by default');
+  ELSE
+    INSERT INTO t_res VALUES ('FUNC', '-', 'default privileges', 'PASS', 'new functions in public are closed by default');
+  END IF;
+END $fstatic$;
+
+-- Dynamic: call functions as each caller and classify the outcome. 'denied' = 42501 (no EXECUTE / not authorized);
+-- 'raised:<SQLSTATE>' = the function's own check refused; 'ok:<n>' = it ran (n = rows or the scalar returned).
+CREATE FUNCTION pg_temp.fn_try(p_actor text, p_sql text) RETURNS text LANGUAGE plpgsql AS $$
+DECLARE a record; claims text; res text := 'ok'; n bigint;
+BEGIN
+  SELECT * INTO a FROM t_actor WHERE name = p_actor;
+  claims := CASE WHEN a.uid IS NULL THEN '{"role":"anon"}'
+                 ELSE json_build_object('sub', a.uid, 'role', 'authenticated', 'email', (SELECT email FROM auth.users WHERE id = a.uid))::text END;
+  BEGIN
+    EXECUTE format('SET LOCAL ROLE %I', a.db_role);
+    PERFORM set_config('request.jwt.claims', claims, true);
+    EXECUTE p_sql;  -- (not wrapped in count(*): the planner drops unreferenced columns, which would skip the EXECUTE privilege check)
+    GET DIAGNOSTICS n = ROW_COUNT;
+    res := 'ok:' || n;
+    RAISE EXCEPTION 'rollback_test';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'rollback_test' THEN res := CASE WHEN SQLSTATE = '42501' THEN 'denied' ELSE 'raised:' || SQLSTATE END; END IF;
+  END;
+  RETURN res;
+END $$;
+
+DO $fdyn$
+DECLARE
+  oa uuid; ob uuid; bk_a uuid; bk_b uuid; br_b uuid; cu_b uuid; cu_b2 uuid; ch_b uuid; dn_b uuid; no_b text; ph text := '+9779800000001';
+  t record; r text;
+BEGIN
+  SELECT org INTO oa FROM t_actor WHERE name = 'admin';
+  SELECT org INTO ob FROM t_actor WHERE name = 'admin_of_OTHER_org';
+  SELECT pk::uuid INTO bk_a FROM t_seed WHERE tbl = 'bookings' AND org = oa LIMIT 1;
+  SELECT pk::uuid INTO bk_b FROM t_seed WHERE tbl = 'bookings' AND org = ob LIMIT 1;
+  SELECT pk::uuid INTO br_b FROM t_seed WHERE tbl = 'branches' AND org = ob LIMIT 1;
+  SELECT pk::uuid INTO cu_b FROM t_seed WHERE tbl = 'customers' AND org = ob LIMIT 1;
+  SELECT pk::uuid INTO ch_b FROM t_seed WHERE tbl = 'chairs' AND org = ob LIMIT 1;
+  SELECT pk::uuid INTO dn_b FROM t_seed WHERE tbl = 'dentists' AND org = ob LIMIT 1;
+  -- make the org-B booking "old" (public_get_booking_by_id only serves just-created bookings to outsiders) and give it a phone
+  UPDATE bookings SET created_at = now() - interval '1 day', customer_phone = ph WHERE id = bk_b;
+  SELECT booking_number INTO no_b FROM bookings WHERE id = bk_b;
+
+  FOR t IN SELECT * FROM (VALUES
+    -- (caller, label, sql, expectation: 'blocked' = denied or raised, 'zero' = 0 rows, 'rows' = at least 1 row and 'callable' = runs without error (must still work))
+    ('anon', 'platform_org_sales_base(any org)',            format('SELECT platform_org_sales_base(%L, ''2030-01-01'', ''2032-01-01'')', ob), 'blocked'),
+    ('anon', 'platform_org_branch_breakdown(any org)',      format('SELECT platform_org_branch_breakdown(%L, ''2030-01-01'', ''2032-01-01'')', ob), 'blocked'),
+    ('anon', 'platform_get_revenue_rollup()',               'SELECT platform_get_revenue_rollup(''2030-01-01'', ''2032-01-01'')', 'blocked'),
+    ('anon', 'outreach_ai_consume(any org)',                format('SELECT outreach_ai_consume(%L, 1)', ob), 'blocked'),
+    ('anon', 'outreach_scan_winback()',                     'SELECT outreach_scan_winback()', 'blocked'),
+    ('anon', 'outreach_drain_outbox()',                     'SELECT outreach_drain_outbox()', 'blocked'),
+    ('anon', 'notify_outreach_review(any org)',             format('SELECT notify_outreach_review(%L)', ob), 'blocked'),
+    ('anon', 'outreach_enqueue_for_completed(booking)',     format('SELECT outreach_enqueue_for_completed(%L)', bk_b), 'blocked'),
+    ('anon', 'login_with_pin()',                            'SELECT login_with_pin(''a@b.c'', ''0000'', NULL)', 'blocked'),
+    ('anon', 'verify_pin()',                                'SELECT verify_pin(''a@b.c'', ''0000'', NULL)', 'blocked'),
+    ('anon', 'sync_booking_payment_status(booking)',        format('SELECT sync_booking_payment_status(%L)', bk_b), 'blocked'),
+    ('anon', 'customer_duplicate_candidates(any org)',      format('SELECT * FROM customer_duplicate_candidates(%L)', ob), 'blocked'),
+    ('anon', 'issue_voucher / issue_package (staff RPC)',   format('SELECT issue_package(%L, %L, gen_random_uuid(), NULL, ''x'', NULL, NULL, NULL, 1, 1, NULL)', ob, br_b), 'blocked'),
+    ('anon', 'consume_ai_quota(any user)',                  'SELECT consume_ai_quota(gen_random_uuid(), 60)', 'blocked'),
+    ('anon', 'phone_pairing_create(any user)',              'SELECT phone_pairing_create(gen_random_uuid(), ''h'', ''s'', ''verify'', now() + interval ''1 min'')', 'blocked'),
+    ('authenticated: admin of org A', 'platform_org_sales_base(org B)',   format('SELECT platform_org_sales_base(%L, ''2030-01-01'', ''2032-01-01'')', ob), 'blocked'),
+    ('authenticated: admin of org A', 'platform_get_org_bookings(org B)', format('SELECT platform_get_org_bookings(%L, ''2030-01-01'', ''2032-01-01'')', ob), 'blocked'),
+    ('authenticated: admin of org A', 'outreach_ai_consume(org B)',       format('SELECT outreach_ai_consume(%L, 1)', ob), 'blocked'),
+    ('authenticated: admin of org A', 'login_with_pin()',                 'SELECT login_with_pin(''a@b.c'', ''0000'', NULL)', 'blocked'),
+    ('authenticated: admin of org A', 'outreach_enqueue_for_completed(org B booking)', format('SELECT outreach_enqueue_for_completed(%L)', bk_b), 'blocked'),
+    ('authenticated: admin of org A', 'customer_duplicate_candidates(org B)', format('SELECT * FROM customer_duplicate_candidates(%L)', ob), 'blocked'),
+    ('authenticated: admin of org A', 'issue_package(org B ids)',         format('SELECT issue_package(%L, %L, gen_random_uuid(), %L, NULL, NULL, NULL, NULL, 1, 1, NULL)', ob, br_b, cu_b), 'blocked'),
+    ('authenticated: admin of org A', 'transfer_dentist(org B dentist)',  format('SELECT transfer_dentist(%L, %L, NULL, NULL, NULL, NULL, NULL, true)', dn_b, (SELECT pk::uuid FROM t_seed WHERE tbl = 'branches' AND org = oa LIMIT 1)), 'blocked'),
+    ('authenticated: admin of org A', 'upsert_customer_for_booking(org B)', format('SELECT upsert_customer_for_booking(%L, %L, ''Evil'', ''+9779811111111'', NULL, NULL)', ob, br_b), 'blocked'),
+    ('authenticated: admin of org A', 'merge_customers(org B customers)', format('SELECT merge_customers(%L, %L)', cu_b, cu_b), 'blocked'),
+    ('authenticated: admin of org A', 'create_customer_account(someone else''s email)', format('SELECT create_customer_account(%L, ''victim@test.invalid'', ''1'', ''x'')', oa), 'blocked'),
+    ('authenticated: admin of org A', 'public_get_booking_by_id(old org B booking)', format('SELECT * FROM public_get_booking_by_id(%L)', bk_b), 'zero'),
+    ('authenticated: admin of org A', 'get_referral_credit_balance(org B customer)', format('SELECT 1 WHERE get_referral_credit_balance(%L) <> 0', cu_b), 'zero'),
+    ('anon', 'public_get_booking_by_id(old booking)',                     format('SELECT * FROM public_get_booking_by_id(%L)', bk_b), 'zero'),
+    ('anon', 'public_search_booking(partial booking number)',             format('SELECT * FROM public_search_booking(%L, ''BK-'')', br_b), 'zero'),
+    ('anon', 'public_search_booking(partial phone)',                      format('SELECT * FROM public_search_booking(%L, %L)', br_b, right(ph, 4)), 'zero'),
+    ('anon', 'public_search_booking(wildcard)',                           format('SELECT * FROM public_search_booking(%L, ''%%'')', br_b), 'zero'),
+    ('anon', 'public_search_booking(exact booking number) still works',   format('SELECT * FROM public_search_booking(%L, %L)', br_b, no_b), 'rows'),
+    ('anon', 'public_search_booking(exact phone) still works',            format('SELECT * FROM public_search_booking(%L, %L)', br_b, ph), 'rows'),
+    ('anon', 'public_check_slot_availability still callable',             format('SELECT * FROM public_check_slot_availability(%L, ''2031-01-10'')', br_b), 'callable'),
+    ('anon', 'upsert_customer_for_booking(branch of another org)',        format('SELECT upsert_customer_for_booking(%L, %L, ''Evil'', ''+9779822222222'', NULL, NULL)', oa, br_b), 'blocked'),
+    ('anon', 'upsert_customer_for_booking(new patient) still works',      format('SELECT 1 WHERE upsert_customer_for_booking(%L, %L, ''New Patient'', ''+9779833333333'', NULL, NULL) IS NOT NULL', ob, br_b), 'rows'),
+    ('admin_of_OTHER_org', 'public_get_booking_by_id(own old booking) still works', format('SELECT * FROM public_get_booking_by_id(%L)', bk_b), 'rows')
+  ) AS v(caller, label, q, expect) LOOP
+    r := pg_temp.fn_try(CASE t.caller WHEN 'authenticated: admin of org A' THEN 'admin' ELSE t.caller END, t.q);
+    INSERT INTO t_res VALUES ('FUNCCALL', t.caller, t.label,
+      CASE t.expect WHEN 'blocked' THEN CASE WHEN r = 'denied' OR r LIKE 'raised:%' THEN 'PASS' ELSE 'FAIL' END
+                    WHEN 'zero'    THEN CASE WHEN r = 'ok:0' OR r = 'denied' THEN 'PASS' ELSE 'FAIL' END
+                    WHEN 'callable' THEN CASE WHEN r LIKE 'ok:%' THEN 'PASS' ELSE 'FAIL' END
+                    ELSE CASE WHEN r LIKE 'ok:%' AND r <> 'ok:0' THEN 'PASS' ELSE 'FAIL' END END,
+      CASE t.expect WHEN 'blocked' THEN 'expected blocked; got ' || r WHEN 'zero' THEN 'expected 0 rows; got ' || r ELSE 'expected to still work; got ' || r END);
+  END LOOP;
+  EXECUTE 'RESET ROLE';
+END $fdyn$;
+
 -- COVERAGE: RLS tables that this test does not seed (static checks above still apply)
 INSERT INTO t_res
 SELECT 'COVERAGE', '-', c.relname, 'INFO', 'not seeded: dynamic matrix skipped (static policy checks apply)'
