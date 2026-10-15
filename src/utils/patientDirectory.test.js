@@ -77,8 +77,8 @@ describe('today view / first-time', () => {
   it('exposes the in-progress booking id and a later-today confirmed flag', () => {
     const p = one([bk('a', { id: 'b1', status: 'In-Progress', date: '2026-10-14' }), bk('a', { id: 'b2', status: 'Confirmed', date: '2026-10-14', start_time: '15:00:00' })]);
     expect(p.inProgressId).toBe('b1');
-    expect(p.laterTodayConfirmed).toBe(true);
-    expect(one([bk('a', { status: 'Confirmed', date: '2026-10-14', start_time: '09:00:00' })]).laterTodayConfirmed).toBe(false);
+    expect(p.laterTodayConfirmedId).toBe('b2');
+    expect(one([bk('a', { status: 'Confirmed', date: '2026-10-14', start_time: '09:00:00' })]).laterTodayConfirmedId).toBeNull();
   });
   it('isFirstTime only while there is no Completed/In-Progress visit', () => {
     expect(one([bk('a', { status: 'Confirmed', date: '2026-10-20' })]).isFirstTime).toBe(true);

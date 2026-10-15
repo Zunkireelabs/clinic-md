@@ -6685,6 +6685,59 @@ export async function fetchCustomerProfile(customerId) {
   }
 }
 
+// Full patient page: the customer, every booking (with payments), consultations and treatment notes. The patient-level numbers
+// (balance, paid to date, visits, next/last, in-clinic) come from the same util as the Patients list.
+export async function getPatientRecord(customerId, { now = new Date() } = {}) {
+  try {
+    if (!customerId) return { data: null, error: { code: 'CUSTOMER_REQUIRED', message: 'Customer ID is required.' } };
+    const { data: customer, error: custError } = await supabase
+      .from('customers')
+      .select('id, branch_id, full_name, phone, email, gender, notes, date_of_birth, is_active, created_at')
+      .eq('id', customerId)
+      .single();
+    if (custError) {
+      if (custError.code === 'PGRST116') return { data: null, error: { code: 'CUSTOMER_NOT_FOUND', message: 'Patient not found.' } };
+      throw custError;
+    }
+    const [bookings, cons, notes] = await Promise.all([
+      // History follows the person across branches (merged customers keep one id).
+      pageAll(() => supabase.from('bookings')
+        .select('id, customer_id, booking_number, date, start_time, end_time, status, payment_status, final_amount, discount_amount, treatment_name_snapshot, dentist_name_snapshot, dentist_id, is_locked, payments(id, amount, payment_mode, created_at)')
+        .eq('customer_id', customerId)
+        .order('date', { ascending: false })
+        .order('id')),
+      fetchConsultationsForCustomer(customerId),
+      fetchTreatmentNotesForCustomer(customerId),
+    ]);
+    if (cons.error) throw cons.error;
+    const patient = buildPatientDirectory({ customers: [customer], bookings, now })[0];
+    return {
+      data: { customer, patient, bookings, consultations: cons.data || [], treatmentNotes: notes.data || [] },
+      error: null,
+    };
+  } catch (error) {
+    console.error('[API] getPatientRecord error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Inline edits on the patient page (date of birth, notes). Uses the signed-in user's session, so RLS decides who may write;
+// zero updated rows means "not allowed" rather than success.
+export async function updateCustomerFields(customerId, fields) {
+  try {
+    const patch = {};
+    if ('dateOfBirth' in fields) patch.date_of_birth = fields.dateOfBirth || null;
+    if ('notes' in fields) patch.notes = fields.notes?.trim() ? fields.notes.trim() : null;
+    const { data, error } = await supabase.from('customers').update(patch).eq('id', customerId).select('id, notes, date_of_birth');
+    if (error) throw error;
+    if (!data || data.length === 0) return { data: null, error: { code: 'NOT_ALLOWED', message: 'You don\'t have permission to edit this patient.' } };
+    return { data: data[0], error: null };
+  } catch (error) {
+    console.error('[API] updateCustomerFields error:', error.message);
+    return { data: null, error };
+  }
+}
+
 export async function getCustomerIntelligence({ branchId }) {
   try {
     if (!branchId) {

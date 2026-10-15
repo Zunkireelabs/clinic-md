@@ -65,7 +65,8 @@ export function buildPatientDirectory({ customers = [], bookings = [], now = new
     let todayTime = null;
     let todayAppt = null;
     let inProgressId = null;
-    let laterTodayConfirmed = false;
+    let laterTodayConfirmedId = null;
+    let laterTodayTime = '';
     let visits = 0;
     let completed = 0;
     let balance = 0;
@@ -85,7 +86,7 @@ export function buildPatientDirectory({ customers = [], bookings = [], now = new
         if (b.status === 'In-Progress' && date === today) { inClinic = true; inProgressId = b.id || null; }
       }
       if (UPCOMING_STATUSES.includes(b.status) && (date > today || (date === today && time > nowHM))) {
-        if (b.status === 'Confirmed' && date === today) laterTodayConfirmed = true;
+        if (b.status === 'Confirmed' && date === today && (!laterTodayConfirmedId || time < laterTodayTime)) { laterTodayConfirmedId = b.id || null; laterTodayTime = time; }
         if (!next || date < next.date || (date === next.date && time < next.time)) {
           next = { date, time, treatment: b.treatment_name_snapshot || '' };
         }
@@ -113,7 +114,8 @@ export function buildPatientDirectory({ customers = [], bookings = [], now = new
       inClinic,
       todayAppt,
       inProgressId, // booking id of today's In-Progress booking (for the Consultation route)
-      laterTodayConfirmed,
+      laterTodayTime: laterTodayConfirmedId ? laterTodayTime : null,
+      laterTodayConfirmedId, // earliest Confirmed booking later today (Spotlight deep link)
       todayTime, // earliest start time of a non-cancelled booking today, else null
       visits,
       isFirstTime: visits === 0, // no Completed/In-Progress visit yet

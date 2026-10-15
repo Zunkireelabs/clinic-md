@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import Icon from '../../../../components/AppIcon';
-import PaymentModal from '../../../../components/ui/PaymentModal';
-import { getPatientsDirectory, fetchDuplicateCandidates, getCustomerOutstandingBalance, recordPayment } from '../../../../services/api';
+import { useCollectPayment } from '../../../../hooks/useCollectPayment';
+import { getPatientsDirectory, fetchDuplicateCandidates } from '../../../../services/api';
 import { useAuth } from '../../../../contexts/AuthContext';
 import {
   SEGMENTS, SORTS, segmentCounts, matchesSearch, sortPatients, relativeDayLabel, monthsSince, initials, daysBetween, localISO,
@@ -258,32 +258,12 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
 
   // ── Navigation helpers ────────────────────────────────────────────────────────
   const listUrl = `${location.pathname}${location.search}`;
-  const openChart = (p) => navigate(`/${orgSlug}/patients/${p.id}`, { state: { from: listUrl } });
+  const openChart = (p) => navigate(`/${orgSlug}/patients/${p.id}`, { state: { from: listUrl, ids: filtered.map((x) => x.id) } });
   const bookFor = (p) => navigate('?view=new-booking', {
     state: { prefill: { fullName: p.fullName, phone: p.phone, email: p.email, gender: p.gender } },
   });
 
-  // ── Collect payment (same PaymentModal + recordPayment path as the Outstanding report) ──
-  const [paying, setPaying] = useState(null); // { primary, others }
-  const [paySubmitting, setPaySubmitting] = useState(false);
-  const [payError, setPayError] = useState(null);
-  const startCollect = async (p) => {
-    setPayError(null);
-    const { data: due, error: err } = await getCustomerOutstandingBalance({ customerPhone: p.phone, branchId });
-    if (err || !due?.bookings?.length) { setPayError(err ? 'Couldn’t load what this patient owes.' : 'Nothing outstanding to collect.'); load(); return; }
-    const [primary, ...others] = due.bookings;
-    setPaying({ primary, others });
-  };
-  const confirmPayment = async ({ tenders, additionalAllocations, dueHolderName, notes }) => {
-    setPaySubmitting(true);
-    const result = await recordPayment({ bookingId: paying.primary.bookingId, tenders, dueHolderName, notes });
-    if (result.error) { setPaySubmitting(false); return { error: result.error }; }
-    for (const alloc of (additionalAllocations || [])) await recordPayment({ bookingId: alloc.bookingId, tenders: alloc.tenders, notes });
-    setPaySubmitting(false);
-    setPaying(null);
-    await load();
-    return { error: null };
-  };
+  const { startCollect, modal: payModal, error: payError } = useCollectPayment({ branchId, onPaid: load });
 
   const exportCsv = () => {
     const header = ['Name', 'Phone', 'Email', 'Next appointment', 'Last visit', 'Visits', 'Balance', 'Paid to date'];
@@ -349,10 +329,13 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
 
   // One banner per page: the AI-consultation announcement, only where consultations can actually be started.
   const liveNow = patients?.find((p) => p.inProgressId);
-  const laterToday = patients?.some((p) => p.laterTodayConfirmed);
+  // Earliest Confirmed booking still to come today, across all patients.
+  const laterToday = patients?.filter((p) => p.laterTodayConfirmedId).sort((a, b) => a.laterTodayTime.localeCompare(b.laterTodayTime))[0];
   const spotlightPrimary = liveNow
     ? { label: `Start with ${liveNow.fullName.split(' ')[0]}`, onClick: () => navigate(`/${orgSlug}/bookings/${liveNow.inProgressId}/consultation`) }
-    : { label: laterToday ? 'Try it on today\'s first visit' : 'Open today\'s calendar', onClick: () => navigate('?view=calendar') };
+    : laterToday
+      ? { label: 'Try it on today\'s first visit', onClick: () => navigate(`?view=calendar&booking=${laterToday.laterTodayConfirmedId}`) }
+      : { label: 'Open today\'s calendar', onClick: () => navigate('?view=calendar') };
   const banner = CONSULTATION_ENABLED && !readOnly && spotlight.visible && patients && !showDuplicates && (
     <div className="mt-5">
       <Spotlight
@@ -531,27 +514,13 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
         canCollect={!readOnly}
         onClose={() => patchParams({ patient: '' })}
         onNewBooking={() => openPatient && bookFor(openPatient)}
-        onCollect={() => openPatient && startCollect(openPatient)}
+        onCollect={() => openPatient && startCollect(openPatient.phone)}
         onOpenChart={() => openPatient && openChart(openPatient)}
+        onOpenBooking={(bookingId) => navigate(`?view=calendar&booking=${bookingId}`)}
         onOpenConsultation={(bookingId) => navigate(`/${orgSlug}/bookings/${bookingId}/consultation`)}
       />
 
-      {paying && (
-        <PaymentModal
-          booking={{
-            bookingId: paying.primary.bookingId,
-            booking_number: paying.primary.bookingNumber,
-            finalAmount: paying.primary.finalAmount,
-            amountPaid: paying.primary.amountPaid,
-            treatment: paying.primary.treatmentName,
-            dueHolderName: '',
-          }}
-          additionalBookings={paying.others}
-          onConfirm={confirmPayment}
-          onClose={() => setPaying(null)}
-          isSubmitting={paySubmitting}
-        />
-      )}
+      {payModal}
     </div>
   );
 };
