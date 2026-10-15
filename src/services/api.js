@@ -9,6 +9,7 @@ import { expandBlockOccurrences } from '../utils/blockRecurrence';
 import { dedupeTransfersByKey, sortTransfersByTime } from './transferDedup';
 import { transferWindowOccurrencesForDate } from '../utils/transferOccurrences';
 import { buildPatientDirectory, localISO } from '../utils/patientDirectory';
+import { summarizeMoney, classifyBooking, roundMoney } from '../utils/bookingMoney';
 
 // PostgREST puts .in() lists in the URL, which breaks (and supabase-js then retries the network error with backoff,
 // ~7s) once it gets long — so id lists are always sent in chunks of at most this many.
@@ -832,42 +833,35 @@ export async function setDueHolder({ bookingId, dueHolderName }) {
   }
 }
 
-// Outstanding (unpaid + partial) balances grouped by responsible person.
-// from/to are ISO dates (inclusive); omit for all-time.
+// What is actually OWED, grouped by responsible person. "Owed" = rendered visits (In-Progress / Completed) with price − payments > 0,
+// computed by bookingMoney (paisa-exact, from payments — never from payment_status). Future appointments are not owed.
+// from/to are ISO dates (inclusive) on the booking date; omit for all-time.
+// Why payment_status is NOT used to find debt: the update_booking_payment_status trigger only fires AFTER INSERT on payments, never on a
+// payment update/delete or on a bookings.final_amount change (e.g. a treatment added after payment). So payment_status can be stale
+// (a stale 'paid' would hide real debt). Payments are the source of truth. Candidates are chosen by status only: due can only exist on
+// rendered visits (In-Progress / Completed); payments(amount) is always embedded and bookingMoney classifies each row.
 export async function getOutstandingByStaff({ branchId, from, to } = {}) {
   try {
-    // payments is embedded (FK payments_booking_id_fkey) instead of fetched via a
-    // second query keyed on `.in('booking_id', bookingIds)`. With "All Time" (no
-    // date filter) a busy branch can have 1000+ outstanding bookings; a bare
-    // booking-ID .in() list that large builds a URL long enough to get rejected
-    // upstream of PostgREST with a bare 400 "Bad Request" (no detail) — confirmed
-    // against prod (Lazimpat, all-time: 1095 outstanding bookings, failing
-    // consistently above ~500-700 IDs). Embedding returns everything in one
-    // request regardless of dataset size, so there's no ceiling to hit again.
-    let query = supabase
-      .from('bookings')
-      .select('id, booking_number, customer_name, customer_phone, date, final_amount, payment_status, due_holder_name, treatment_name_snapshot, payments(amount)')
-      .in('payment_status', ['unpaid', 'partial'])
-      .not('status', 'in', '("Cancelled","No Show")');
-    if (from) query = query.gte('date', from);
-    if (to) query = query.lte('date', to);
-    query = withBranch(query, branchId);
-    const { data: bookings, error } = await query;
-    if (error) throw error;
-
-    const all = bookings || [];
+    const today = localISO(new Date());
+    // payments is embedded (FK payments_booking_id_fkey) instead of a second `.in('booking_id', ids)` query: with "All Time" a busy
+    // branch can have 1000+ outstanding bookings, and a bare id list that long gets rejected upstream with a bare 400.
+    const rows = await pageAll(() => {
+      let query = supabase
+        .from('bookings')
+        .select('id, booking_number, customer_name, customer_phone, date, status, final_amount, payment_status, due_holder_name, treatment_name_snapshot, payments(amount)')
+        .in('status', ['In-Progress', 'Completed'])
+        .order('id');
+      if (from) query = query.gte('date', from);
+      if (to) query = query.lte('date', to);
+      return withBranch(query, branchId);
+    });
 
     const groups = {};
-    for (const b of all) {
-      const collected = (b.payments || []).reduce((sum, p) => sum + Number(p.amount), 0);
-      const due = Math.round((Number(b.final_amount) - collected) * 100) / 100;
-      if (due <= 0) continue;
+    for (const b of summarizeMoney(rows, { today }).dueBookings) {
       const rawName = (b.due_holder_name || '').trim();
       const key = rawName || '__unassigned__';
-      if (!groups[key]) {
-        groups[key] = { dueHolderName: rawName || null, totalDue: 0, bookingCount: 0, bookings: [] };
-      }
-      groups[key].totalDue = Math.round((groups[key].totalDue + due) * 100) / 100;
+      if (!groups[key]) groups[key] = { dueHolderName: rawName || null, totalDue: 0, bookingCount: 0, bookings: [] };
+      groups[key].totalDue = roundMoney(groups[key].totalDue + b.money.due);
       groups[key].bookingCount += 1;
       groups[key].bookings.push({
         bookingId: b.id,
@@ -876,84 +870,125 @@ export async function getOutstandingByStaff({ branchId, from, to } = {}) {
         customerPhone: b.customer_phone,
         date: b.date,
         treatmentName: b.treatment_name_snapshot || '—',
-        finalAmount: Number(b.final_amount),
-        amountPaid: collected,
-        amountDue: due,
+        finalAmount: b.money.price,
+        amountPaid: b.money.paid,
+        amountDue: b.money.due,
         paymentStatus: b.payment_status,
       });
     }
-
-    const result = Object.values(groups).sort((a, b) => b.totalDue - a.totalDue);
-    return { data: result, error: null };
+    return { data: Object.values(groups).sort((x, y) => y.totalDue - x.totalDue), error: null };
   } catch (error) {
     console.error('[API] getOutstandingByStaff error:', error.message);
     return { data: null, error };
   }
 }
 
-// One customer's total outstanding balance (unpaid + partial), across all dates —
-// used to warn staff of a returning customer's previous due at booking time, and
-// to bundle a customer's other outstanding bookings into a single payment.
-// Matches on phone alone — phone numbers are unique per customer, while names
-// aren't (two different customers can share a name), so phone is the reliable
-// identifier here. Compared normalized (reduced to its last 10 digits) rather
-// than as an exact string, since the same real customer is often recorded with
-// slightly different phone formatting (with/without country code) across visits.
-// customerName is accepted but purely cosmetic — it is never used to filter.
+// Outstanding report extras: past Pending/Confirmed bookings that were never closed ("Needs closing"), plus the total of
+// upcoming unpaid bookings (not owed yet). Same date filter semantics as getOutstandingByStaff.
+export async function getNeedsClosing({ branchId, from, to } = {}) {
+  try {
+    const today = localISO(new Date());
+    const rows = await pageAll(() => {
+      let query = supabase
+        .from('bookings')
+        .select('id, booking_number, customer_id, customer_name, customer_phone, date, start_time, status, final_amount, treatment_name_snapshot, dentist_name_snapshot, payments(amount)')
+        .in('status', ['Pending', 'Confirmed', 'In-Progress']) // In-Progress only matters when from a previous day (stale)
+        .order('id');
+      if (from) query = query.gte('date', from);
+      if (to) query = query.lte('date', to);
+      return withBranch(query, branchId);
+    });
+    const m = summarizeMoney(rows, { today });
+    const unclosed = m.unclosed
+      .map((b) => ({
+        bookingId: b.id, bookingNumber: b.booking_number, customerName: b.customer_name, customerId: b.customer_id, date: b.date,
+        startTime: (b.start_time || '').slice(0, 5), treatmentName: b.treatment_name_snapshot || '—', dentistName: b.dentist_name_snapshot || '—',
+        status: b.status, atStake: b.money.atStake, stillInProgress: false,
+      }))
+      .concat(m.staleInProgress.map((b) => ({
+        bookingId: b.id, bookingNumber: b.booking_number, customerName: b.customer_name, customerId: b.customer_id, date: b.date,
+        startTime: (b.start_time || '').slice(0, 5), treatmentName: b.treatment_name_snapshot || '—', dentistName: b.dentist_name_snapshot || '—',
+        status: b.status, atStake: 0, stillInProgress: true, // the money is already in Outstanding; nothing extra at stake
+      })))
+      .sort((x, y) => (x.date + x.startTime < y.date + y.startTime ? -1 : 1));
+    return { data: { unclosed, unclosedAtStake: m.unclosedAtStake, upcoming: m.upcoming, upcomingCount: m.upcomingCount }, error: null };
+  } catch (error) {
+    console.error('[API] getNeedsClosing error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Close a past Pending/Confirmed booking that never got a status ("Needs closing"). Uses the normal status path
+// (updateBookingStatus), so locks, terminal-status and transition rules all apply. The state machine has no direct
+// Confirmed → Completed, so completing walks Pending → Confirmed → In-Progress → Completed one valid step at a time.
+export async function closePastBooking({ bookingId, outcome, reason }) {
+  const { data: b, error } = await supabase.from('bookings').select('id, status').eq('id', bookingId).single();
+  if (error) return { data: null, error };
+  const steps = outcome === 'no_show'
+    ? [['No Show', reason]]
+    : { Pending: ['Confirmed', 'In-Progress', 'Completed'], Confirmed: ['In-Progress', 'Completed'], 'In-Progress': ['Completed'] }[b.status]?.map((st) => [st]);
+  if (!steps) return { data: null, error: { code: 'NOT_OPEN', message: `This booking is already ${b.status}.` } };
+  for (const [newStatus, why] of steps) {
+    const res = await updateBookingStatus({ bookingId, newStatus, reason: why });
+    if (res.error) return res;
+  }
+  return { data: { bookingId }, error: null };
+}
+
+// Local-DB audit helper: how many bookings have a payment_status that disagrees with their recorded payments?
+export async function countPaymentStatusMismatches({ branchId } = {}) {
+  const rows = await pageAll(() => withBranch(supabase.from('bookings').select('id, status, payment_status, final_amount, date, payments(amount)').order('id'), branchId));
+  const today = localISO(new Date());
+  return rows.filter((b) => {
+    const m = classifyBooking(b, { today });
+    const settled = m.paid >= m.price && m.price > 0;
+    if (b.payment_status === 'paid') return !settled && m.kind !== 'void';
+    if (b.payment_status === 'unpaid') return m.paid > 0;
+    return false;
+  });
+}
+
+// The "other bookings still owed" for one patient (matched by phone): calendar Prev. due, the booking-form warning and the
+// Collect bundle. Only DUE counts (rendered visits), never future appointments; pass `excludeBookingId` where a current booking
+// exists. Compared on the normalized phone, bounded and fail-open like before. customerName is cosmetic.
 export async function getCustomerOutstandingBalance({ customerPhone, branchId, excludeBookingId } = {}) {
   try {
     const normalizedPhone = toE164(customerPhone);
-    // Need a full number (country code + national) before matching — a stray
-    // fragment must not sweep up unrelated bookings.
+    // Need a full number (country code + national) before matching — a stray fragment must not sweep up unrelated bookings.
     if (!normalizedPhone || normalizedPhone.length < 11) {
       return { data: { totalDue: 0, bookingCount: 0, bookings: [] }, error: null };
     }
-
-    let query = supabase
-      .from('bookings')
-      .select('id, booking_number, customer_name, customer_phone, date, final_amount, payment_status, treatment_name_snapshot')
-      .in('payment_status', ['unpaid', 'partial'])
-      .not('status', 'in', '("Cancelled","No Show")');
-    if (excludeBookingId) query = query.neq('id', excludeBookingId);
-    query = withBranch(query, branchId);
-    const { data: bookings, error } = await query;
-    if (error) throw error;
-
-    const all = (bookings || []).filter((b) => samePhone(b.customer_phone, normalizedPhone));
-    const bookingIds = all.map(b => b.id);
-    const paidMap = {};
-    if (bookingIds.length > 0) {
-      const { data: payments, error: payError } = await supabase
-        .from('payments')
-        .select('booking_id, amount')
-        .in('booking_id', bookingIds);
-      if (payError) throw payError;
-      for (const p of (payments || [])) {
-        paidMap[p.booking_id] = (paidMap[p.booking_id] || 0) + Number(p.amount);
-      }
-    }
-
-    let totalDue = 0;
-    const dueBookings = [];
-    for (const b of all) {
-      const collected = paidMap[b.id] || 0;
-      const due = Math.round((Number(b.final_amount) - collected) * 100) / 100;
-      if (due <= 0) continue;
-      totalDue = Math.round((totalDue + due) * 100) / 100;
-      dueBookings.push({
-        bookingId: b.id,
-        bookingNumber: b.booking_number,
-        customerName: b.customer_name,
-        date: b.date,
-        treatmentName: b.treatment_name_snapshot || '—',
-        finalAmount: Number(b.final_amount),
-        amountPaid: collected,
-        amountDue: due,
-        paymentStatus: b.payment_status,
-      });
-    }
-
-    return { data: { totalDue, bookingCount: dueBookings.length, bookings: dueBookings }, error: null };
+    const today = localISO(new Date());
+    // Candidates by status only (see getOutstandingByStaff): payment_status can be stale, so it is never used as a filter.
+    const rows = await pageAll(() => {
+      let query = supabase
+        .from('bookings')
+        .select('id, booking_number, customer_name, customer_phone, date, status, final_amount, payment_status, treatment_name_snapshot, payments(amount)')
+        .in('status', ['In-Progress', 'Completed'])
+        .order('id');
+      if (excludeBookingId) query = query.neq('id', excludeBookingId);
+      return withBranch(query, branchId);
+    });
+    const mine = rows.filter((b) => samePhone(b.customer_phone, normalizedPhone));
+    const m = summarizeMoney(mine, { today, excludeBookingId });
+    return {
+      data: {
+        totalDue: m.due,
+        bookingCount: m.dueCount,
+        bookings: m.dueBookings.map((b) => ({
+          bookingId: b.id,
+          bookingNumber: b.booking_number,
+          customerName: b.customer_name,
+          date: b.date,
+          treatmentName: b.treatment_name_snapshot || '—',
+          finalAmount: b.money.price,
+          amountPaid: b.money.paid,
+          amountDue: b.money.due,
+          paymentStatus: b.payment_status,
+        })),
+      },
+      error: null,
+    };
   } catch (error) {
     console.error('[API] getCustomerOutstandingBalance error:', error.message);
     return { data: null, error };
@@ -4660,35 +4695,29 @@ export async function getCalendarBookings(branchId, startDate, endDate) {
       }
     })().catch(() => undefined), 4000, undefined);
     // Same definition as getCustomerOutstandingBalance (what the payment modal bundles as "Previous due"): the same phone's
-    // other unpaid/partial, non-cancelled bookings in this branch (any date), amount = final_amount − payments, excluding
-    // the booking itself and — as BookingActionModal does — its same-name/same-date unpaid "related treatments".
+    // other DUE bookings (rendered visits owing money, via bookingMoney; future appointments are never due) in this branch,
+    // excluding the booking itself and — as BookingActionModal does — its same-name/same-date unpaid "related treatments".
     const previousDuePromise = failOpenAfter((async () => {
       const phoneOf = (b) => { const p = toE164(b.customer_phone); return p && p.length >= 11 ? p : null; };
       const visiblePhones = new Set((bookings || []).map(phoneOf).filter(Boolean));
       if (visiblePhones.size === 0) return {};
       try {
-        const { data: openAll, error } = await supabase
+        // Only DUE counts (rendered visits owing money); future appointments never do. Candidates by status only; payment_status
+        // can be stale so it is never a filter. Paid comes from the embedded payments.
+        const openAll = await pageAll(() => supabase
           .from('bookings')
-          .select('id, customer_name, customer_phone, date, final_amount, payment_status')
+          .select('id, customer_name, customer_phone, date, status, final_amount, payment_status, payments(amount)')
           .eq('branch_id', resolvedBranchId)
-          .in('payment_status', ['unpaid', 'partial'])
-          .not('status', 'in', '("Cancelled","No Show")');
-        if (error) throw error;
-        // Only rows for a phone that is actually on screen can matter; don't fetch payments for the rest of the branch.
+          .in('status', ['In-Progress', 'Completed'])
+          .order('id'));
+        // Only rows for a phone that is actually on screen can matter.
         const open = (openAll || []).filter(o => visiblePhones.has(phoneOf(o)));
-        const ids = open.map(o => o.id);
-        const paid = {};
-        if (ids.length > 0) {
-          const pays = await inChunks(ids, (chunk) => supabase.from('payments').select('booking_id, amount').in('booking_id', chunk));
-          for (const p of pays) paid[p.booking_id] = (paid[p.booking_id] || 0) + Number(p.amount);
-        }
+        const todayISO = localISO(new Date());
         const byPhone = {};
-        for (const o of (open || [])) {
+        for (const o of summarizeMoney(open, { today: todayISO }).dueBookings) {
           const ph = phoneOf(o);
           if (!ph) continue;
-          const due = Math.round((Number(o.final_amount) - (paid[o.id] || 0)) * 100) / 100;
-          if (due <= 0) continue;
-          (byPhone[ph] ||= []).push({ id: o.id, name: o.customer_name, date: o.date, unpaid: o.payment_status === 'unpaid', due });
+          (byPhone[ph] ||= []).push({ id: o.id, name: o.customer_name, date: o.date, unpaid: o.payment_status === 'unpaid', due: o.money.due });
         }
         const out = {};
         for (const b of (bookings || [])) {
@@ -4696,7 +4725,7 @@ export async function getCalendarBookings(branchId, startDate, endDate) {
           if (!ph || !byPhone[ph]) continue;
           const list = byPhone[ph].filter(o => o.id !== b.id && !(o.unpaid && o.name === b.customer_name && o.date === b.date));
           if (list.length === 0) continue;
-          out[b.id] = { count: list.length, amount: Math.round(list.reduce((sum, o) => sum + o.due, 0) * 100) / 100 };
+          out[b.id] = { count: list.length, amount: roundMoney(list.reduce((sum, o) => sum + o.due, 0)) };
         }
         return out;
       } catch (e) {
@@ -6961,7 +6990,7 @@ export async function getPatientPanelDetail({ customerId, now = new Date() }) {
   try {
     const { data, error } = await supabase
       .from('bookings')
-      .select('id, booking_number, status, date, start_time, end_time, treatment_name_snapshot, dentist_name_snapshot')
+      .select('id, booking_number, status, date, start_time, end_time, treatment_name_snapshot, dentist_name_snapshot, final_amount, payments(amount)')
       .eq('customer_id', customerId)
       .in('status', ['Pending', 'Confirmed', 'In-Progress', 'Completed'])
       .order('date', { ascending: false })
@@ -6974,6 +7003,7 @@ export async function getPatientPanelDetail({ customerId, now = new Date() }) {
       id: b.id, bookingNumber: b.booking_number, status: b.status, date: b.date,
       start: (b.start_time || '').slice(0, 5), end: (b.end_time || '').slice(0, 5),
       treatment: b.treatment_name_snapshot || '', dentist: b.dentist_name_snapshot || '',
+      money: classifyBooking(b, { today }),
     }));
     const now_ = rows.find((b) => b.status === 'In-Progress' && b.date === today) || null;
     const upcoming = rows

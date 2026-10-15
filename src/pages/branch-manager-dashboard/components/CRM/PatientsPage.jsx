@@ -516,6 +516,7 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
         onNewBooking={() => openPatient && bookFor(openPatient)}
         onCollect={() => openPatient && startCollect(openPatient.phone)}
         onOpenChart={() => openPatient && openChart(openPatient)}
+        onClosed={load}
         onOpenBooking={(bookingId) => navigate(`?view=calendar&booking=${bookingId}`)}
         onOpenConsultation={(bookingId) => navigate(`/${orgSlug}/bookings/${bookingId}/consultation`)}
       />

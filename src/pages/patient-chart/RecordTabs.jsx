@@ -4,7 +4,8 @@ import VisitRecord from './VisitRecord';
 import { getConsultationFileUrl } from '../../services/api';
 import { parseSummarySections } from '../../utils/summarySections';
 import { consultationDoctor, capturedLine } from '../../utils/patientRecord';
-import { shortDate, bookingDue } from '../../utils/patientDirectory';
+import { shortDate } from '../../utils/patientDirectory';
+import { classifyBooking } from '../../utils/bookingMoney';
 import { generateConsultationPdf } from '../../utils/consultationReport';
 import { rowToReportData } from '../../utils/consultationHistory';
 
@@ -16,7 +17,17 @@ const Card = ({ children, className = '' }) => <div className={`border border-bo
 const STATUS = { 'In-Progress': 'In progress', 'No Show': 'No show' };
 
 // ── Visits: hairline rows, expandable into the full visit record ─────────────────────────────
-export const VisitsTab = ({ bookings, consultations, notes, customerName, onOpenBooking }) => {
+// Short money label for a booking row, from bookingMoney.
+const moneyLabel = (b, today) => {
+  const m = classifyBooking(b, { today });
+  if (m.kind === 'void') return '';
+  if (m.kind === 'unclosed') return 'Not closed';
+  if (m.due > 0) return `${npr(m.due)} due`;
+  if (m.upcoming > 0) return m.deposit > 0 ? `${npr(m.upcoming)} upcoming · deposit ${npr(m.deposit)}` : `${npr(m.upcoming)} upcoming`;
+  return m.price > 0 ? 'Paid' : '';
+};
+
+export const VisitsTab = ({ bookings, consultations, notes, customerName, onOpenBooking, today }) => {
   const [open, setOpen] = useState({});
   const byBooking = {};
   consultations.forEach((c) => { if (!byBooking[c.booking_id]) byBooking[c.booking_id] = c; });
@@ -36,7 +47,7 @@ export const VisitsTab = ({ bookings, consultations, notes, customerName, onOpen
                   <span className="block text-[12.5px] text-[#8A8A90] truncate">{visit.dentistName} · {b.booking_number}</span>
                 </span>
                 <span className="text-[12.5px] text-[#515152] hidden sm:block">{STATUS[b.status] || b.status}</span>
-                <span className="text-[12.5px] text-[#8A8A90] tabular-nums w-24 text-right hidden sm:block">{b.payment_status === 'paid' ? 'Paid' : bookingDue(b) > 0 ? `${npr(bookingDue(b))} due` : ''}</span>
+                <span className="text-[12.5px] text-[#8A8A90] tabular-nums w-44 text-right hidden sm:block">{moneyLabel(b, today)}</span>
                 <Icon name="ChevronDown" size={16} className={`text-[#8A8A90] transition-transform ${isOpen ? 'rotate-180' : ''}`} />
               </button>
               {isOpen && (
@@ -168,8 +179,8 @@ export const MediaTab = ({ groups }) => {
 };
 
 // ── Billing ──────────────────────────────────────────────────────────────────────────────────
-export const BillingTab = ({ patient, bookings, stats }) => {
-  const rows = [['Paid to date', npr(patient.lifetime)], ['Average spend', npr(stats.avgSpend)], ['Discounts', npr(stats.totalDiscount)], ['Outstanding', patient.balance > 0 ? npr(patient.balance) : '—', patient.balance > 0]];
+export const BillingTab = ({ patient, bookings, stats, today }) => {
+  const rows = [['Paid to date', npr(patient.lifetime)], ['Average spend', npr(stats.avgSpend)], ['Discounts', npr(stats.totalDiscount)], ['Outstanding (due)', patient.balance > 0 ? npr(patient.balance) : '—', patient.balance > 0]];
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 border border-border rounded-lg bg-white overflow-hidden">
@@ -184,13 +195,14 @@ export const BillingTab = ({ patient, bookings, stats }) => {
         <Card>
           <ul>
             {bookings.map((b) => {
-              const due = bookingDue(b);
+              const m = classifyBooking(b, { today });
+              const label = moneyLabel(b, today) || (STATUS[b.status] || b.status);
               return (
                 <li key={b.id} className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[#F1F1F3] last:border-0 text-[13px]">
                   <div className="min-w-0"><p className="font-medium truncate">{b.treatment_name_snapshot}</p><p className="text-[12.5px] text-[#8A8A90]">{fmt(b.date)} · {b.booking_number}</p></div>
                   <div className="text-right flex-shrink-0">
                     <p className="font-medium tabular-nums">{npr(b.final_amount)}</p>
-                    <p className={`text-[12.5px] ${due > 0 ? 'text-[#B45309]' : 'text-[#8A8A90]'}`}>{['Cancelled', 'No Show'].includes(b.status) ? STATUS[b.status] || b.status : due > 0 ? `${npr(due)} due` : 'Paid'}</p>
+                    <p className={`text-[12.5px] ${m.due > 0 ? 'text-[#B45309]' : 'text-[#8A8A90]'}`}>{['Cancelled', 'No Show'].includes(b.status) ? STATUS[b.status] || b.status : label}</p>
                   </div>
                 </li>
               );

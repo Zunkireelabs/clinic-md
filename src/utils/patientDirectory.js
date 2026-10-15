@@ -1,10 +1,11 @@
 // Pure derivation for the Patients list: one row per patient with next/last appointment, in-clinic flag, balance, etc.
 // "Today"/"now" come from the caller's local clock (never toISOString(), which shifts the date in Nepal).
 
+import { summarizeMoney } from './bookingMoney';
+
 const LAPSED_DAYS = 180;
 const VISIT_STATUSES = ['Completed', 'In-Progress'];
 const UPCOMING_STATUSES = ['Pending', 'Confirmed'];
-const NO_BALANCE_STATUSES = ['Cancelled', 'No Show'];
 
 const pad = (n) => String(n).padStart(2, '0');
 export const localISO = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -15,20 +16,6 @@ const dayNumber = (iso) => {
   return Math.round(Date.UTC(y, m - 1, d) / 86400000);
 };
 export const daysBetween = (fromISO, toISO) => dayNumber(toISO) - dayNumber(fromISO);
-
-/** Same-currency rounding the Outstanding report uses. */
-const round2 = (n) => Math.round(n * 100) / 100;
-
-/**
- * Outstanding amount for one booking row: final_amount minus recorded payments, for unpaid/partial,
- * non-cancelled bookings. Identical to getOutstandingByStaff / getCustomerOutstandingBalance.
- */
-export function bookingDue(b) {
-  if (!['unpaid', 'partial'].includes(b.payment_status)) return 0;
-  if (NO_BALANCE_STATUSES.includes(b.status)) return 0;
-  const paid = (b.payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
-  return Math.max(0, round2(Number(b.final_amount || 0) - paid));
-}
 
 export const loyaltyTier = ({ completed, revenue, lastDate, today }) => {
   let tier = 'Standard';
@@ -69,8 +56,6 @@ export function buildPatientDirectory({ customers = [], bookings = [], now = new
     let laterTodayTime = '';
     let visits = 0;
     let completed = 0;
-    let balance = 0;
-    let lifetime = 0;
     const dentistIds = new Set();
     const treatments = new Set();
 
@@ -91,16 +76,17 @@ export function buildPatientDirectory({ customers = [], bookings = [], now = new
           next = { date, time, treatment: b.treatment_name_snapshot || '' };
         }
       }
-      if (date === today && !NO_BALANCE_STATUSES.includes(b.status) && (todayTime == null || time < todayTime)) {
+      if (date === today && !['Cancelled', 'No Show'].includes(b.status) && (todayTime == null || time < todayTime)) {
         todayTime = time || '00:00';
         todayAppt = { date, time, treatment: b.treatment_name_snapshot || '' };
       }
-      balance = round2(balance + bookingDue(b));
-      if (b.payment_status === 'paid') lifetime = round2(lifetime + Number(b.final_amount || 0));
       if (b.dentist_id) dentistIds.add(b.dentist_id);
       if (b.treatment_name_snapshot) treatments.add(b.treatment_name_snapshot);
     }
 
+    // All the money comes from bookingMoney: due (owed for rendered visits), upcoming, deposit, credit, unclosed past bookings.
+    const money = summarizeMoney(list, { today });
+    const lifetime = money.paidToDate;
     const lapsed = !!lastVisit && !next && daysBetween(lastVisit.date, today) > LAPSED_DAYS;
     return {
       id: c.id,
@@ -119,8 +105,14 @@ export function buildPatientDirectory({ customers = [], bookings = [], now = new
       todayTime, // earliest start time of a non-cancelled booking today, else null
       visits,
       isFirstTime: visits === 0, // no Completed/In-Progress visit yet
-      balance,
-      lifetime,
+      balance: money.due, // owed now (rendered visits only)
+      unpaidVisits: money.dueCount,
+      upcoming: money.upcoming, // scheduled, not yet owed
+      deposit: money.deposit,
+      credit: money.credit,
+      unclosed: money.unclosed.map((b) => ({ id: b.id, date: String(b.date).slice(0, 10), treatment: b.treatment_name_snapshot || '', status: b.status, atStake: b.money.atStake })),
+      staleInProgress: money.staleInProgress.map((b) => ({ id: b.id, date: String(b.date).slice(0, 10), treatment: b.treatment_name_snapshot || '', status: b.status })),
+      lifetime, // paid to date: every payment recorded
       isNew: String(c.created_at || '').slice(0, 7) === monthPrefix, // created_at is UTC; month granularity is close enough
       lapsed,
       tier: loyaltyTier({ completed, revenue: lifetime, lastDate: lastVisit?.date, today }),

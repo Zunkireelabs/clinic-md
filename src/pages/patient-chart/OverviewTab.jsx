@@ -77,7 +77,8 @@ export const ActivityFeed = ({ items, today, onOpen }) => {
                   <span className="w-8 h-8 rounded-full border border-border grid place-items-center text-[#515152] flex-shrink-0 mt-0.5"><Icon name={KIND_ICON[i.kind]} size={14} /></span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2 text-[13.5px] font-medium"><span className="truncate">{i.title}</span>
-                      {pill && <span className={`h-5 rounded-full px-2 text-[11.5px] font-medium inline-flex items-center flex-shrink-0 ${pill[1]}`}>{pill[0]}</span>}</span>
+                      {pill && !i.notClosed && <span className={`h-5 rounded-full px-2 text-[11.5px] font-medium inline-flex items-center flex-shrink-0 ${pill[1]}`}>{pill[0]}</span>}
+                      {i.notClosed && <span className="h-5 rounded-full px-2 text-[11.5px] font-medium inline-flex items-center flex-shrink-0 bg-[#FFF7ED] text-[#B45309]">Not closed</span>}</span>
                     <span className="block text-[12.5px] text-[#8A8A90] truncate">{i.sub}</span>
                   </span>
                   <span className="text-[12.5px] text-[#8A8A90] flex-shrink-0 tabular-nums">{dayShort(i.date, today)}{i.date === today && i.time ? `, ${i.time}` : ''}</span>

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Icon from '../../../../components/AppIcon';
 import SidePanel from '../../../../components/ui/SidePanel';
+import UnclosedNudge from '../../../../components/ui/UnclosedNudge';
 import { getPatientPanelDetail } from '../../../../services/api';
 import { formatPhoneDisplay } from '../../../../utils/phone';
 import { CONSULTATION_ENABLED } from '../../../../lib/featureFlags';
@@ -31,7 +32,7 @@ const StatusPill = ({ status }) => (
 
 const SkeletonCard = () => <div className="h-[66px] rounded-lg border border-[#E9E9EC] animate-pulse bg-[#FAFAFB]" />;
 
-const PatientPanel = ({ patient, today, readOnly, canCollect, onClose, onNewBooking, onCollect, onOpenChart, onOpenBooking, onOpenConsultation }) => {
+const PatientPanel = ({ patient, today, readOnly, canCollect, onClose, onNewBooking, onCollect, onOpenChart, onOpenBooking, onOpenConsultation, onClosed }) => {
   const [detail, setDetail] = useState(null);
   const [failed, setFailed] = useState(false);
   const id = patient?.id;
@@ -92,6 +93,7 @@ const PatientPanel = ({ patient, today, readOnly, canCollect, onClose, onNewBook
     <SidePanel isOpen={!!patient} onClose={onClose} title="Patient" titleId="patient-panel-title" width="460px" header={header}>
       {p && (
         <div className="px-5 py-[18px] flex flex-col gap-[22px]">
+          <UnclosedNudge unclosed={p.unclosed} stale={p.staleInProgress} readOnly={readOnly} onChanged={onClosed} onSeeAll={onOpenChart} />
           {failed && <p className="text-[13px] text-[#B45309]">Couldn’t load this patient’s appointments. Close and reopen to retry.</p>}
 
           {detail?.now && (
@@ -119,18 +121,23 @@ const PatientPanel = ({ patient, today, readOnly, canCollect, onClose, onNewBook
                 <DateBlock iso={detail.upcoming.date} />
                 <div className="min-w-0 flex-1">
                   <p className="text-[13.5px] font-medium truncate">{detail.upcoming.treatment}</p>
-                  <p className="text-[12.5px] text-[#8A8A90] truncate">{relativeDayLabel(detail.upcoming.date, today)} · {range(detail.upcoming)}{detail.upcoming.dentist ? ` · ${detail.upcoming.dentist}` : ''}</p>
+                  <p className="text-[12.5px] text-[#8A8A90] break-words">{relativeDayLabel(detail.upcoming.date, today)} · {range(detail.upcoming)}{detail.upcoming.dentist ? ` · ${detail.upcoming.dentist}` : ''}</p>
                 </div>
-                <StatusPill status={detail.upcoming.status} />
+                <div className="text-right flex-shrink-0">
+                  <StatusPill status={detail.upcoming.status} />
+                  <p className="text-[12px] text-[#8A8A90] mt-1 tabular-nums">{detail.upcoming.money.deposit > 0 ? `${npr(detail.upcoming.money.deposit)} paid · ${Number(detail.upcoming.money.upcoming).toLocaleString('en-IN')} at visit` : npr(detail.upcoming.money.price)}</p>
+                </div>
               </div>
             ) : <p className="text-[13px] text-[#B4B4BA]">No appointment</p>}
           </section>
 
           <div className="grid grid-cols-3 border border-[#E9E9EC] rounded-lg">
             <Stat label="Visits" value={p.visits} />
-            <Stat label="Balance" value={p.balance > 0 ? npr(p.balance) : '—'} amber={p.balance > 0} divider />
+            <Stat label="Balance" value={p.balance > 0 ? npr(p.balance) : p.upcoming > 0 ? 'NPR 0' : '—'} amber={p.balance > 0} divider />
             <Stat label="Paid to date" value={npr(p.lifetime)} divider />
           </div>
+
+          {balanceSub(p) && <p className="text-[12px] text-[#8A8A90] -mt-4">{balanceSub(p)}</p>}
 
           <section>
             <Label action={<button type="button" onClick={onOpenChart} className="normal-case tracking-normal text-[#515152] font-medium hover:text-[#0E0D0C]">View all</button>}>Recent visits</Label>
@@ -160,10 +167,19 @@ const PatientPanel = ({ patient, today, readOnly, canCollect, onClose, onNewBook
   );
 };
 
-const Stat = ({ label, value, amber, divider }) => (
+/** Grey subline under the Balance figure: whichever of unpaid visits / upcoming / deposit / credit apply. */
+export const balanceSub = (p) => [
+  p.balance > 0 && `${p.unpaidVisits} unpaid visit${p.unpaidVisits === 1 ? '' : 's'}`,
+  p.upcoming > 0 && `+ ${npr(p.upcoming)} upcoming`,
+  p.deposit > 0 && `${npr(p.deposit)} deposit held`,
+  p.credit > 0 && `${npr(p.credit)} credit`,
+].filter(Boolean).join(' · ');
+
+const Stat = ({ label, value, amber, divider, sub }) => (
   <div className={`px-3.5 py-3 ${divider ? 'border-l border-[#E9E9EC]' : ''}`}>
     <span className="text-[12px] text-[#8A8A90]">{label}</span>
     <b className={`block text-[16px] font-semibold tracking-[-0.3px] mt-[3px] tabular-nums ${amber ? 'text-[#B45309]' : ''}`}>{value}</b>
+    {sub && <span className="block text-[11.5px] text-[#8A8A90] mt-0.5 leading-snug">{sub}</span>}
   </div>
 );
 

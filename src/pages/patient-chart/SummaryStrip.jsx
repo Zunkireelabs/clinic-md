@@ -1,5 +1,7 @@
 import React from 'react';
 import { relativeDayLabel, monthYear } from '../../utils/patientDirectory';
+import { classifyBooking } from '../../utils/bookingMoney';
+import { balanceSub } from '../branch-manager-dashboard/components/CRM/PatientPanel';
 
 const npr = (n) => `NPR ${Number(n || 0).toLocaleString('en-IN')}`;
 const range = (b) => `${String(b.start_time || '').slice(0, 5)}${b.end_time ? ` – ${String(b.end_time).slice(0, 5)}` : ''}`;
@@ -13,21 +15,25 @@ const Cell = ({ label, dot, value, sub, amber }) => (
 );
 
 // One bordered row: Now (or today's next booking), Next appointment, Visits, Balance, Paid to date.
-const SummaryStrip = ({ patient, bookings, today, unpaidVisits }) => {
+const SummaryStrip = ({ patient, bookings, today }) => {
   const nowB = bookings.find((b) => b.status === 'In-Progress' && String(b.date).slice(0, 10) === today);
   const nowHM = new Date().toTimeString().slice(0, 5);
   const laterToday = !nowB && bookings
     .filter((b) => ['Pending', 'Confirmed'].includes(b.status) && String(b.date).slice(0, 10) === today && String(b.start_time).slice(0, 5) > nowHM)
     .sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)))[0];
   const next = patient.nextAppointment;
+  // Price (and any deposit) of the next appointment, from bookingMoney.
+  const nextB = next && bookings.find((b) => String(b.date).slice(0, 10) === next.date && String(b.start_time).slice(0, 5) === next.time && ['Pending', 'Confirmed'].includes(b.status));
+  const nextM = nextB && classifyBooking(nextB, { today });
+  const nextSub = !next ? 'No appointment' : [next.treatment, nextM && (nextM.deposit > 0 ? `${npr(nextM.deposit)} paid · ${nextM.upcoming.toLocaleString('en-IN')} at visit` : npr(nextM.price))].filter(Boolean).join(' · ');
   const firstVisit = bookings.filter((b) => ['Completed', 'In-Progress'].includes(b.status)).map((b) => String(b.date).slice(0, 10)).sort()[0];
   const cells = [];
   if (nowB) cells.push({ label: 'Now', dot: true, value: nowB.treatment_name_snapshot, sub: [range(nowB), nowB.dentist_name_snapshot].filter(Boolean).join(' · ') });
   else if (laterToday) cells.push({ label: 'Today', value: `${String(laterToday.start_time).slice(0, 5)} · ${laterToday.treatment_name_snapshot}`, sub: laterToday.dentist_name_snapshot || '' });
   cells.push(
-    { label: 'Next appointment', value: next ? `${relativeDayLabel(next.date, today)} · ${next.time}` : '—', sub: next ? next.treatment : 'No appointment' },
+    { label: 'Next appointment', value: next ? `${relativeDayLabel(next.date, today)} · ${next.time}` : '—', sub: nextSub },
     { label: 'Visits', value: patient.visits, sub: firstVisit ? `since ${monthYear(firstVisit).split(' ')[0]}` : 'No visits yet' },
-    { label: 'Balance', value: patient.balance > 0 ? npr(patient.balance) : '—', amber: patient.balance > 0, sub: patient.balance > 0 ? `${unpaidVisits} unpaid visit${unpaidVisits === 1 ? '' : 's'}` : 'Nothing due' },
+    { label: 'Balance', value: patient.balance > 0 ? npr(patient.balance) : patient.upcoming > 0 ? 'NPR 0' : '—', amber: patient.balance > 0, sub: balanceSub(patient) || 'Nothing due' },
     { label: 'Paid to date', value: npr(patient.lifetime), sub: `across ${patient.visits} visit${patient.visits === 1 ? '' : 's'}` },
   );
   const cols = cells.length === 5 ? 'lg:grid-cols-5' : 'lg:grid-cols-4';

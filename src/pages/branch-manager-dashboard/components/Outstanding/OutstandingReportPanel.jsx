@@ -6,6 +6,7 @@ import PaymentModal from '../../../../components/ui/PaymentModal';
 import { PERIOD_PRESETS, getPeriodRange, getTodayISO } from '../../../../utils/periodPresets';
 import { getOutstandingByStaff, fetchDueHolderNames, setDueHolder, recordPayment, getCustomerOutstandingBalance } from '../../../../services/api';
 import SettledDueHistoryPanel from './SettledDueHistoryPanel';
+import NeedsClosingSection from './NeedsClosingSection';
 
 function formatNPR(amount) {
   return `NPR ${Number(amount || 0).toLocaleString('en-IN')}`;
@@ -501,6 +502,7 @@ const OutstandingReportPanel = ({ branchId }) => {
           </div>
         )}
       </div>
+      <NeedsClosingSection branchId={branchId} from={range.from} to={range.to} />
       </>
       )}
 

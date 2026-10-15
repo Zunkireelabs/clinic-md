@@ -10,7 +10,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { CONSULTATION_ENABLED } from '../../lib/featureFlags';
 import { getPatientRecord, updateCustomerFields } from '../../services/api';
 import { localISO } from '../../utils/patientDirectory';
-import { buildActivity, latestClinicalSummary, careTeam, treatmentCounts, unpaidVisitCount, mediaGroups, mediaCount } from '../../utils/patientRecord';
+import { buildActivity, latestClinicalSummary, careTeam, treatmentCounts, mediaGroups, mediaCount } from '../../utils/patientRecord';
+import UnclosedNudge from '../../components/ui/UnclosedNudge';
 import RecordHeader from './RecordHeader';
 import SummaryStrip from './SummaryStrip';
 import { SummaryCard, ActivityFeed, DetailsRail } from './OverviewTab';
@@ -87,7 +88,6 @@ const PatientChart = ({ embedded = false, customerId: customerIdProp }) => {
       summary: latestClinicalSummary(consultations),
       team: careTeam(bookings),
       treatments: treatmentCounts(bookings),
-      unpaidVisits: unpaidVisitCount(bookings),
       media: mediaGroups(consultations),
       mediaN: mediaCount(consultations),
       stats: {
@@ -155,7 +155,8 @@ const PatientChart = ({ embedded = false, customerId: customerIdProp }) => {
             onDuplicates={() => navigate(`/${orgSlug}/dashboard?view=customers&segment=duplicates`)}
           />
           {payError && <p role="alert" className="text-[13px] text-[#B45309] mt-2">{payError}</p>}
-          <SummaryStrip patient={patient} bookings={bookings} today={today} unpaidVisits={derived.unpaidVisits} />
+          <div className="mt-4"><UnclosedNudge unclosed={patient.unclosed} stale={patient.staleInProgress} readOnly={readOnly} onChanged={() => load(true)} onSeeAll={() => setTab('visits')} /></div>
+          <SummaryStrip patient={patient} bookings={bookings} today={today} />
 
           <div className="flex gap-6 border-b border-border mt-7 mb-5 overflow-x-auto overflow-y-hidden" role="tablist" aria-label="Patient record">
             {tabs.map((t) => (
@@ -177,10 +178,10 @@ const PatientChart = ({ embedded = false, customerId: customerIdProp }) => {
                 onSaveDob={(dob) => save({ dateOfBirth: dob }, 'Date of birth saved')} onSaveNotes={(n) => save({ notes: n }, 'Notes saved')} />
             </div>
           )}
-          {tab === 'visits' && <VisitsTab bookings={derived.visitRows} consultations={consultations} notes={derived.treatmentNotes} customerName={customer.full_name} onOpenBooking={embedded ? null : openBooking} />}
+          {tab === 'visits' && <VisitsTab today={today} bookings={derived.visitRows} consultations={consultations} notes={derived.treatmentNotes} customerName={customer.full_name} onOpenBooking={embedded ? null : openBooking} />}
           {tab === 'notes' && <ClinicalNotesTab consultations={consultations} focusId={focusConsultation} customerName={customer.full_name} />}
           {tab === 'media' && <MediaTab groups={derived.media} />}
-          {tab === 'billing' && <BillingTab patient={patient} bookings={derived.visitRows} stats={derived.stats} />}
+          {tab === 'billing' && <BillingTab today={today} patient={patient} bookings={derived.visitRows} stats={derived.stats} />}
         </>
       )}
       {payModal}

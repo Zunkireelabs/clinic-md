@@ -1,7 +1,8 @@
 // Pure helpers behind the full patient page: latest clinical summary, the merged activity timeline, care team, treatments.
 // Balance / visits / next / last / in-clinic come from patientDirectory.js (the same util as the list); nothing here recomputes them.
 import { parseSummarySections } from './summarySections';
-import { bookingDue, localISO } from './patientDirectory';
+import { localISO } from './patientDirectory';
+import { classifyBooking, summarizeMoney } from './bookingMoney';
 
 const NO_VISIT = ['Cancelled', 'No Show'];
 const npr = (n) => `NPR ${Number(n || 0).toLocaleString('en-IN')}`;
@@ -53,13 +54,15 @@ export function latestClinicalSummary(consultations = []) {
   };
 }
 
-const visitMoney = (b) => {
-  const due = bookingDue(b);
-  const amount = npr(b.final_amount);
-  if (NO_VISIT.includes(b.status)) return '';
-  if (b.payment_status === 'paid') return `${amount} · paid`;
-  if (due > 0 && due < Number(b.final_amount)) return `${amount} · ${npr(due)} due`;
-  return `${amount} unpaid`;
+// Money line for a visit, from bookingMoney: "NPR 8,000 due", "NPR 3,000 upcoming", "deposit NPR 1,000" or "paid".
+const visitMoney = (m) => {
+  const parts = [];
+  if (m.kind === 'void' || m.kind === 'unclosed') return '';
+  if (m.due > 0) parts.push(`${npr(m.due)} due`);
+  if (m.upcoming > 0) parts.push(`${npr(m.upcoming)} upcoming`);
+  if (m.deposit > 0) parts.push(`deposit ${npr(m.deposit)}`);
+  if (!parts.length && m.price > 0) parts.push('paid');
+  return parts.join(' · ');
 };
 
 /**
@@ -72,10 +75,11 @@ export function buildActivity({ bookings = [], consultations = [], today }) {
     const date = String(b.date).slice(0, 10);
     if (date > today) continue; // upcoming bookings are shown as "Next appointment", not as history
     const time = hm(b.start_time);
+    const m = classifyBooking(b, { today });
     items.push({
-      kind: 'visit', id: `v-${b.id}`, bookingId: b.id, at: `${date}T${time || '00:00'}`, date, time,
+      kind: 'visit', notClosed: m.kind === 'unclosed', id: `v-${b.id}`, bookingId: b.id, at: `${date}T${time || '00:00'}`, date, time,
       title: b.treatment_name_snapshot || 'Visit', status: b.status,
-      sub: [b.dentist_name_snapshot, b.booking_number, visitMoney(b)].filter(Boolean).join(' · '),
+      sub: [b.dentist_name_snapshot, b.booking_number, visitMoney(m)].filter(Boolean).join(' · '),
     });
     for (const p of (b.payments || [])) {
       const lp = localParts(p.created_at);
@@ -109,9 +113,11 @@ const tally = (rows, keyOf) => {
   return [...m].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 };
 const seen = (b) => ['Completed', 'In-Progress'].includes(b.status);
+/** Past Pending/Confirmed bookings that were never closed, oldest first. */
+export const unclosedVisits = (bookings, today) => summarizeMoney(bookings, { today }).unclosed;
+
 export const careTeam = (bookings) => tally(bookings.filter(seen), (b) => b.dentist_name_snapshot);
 export const treatmentCounts = (bookings) => tally(bookings.filter(seen), (b) => b.treatment_name_snapshot);
-export const unpaidVisitCount = (bookings) => bookings.filter((b) => bookingDue(b) > 0).length;
 
 /** Every uploaded image across consultations, newest consultation first, grouped by day: [{ date, items:[{path, label, consultationId}] }]. */
 export function mediaGroups(consultations = []) {

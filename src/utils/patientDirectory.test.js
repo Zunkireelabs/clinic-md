@@ -1,11 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildPatientDirectory, bookingDue, matchesSearch, phoneSearchDigits, relativeDayLabel, sortPatients, segmentCounts, SEGMENTS, initials, monthsSince,
+  buildPatientDirectory, matchesSearch, phoneSearchDigits, relativeDayLabel, sortPatients, segmentCounts, SEGMENTS, initials, monthsSince,
 } from './patientDirectory';
 
 const NOW = new Date(2026, 9, 14, 11, 0); // Wed 14 Oct 2026, 11:00 local
 const cust = (id, extra = {}) => ({ id, full_name: `P ${id}`, phone: '+9779841234567', email: '', gender: '', created_at: '2026-01-01T00:00:00Z', ...extra });
-const bk = (customer_id, extra = {}) => ({ customer_id, status: 'Completed', payment_status: 'paid', final_amount: 1000, date: '2026-10-01', start_time: '10:00:00', treatment_name_snapshot: 'Cleaning', dentist_id: 'd1', ...extra });
+const bk = (customer_id, extra = {}) => {
+  const b = { customer_id, status: 'Completed', payment_status: 'paid', final_amount: 1000, date: '2026-10-01', start_time: '10:00:00', treatment_name_snapshot: 'Cleaning', dentist_id: 'd1', ...extra };
+  // Money comes from payments (never payment_status): a 'paid' fixture without explicit payments gets a full payment.
+  return { ...b, payments: extra.payments ?? (b.payment_status === 'paid' ? [{ amount: b.final_amount }] : []) };
+};
 const one = (bookings, c = cust('a')) => buildPatientDirectory({ customers: [c], bookings, now: NOW })[0];
 
 describe('lastVisit', () => {
@@ -87,19 +91,39 @@ describe('today view / first-time', () => {
   });
 });
 
-describe('balance / lifetime', () => {
-  it('matches the outstanding report: final minus payments for unpaid/partial, non-cancelled', () => {
-    const p = one([
-      bk('a', { payment_status: 'unpaid', final_amount: 5000 }),
-      bk('a', { payment_status: 'partial', final_amount: 3000, payments: [{ amount: 1000 }] }),
-      bk('a', { payment_status: 'unpaid', final_amount: 9999, status: 'Cancelled' }),
-      bk('a', { payment_status: 'paid', final_amount: 2000 }),
-    ]);
+describe('money (from bookingMoney)', () => {
+  const p = one([
+    bk('a', { payment_status: 'unpaid', final_amount: 5000 }),                                                      // due 5000
+    bk('a', { payment_status: 'partial', final_amount: 3000, payments: [{ amount: 1000 }] }),                        // due 2000
+    bk('a', { payment_status: 'unpaid', final_amount: 9999, status: 'Cancelled' }),                                 // void
+    bk('a', { payment_status: 'paid', final_amount: 2000 }),                                                        // paid 2000
+    bk('a', { status: 'Confirmed', date: '2026-10-19', payment_status: 'partial', final_amount: 3000, payments: [{ amount: 1000 }] }), // upcoming 2000, deposit 1000
+    bk('a', { status: 'Confirmed', date: '2026-10-12', payment_status: 'unpaid', final_amount: 700, treatment_name_snapshot: 'Filling' }), // unclosed
+  ]);
+  it('balance is what is owed for rendered visits only', () => {
     expect(p.balance).toBe(7000);
-    expect(p.lifetime).toBe(2000);
+    expect(p.unpaidVisits).toBe(2);
   });
-  it('bookingDue never goes negative', () => {
-    expect(bookingDue({ payment_status: 'partial', status: 'Completed', final_amount: 100, payments: [{ amount: 150 }] })).toBe(0);
+  it('splits upcoming, deposit and unclosed out of the balance', () => {
+    expect(p.upcoming).toBe(2000);
+    expect(p.deposit).toBe(1000);
+    expect(p.credit).toBe(0);
+    expect(p.unclosed).toEqual([{ id: undefined, date: '2026-10-12', treatment: 'Filling', status: 'Confirmed', atStake: 700 }]);
+  });
+  it('flags a previous-day In-Progress visit as stale without adding to at-stake', () => {
+    const q = one([bk('a', { status: 'In-Progress', date: '2026-10-13', payment_status: 'unpaid', final_amount: 800, id: 'ip' })]);
+    expect(q.staleInProgress).toEqual([{ id: 'ip', date: '2026-10-13', treatment: 'Cleaning', status: 'In-Progress' }]);
+    expect(q.balance).toBe(800);
+    expect(q.unclosed).toEqual([]);
+  });
+  it('lifetime (paid to date) is every payment recorded, deposits included', () => {
+    expect(p.lifetime).toBe(4000);
+  });
+  it('a future unpaid booking is not owed', () => {
+    const q = one([bk('a', { status: 'Confirmed', date: '2026-10-19', payment_status: 'unpaid', final_amount: 3000 })]);
+    expect(q.balance).toBe(0);
+    expect(q.upcoming).toBe(3000);
+    expect(SEGMENTS.owes(q)).toBe(false);
   });
 });
 
