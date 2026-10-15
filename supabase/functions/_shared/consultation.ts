@@ -54,7 +54,7 @@ export const authenticate = async (req: Request, opts: AuthOptions = {}): Promis
   if (opts.requireStaff) {
     const { data: profile } = await supabase.from('users').select('role, is_active').eq('id', data.user.id).maybeSingle();
     if (!profile || profile.is_active === false || !['staff', 'manager', 'admin'].includes(profile.role)) {
-      return json({ error: 'FORBIDDEN', message: 'Your account cannot use consultation AI.' }, 403);
+      return json({ error: 'FORBIDDEN', message: 'Your account can’t use this feature.' }, 403); // generic: also returned by phone-pair and consultation-push
     }
   }
   if (opts.quota) {
