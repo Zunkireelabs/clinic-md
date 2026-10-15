@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useReducer, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import Icon from '../../components/AppIcon';
@@ -6,7 +6,6 @@ import Button from '../../components/ui/Button';
 import AppShell from '../../components/ui/AppShell';
 import { useShellHeader } from '../../hooks/useShellHeader';
 import { AIAssistantPanel } from '../../components/ui/AIAssistant';
-import PatientChart from '../patient-chart';
 import ImageAnalysisCard from './components/ImageAnalysisCard';
 import PhoneHandoff from './components/PhoneHandoff';
 import PhoneCodeBanner from './components/PhoneCodeBanner';
@@ -19,6 +18,15 @@ import useAudioRecorder from '../../hooks/useAudioRecorder';
 import useConsultationRemote from '../../hooks/useConsultationRemote';
 import useDoctorPhoneLink from '../../hooks/useDoctorPhoneLink';
 import { recorderDevices } from '../../utils/remoteDevices';
+import DeskHeader from './desk/DeskHeader';
+import RecorderBar from './desk/RecorderBar';
+import NoteCard from './desk/NoteCard';
+import ConsultationRail from './desk/ConsultationRail';
+import useLeaveGuard from './desk/useLeaveGuard';
+import { flowReducer, initialFlow, deriveStage, showNoAiBanner, draftingSteps, draftInputsKey, draftIsStale } from '../../utils/consultationFlow';
+import { markdownToNote, noteToMarkdown, normalizeNote, isNoteEmpty, sameNote, emptyNote } from '../../utils/consultationNote';
+import { parseSummarySections } from '../../utils/summarySections';
+import { resizeImageFile } from '../../utils/imageResize';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   fetchBookingById,
@@ -33,6 +41,9 @@ import {
   getConsultationFileUrl,
   transcribeConsultationAudio,
   summarizeConsultation,
+  analyzeConsultationImages,
+  getPatientRecord,
+  updateBookingStatus,
 } from '../../services/api';
 import { generateConsultationPdf, exportConsultationJson } from '../../utils/consultationReport';
 import { EMPTY_FORM, formFromRow, columnsForChanges, allColumns, mergeRemote, changedKeys } from '../../utils/consultationSync';
@@ -99,15 +110,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
 
   const { header: shellHeader, assistantOpen } = useShellHeader(orgSlug);
   const [booking, setBooking] = useState(null);
-  const [showChart, setShowChart] = useState(false);
 
-  // The chart pop-up scrolls on its own; freeze the page behind it.
-  useEffect(() => {
-    if (!showChart) return undefined;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
-  }, [showChart]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
@@ -128,6 +131,8 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   const [syncState, setSyncState] = useState('synced'); // 'synced' | 'saving' | 'error'
   const [showPhone, setShowPhone] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [savedAt, setSavedAt] = useState(null); // when the note was last saved to the chart (this session, or the row's updated_at)
+  const [lastSyncAt, setLastSyncAt] = useState(null);
 
   const recorder = useAudioRecorder();
   const formRef = useRef(form);
@@ -178,6 +183,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     setSessionDate(row.session_date);
     setAttendedBy(row.attended_by_names || []);
     setLastSavedJson(row.status === 'completed' ? JSON.stringify(allColumns(next)) : null);
+    setSavedAt(row.status === 'completed' && row.updated_at ? new Date(row.updated_at) : null);
   }, []);
 
   // Load the booking and open (or create) its consultation draft. Phone and
@@ -285,6 +291,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       const next = { ...syncedRef.current };
       keys.forEach((k) => { next[k] = pushed[k]; });
       syncedRef.current = next;
+      setLastSyncAt(new Date());
       setSyncState(changedKeys(formRef.current, next).length === 0 ? 'synced' : 'saving');
     }, 600);
     return () => clearTimeout(t);
@@ -446,25 +453,182 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     return true;
   };
 
-  const handleClear = async () => {
-    if (!window.confirm('Clear everything and start a new consultation? Anything not saved will be lost.')) return;
-    setPhase('active');
-    setFailedRecording(null);
+
+  // ───────────────────────── Desktop consultation page (one page, six stages) ─────────────────────────
+  const [flow, dispatchFlow] = useReducer(flowReducer, initialFlow);
+  const [consent, setConsent] = useState(false); // UI only, per consultation. It is deliberately not stored (that needs a DB column).
+  const [noteView, setNoteView] = useState('note');
+  const [note, setNote] = useState(emptyNote);
+  const noteRef = useRef(note);
+  noteRef.current = note;
+  const [record, setRecord] = useState(null); // getPatientRecord: rail + previous plan
+  const [imageBusy, setImageBusy] = useState(null);
+  const [imageError, setImageError] = useState(null);
+  const [completing, setCompleting] = useState(false);
+  const [toast, setToast] = useState(null); // { msg, link }
+  const draftMdRef = useRef('');
+
+  // The structured note lives in a local object (so typing a trailing space isn't trimmed away) and is stored as markdown in
+  // final_summary. When the markdown changes from outside (a draft, the other device, a reload) the object follows.
+  useEffect(() => {
+    if (form.finalSummary !== noteToMarkdown(noteRef.current)) setNote(markdownToNote(form.finalSummary));
+  }, [form.finalSummary]);
+  const hasNote = !isNoteEmpty(note);
+  const editNote = useCallback((key, value) => {
+    const next = { ...noteRef.current, [key]: value };
+    setNote(next);
+    patchForm({ finalSummary: noteToMarkdown(next) });
+  }, [patchForm]);
+
+  useEffect(() => {
+    if (!booking?.customer_id) return undefined;
+    let off = false;
+    getPatientRecord(booking.customer_id).then(({ data }) => { if (!off && data) setRecord(data); });
+    return () => { off = true; };
+  }, [booking?.customer_id]);
+
+  // The previous consultation's plan: shown in the rail and given to the AI as context only.
+  const lastPlan = useMemo(() => {
+    const prev = (record?.consultations || []).find((c) => c.id !== consultationId && (c.final_summary || '').trim());
+    if (!prev) return '';
+    const plan = parseSummarySections(prev.final_summary).plan;
+    return plan.split('\n').map((l) => l.replace(/^\s*[-*•]\s*/, '').trim()).filter(Boolean).join('; ');
+  }, [record, consultationId]);
+
+  const sourcesText = (f) => {
+    const parts = ['the conversation'];
+    if (f.xrayPaths.length && f.xrayAnalysis.trim()) parts.push(`${f.xrayPaths.length} X-ray${f.xrayPaths.length === 1 ? '' : 's'}`);
+    if (f.photoPaths.length && f.photoAnalysis.trim()) parts.push(`${f.photoPaths.length} photo${f.photoPaths.length === 1 ? '' : 's'}`);
+    return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0];
+  };
+
+  // Draft the six-section note from the transcript + X-ray/photo analyses (+ the previous plan as context). Private notes are never sent.
+  const runDraft = useCallback(async () => {
+    dispatchFlow({ type: 'DRAFT_START' });
+    const f = formRef.current;
+    const { note: aiNote, error: aiError } = await summarizeConsultation({
+      mode: 'note', transcript: f.transcript, xrayAnalysis: f.xrayAnalysis, photoAnalysis: f.photoAnalysis, previousPlan: lastPlan,
+    });
+    const drafted = aiNote ? normalizeNote(aiNote) : null;
+    if (aiError || !drafted || isNoteEmpty(drafted)) {
+      dispatchFlow({ type: 'FAILED', at: 'drafting', error: aiError || { code: 'AI_FAILED', message: "The AI didn't return a note. Your recording is saved; try again." } });
+      return false;
+    }
+    const md = noteToMarkdown(drafted);
+    draftMdRef.current = md;
+    setNote(drafted);
+    patchForm({ finalSummary: md });
+    dispatchFlow({ type: 'DRAFTED', at: new Date(), inputs: draftInputsKey(f), sources: { recordings: f.audioPaths.length, language: f.language, xrays: f.xrayAnalysis.trim() ? f.xrayPaths.length : 0, photos: f.photoAnalysis.trim() ? f.photoPaths.length : 0 } });
+    return true;
+  }, [lastPlan, patchForm]);
+
+  // Upload → transcribe → draft. The recording is kept even if a later step fails; `failedRecording` lets "try again" resume without re-recording.
+  const processRecordingDesk = useCallback(async ({ blob, mimeType, durationSeconds, audioPath: existingPath }) => {
     setError(null);
-    setNotice(null);
-    if (dbStatus === 'completed') {
-      // Keep the saved consultation as it is and start a fresh draft beside it.
-      const { data: row, error: newError } = await createConsultationDraft(booking);
-      if (newError || !row) {
-        setError(`Could not start a new consultation: ${newError?.message || 'unknown error'}`);
+    const hadNote = !isNoteEmpty(noteRef.current);
+    let audioPath = existingPath;
+    if (!audioPath) {
+      dispatchFlow({ type: 'UPLOAD_START' });
+      const { path, error: upError } = await uploadConsultationFile(bookingId, blob, 'audio');
+      if (upError) {
+        setFailedRecording({ blob, mimeType, durationSeconds });
+        dispatchFlow({ type: 'UPLOAD_FAILED', error: { code: 'UPLOAD_FAILED', message: `Could not save the recording: ${upError.message}` } });
         return;
       }
-      adoptRow(row);
+      audioPath = path;
+      setForm((f) => ({ ...f, audioPaths: [...f.audioPaths, path], durationSeconds: f.durationSeconds + durationSeconds }));
+      dispatchFlow({ type: 'UPLOADED', seconds: durationSeconds });
     } else {
-      // Empty the shared draft; autosave pushes the cleared fields to the other device too.
-      setForm(EMPTY_FORM);
+      dispatchFlow({ type: 'TRANSCRIBE_START' });
+      dispatchFlow({ type: 'UPLOADED', seconds: durationSeconds ?? formRef.current.durationSeconds });
     }
+    const { text, language, error: tError } = await transcribeConsultationAudio(audioPath);
+    if (tError) {
+      setFailedRecording({ blob, mimeType, durationSeconds, audioPath });
+      dispatchFlow({ type: 'FAILED', at: 'transcribing', error: tError });
+      return;
+    }
+    setFailedRecording(null);
+    dispatchFlow({ type: 'TRANSCRIBED', language });
+    const transcript = [formRef.current.transcript, text].filter(Boolean).join('\n\n');
+    patchForm({ transcript, language: language || formRef.current.language });
+    if (hadNote) { dispatchFlow({ type: 'TRANSCRIPT_ONLY', language }); return; }
+    formRef.current = { ...formRef.current, transcript, language: language || formRef.current.language };
+    await runDraft();
+  }, [bookingId, patchForm, runDraft]);
+
+  const handleStopDesk = async () => {
+    const result = await recorder.stop();
+    if (result) processRecordingDesk(result);
   };
+
+  // "Try drafting again" / "Draft the note now": resume from whichever step is missing.
+  const retryDraft = useCallback(async () => {
+    if (failedRecording) { await processRecordingDesk(failedRecording); return; }
+    const f = formRef.current;
+    if (!f.transcript.trim() && f.audioPaths.length) { await processRecordingDesk({ audioPath: f.audioPaths[f.audioPaths.length - 1] }); return; }
+    await runDraft();
+  }, [failedRecording, processRecordingDesk, runDraft]);
+
+  const redraft = () => {
+    const edited = draftMdRef.current && noteToMarkdown(noteRef.current) !== draftMdRef.current;
+    if (hasNote && (edited || !draftMdRef.current) && !window.confirm('Redrafting replaces the note, including your edits. Continue?')) return;
+    runDraft();
+  };
+
+  // The phone finished recording on its own: its transcript arrives through sync. Draft from it, or offer to update the draft.
+  const prevRemoteRef = useRef(null);
+  useEffect(() => {
+    const was = prevRemoteRef.current;
+    prevRemoteRef.current = remote ? remote.state : null;
+    if (phoneView || !was || remote) return;
+    if (!formRef.current.transcript.trim() || flow.step !== 'idle') return;
+    if (isNoteEmpty(noteRef.current)) runDraft();
+  }, [remote, phoneView, flow.step, runDraft]);
+
+  const addImages = useCallback(async (kind, files) => {
+    const busyCb = kind === 'xray' ? onXrayBusy : onPhotoBusy;
+    const pathsKey = kind === 'xray' ? 'xrayPaths' : 'photoPaths';
+    const analysisKey = kind === 'xray' ? 'xrayAnalysis' : 'photoAnalysis';
+    setImageError(null);
+    setImageBusy('uploading'); busyCb('uploading');
+    const uploaded = [];
+    for (const file of files) {
+      const { path, error: upError } = await uploadConsultationFile(bookingId, await resizeImageFile(file), 'image');
+      if (upError) setImageError(`${file.name}: ${upError.message}`); else uploaded.push(path);
+    }
+    if (!uploaded.length) { setImageBusy(null); busyCb(null); return; }
+    patchForm({ [pathsKey]: [...formRef.current[pathsKey], ...uploaded] });
+    setImageBusy('analyzing'); busyCb('analyzing');
+    const { analysis, error: aiError } = await analyzeConsultationImages(kind, uploaded);
+    setImageBusy(null); busyCb(null);
+    if (aiError) { setImageError(`${aiError.message} The images are attached.`); return; }
+    const cur = formRef.current[analysisKey];
+    patchForm({ [analysisKey]: cur ? `${cur}\n\n---\n\n${analysis}` : analysis });
+  }, [bookingId, onXrayBusy, onPhotoBusy, patchForm]);
+
+  const saveToChart = async () => {
+    const ok = await handleSave();
+    if (ok) { setSavedAt(new Date()); dispatchFlow({ type: 'SAVED' }); }
+  };
+
+  const completeVisit = async () => {
+    setCompleting(true);
+    const { error: stError } = await updateBookingStatus({ bookingId, newStatus: 'Completed' });
+    if (stError) { setCompleting(false); setError(stError.message || 'Could not complete the visit.'); return; }
+    const { data } = await fetchBookingById(bookingId);
+    if (data) setBooking(data);
+    setCompleting(false);
+    setToast({ msg: `Visit completed. It can now be billed.`, link: true });
+  };
+
+  const stage = deriveStage(flow, { recording: recorder.isRecording || (!!remote && remote.state !== 'idle' && remote.state !== 'processing'), hasNote, saved: dbStatus === 'completed' });
+  const bookingInProgress = booking?.status === 'In-Progress';
+  useLeaveGuard(!phoneView && (recorder.isRecording || flow.step === 'uploading'), 'A recording is in progress. If you leave now, it will be lost. Stop and save it first.');
+  useEffect(() => { if (!toast) return undefined; const t = setTimeout(() => setToast(null), 8000); return () => clearTimeout(t); }, [toast]);
+
+  const userName = profile?.full_name || 'you';
+  const hhmm = (d) => (d ? d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '');
 
   const remoteBusy = !!remote;
   // Saved and nothing changed since: show "Saved" instead of looking like nothing happened.
@@ -750,6 +914,32 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     );
   }
 
+  const patientFirst = (booking?.customer_name || 'The patient').trim().split(/\s+/)[0];
+  const fmtLongDate = new Date(`${sessionDate}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  const timeRange = booking ? [booking.start_time, booking.end_time].filter(Boolean).map((t) => String(t).slice(0, 5)).join(' – ') : '';
+  const metaLine = booking ? [booking.treatment?.name || booking.treatment_name_snapshot, booking.dentist?.name || booking.dentist_name_snapshot, `${fmtLongDate}${timeRange ? `, ${timeRange}` : ''}`, booking.booking_number].filter(Boolean).join('  ·  ') : '';
+  const inClinic = booking?.status === 'In-Progress';
+
+  const syncText = stage === 'saved' && savedAt ? `Saved to chart ${hhmm(savedAt)}`
+    : syncState === 'error' ? 'Not saved — will retry'
+    : syncState === 'saving' ? 'Saving…'
+    : lastSyncAt ? `Saved ${hhmm(lastSyncAt)}` : (form.audioPaths.length || hasNote ? 'Saved' : '');
+  const readOnlyRole = profile?.role === 'admin_viewer';
+  const drafting = stage === 'drafting';
+  const noAiBanner = stage === 'noai' && showNoAiBanner(flow, hasNote);
+  const edited = !!draftMdRef.current && noteToMarkdown(note) !== draftMdRef.current;
+  const badge = flow.aiDrafted && hasNote
+    ? (stage === 'saved' ? `Drafted with AI · reviewed by ${userName}` : 'AI draft · check before saving')
+    : null;
+  const src = flow.draftSources;
+  const footer = flow.aiDrafted && flow.draftedAt && src && (stage === 'review' || stage === 'saved')
+    ? `Drafted ${hhmm(flow.draftedAt)} from ${src.recordings} recording${src.recordings === 1 ? '' : 's'}${src.language ? ` (${src.language}, auto-detected)` : ''}${src.xrays ? `, ${src.xrays} X-ray${src.xrays === 1 ? '' : 's'}` : ''}${src.photos ? ` and ${src.photos} photo${src.photos === 1 ? '' : 's'}` : ''}`
+    : null;
+  const findingsTags = [form.xrayAnalysis.trim() && form.xrayPaths.length && `${form.xrayPaths.length} X-ray${form.xrayPaths.length === 1 ? '' : 's'}`, form.photoAnalysis.trim() && form.photoPaths.length && `${form.photoPaths.length} photo${form.photoPaths.length === 1 ? '' : 's'}`].filter(Boolean);
+  const recorderError = recorder.error || (flow.aiError && flow.failedAt === 'uploading' ? flow.aiError.message : null);
+  const showDraftNow = stage === 'ready' && (form.audioPaths.length > 0 || form.transcript.trim());
+  const pdf = () => generateConsultationPdf({ ...reportData, additionalNotes: undefined }, profile?.organizations?.name);
+
   return (
     <AppShell
       variant="page"
@@ -758,382 +948,113 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       asideOpen={assistantOpen}
       floating={
         <>
-      {notice && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-modal-overlay w-[calc(100%-2rem)] max-w-md">
-          <div className="p-4 bg-white border border-success/40 rounded-lg shadow-lg flex items-start gap-3">
-            <Icon name="CheckCircle" size={20} className="text-success shrink-0 mt-0.5" />
-            <div className="flex-1 text-sm">
-              <p className="font-medium text-text-primary">{notice}</p>
-              {dbStatus === 'completed' && (
-                <p className="text-text-secondary mt-1">
-                  It's stored on {booking?.customer_name}'s record. The booking is still In-Progress: mark it Completed from the dashboard when the visit is over.
-                </p>
-              )}
-              <button type="button" onClick={() => navigate(`/${orgSlug}/dashboard`)} className="mt-2 text-primary font-medium">
-                Back to dashboard
-              </button>
+          {toast && (
+            <div role="status" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-modal-overlay px-4 py-2.5 rounded-lg bg-[#0E0D0C] text-white text-[13px] shadow-lg flex items-center gap-3">
+              <Icon name="CheckCircle" size={16} className="text-[#6EE7B7]" />{toast.msg}
+              {toast.link && <button type="button" onClick={() => navigate(`/${orgSlug}/dashboard?view=calendar`)} className="underline font-medium">Back to calendar</button>}
+              <button type="button" onClick={() => setToast(null)} aria-label="Dismiss"><Icon name="X" size={14} className="text-white/70" /></button>
             </div>
-            <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss"><Icon name="X" size={16} className="text-text-tertiary" /></button>
-          </div>
-        </div>
-      )}
-
-      {showChart && booking?.customer_id && (
-        <div className="fixed inset-0 z-modal-overlay flex items-center justify-center p-3 sm:p-6" role="dialog" aria-modal="true" aria-label="Patient chart">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowChart(false)} />
-          <div className="relative w-full max-w-4xl h-[92vh] flex flex-col rounded-2xl bg-surface-dim shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-3 bg-white border-b border-gray-200 shrink-0">
-              <h2 className="font-heading font-heading-semibold text-text-primary flex items-center gap-2">
-                <Icon name="UserRound" size={18} className="text-primary" /> Patient Chart
-              </h2>
-              <button type="button" onClick={() => setShowChart(false)} aria-label="Close patient chart"
-                      className="p-2 rounded-lg text-text-secondary hover:bg-gray-100 hover:text-text-primary transition">
-                <Icon name="X" size={20} />
-              </button>
-            </div>
-            <div className="overflow-y-auto overscroll-contain">
-              <PatientChart embedded customerId={booking.customer_id} />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showPhone && <PhoneHandoff orgSlug={orgSlug} bookingId={bookingId} onClose={closeHandoff} phoneCount={link.phones.length} phoneLabel={link.phones[0]?.label} />}
+          )}
+          {showPhone && <PhoneHandoff orgSlug={orgSlug} bookingId={bookingId} onClose={closeHandoff} phoneCount={link.phones.length} phoneLabel={link.phones[0]?.label} />}
         </>
       }
     >
-        {loading && (
-          <div className="p-12 text-center">
-            <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
-            <p className="font-body text-text-secondary">Loading consultation…</p>
-          </div>
-        )}
+      {loading && (
+        <div className="p-12 text-center">
+          <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
+          <p className="font-body text-text-secondary">Loading consultation…</p>
+        </div>
+      )}
 
-        {!loading && loadError && (
-          <div className="p-12 text-center">
-            <Icon name="AlertCircle" size={48} className="text-error mx-auto mb-4" />
-            <p className="font-body text-text-secondary mb-4">{loadError}</p>
-            <Button variant="primary" onClick={() => navigate(`/${orgSlug}/dashboard`)}>Back to dashboard</Button>
-          </div>
-        )}
+      {!loading && loadError && (
+        <div className="p-12 text-center">
+          <Icon name="AlertCircle" size={48} className="text-error mx-auto mb-4" />
+          <p className="font-body text-text-secondary mb-4">{loadError}</p>
+          <Button variant="primary" onClick={() => navigate(`/${orgSlug}/dashboard`)}>Back to dashboard</Button>
+        </div>
+      )}
 
-        {!loading && !loadError && booking && (
-          <div className="max-w-5xl mx-auto p-4 lg:p-6 space-y-4">
-            {/* Header */}
-            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-secondary text-white shadow-md">
-              <div className="absolute -right-10 -top-12 w-48 h-48 rounded-full bg-white/10" />
-              <div className="absolute right-24 -bottom-16 w-40 h-40 rounded-full bg-accent/20" />
-              <div className="relative flex flex-wrap items-center justify-between gap-4 p-5">
-                <div className="flex items-center gap-4 min-w-0">
-                  <button onClick={goBack} aria-label="Go back" className="p-2.5 rounded-xl bg-white/15 hover:bg-white/25 backdrop-blur border border-white/20 shrink-0 transition">
-                    <Icon name="ArrowLeft" size={18} className="text-white" />
-                  </button>
-                  <div className="min-w-0">
-                    <h1 className="font-heading font-heading-semibold text-2xl leading-tight">Consultation</h1>
-                    <p className="font-caption text-sm text-white/80 flex items-center gap-1.5 truncate">
-                      <Icon name="Calendar" size={14} /> {longDate}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-white/80 flex items-center gap-1">
-                    {syncState === 'saving' && <><span className="animate-spin w-3 h-3 border border-white border-t-transparent rounded-full" /> Syncing…</>}
-                    {syncState === 'synced' && <><Icon name="Cloud" size={12} /> Synced</>}
-                    {syncState === 'error' && <span className="text-red-200 flex items-center gap-1"><Icon name="CloudOff" size={12} /> Not synced — will retry on next change</span>}
-                  </span>
-                  <button type="button" onClick={() => setShowPhone(true)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-primary text-sm font-medium shadow-sm hover:bg-white/90 transition">
-                    <Icon name="Smartphone" size={14} /> Continue on phone
-                  </button>
-                  <span className="rounded-full bg-white shadow-sm">
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusChip.cls}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full bg-current ${statusChip.pulse ? 'animate-pulse' : ''}`} />
-                      {statusChip.label}
-                    </span>
-                  </span>
-                </div>
-              </div>
+      {!loading && !loadError && booking && (
+        <div className="max-w-[1240px] pb-6 lg:pb-0">
+          <DeskHeader
+            patientName={booking.customer_name} inClinic={inClinic} meta={metaLine} onBack={goBack}
+            syncText={syncText} syncKind={syncState} onContinuePhone={() => setShowPhone(true)}
+            stage={stage} canSave={hasNote && !busy} saving={saving} onSave={saveToChart}
+            onEdit={() => dispatchFlow({ type: 'EDIT_NOTE' })} canComplete={bookingInProgress} completing={completing} onComplete={completeVisit}
+            readOnly={readOnlyRole}
+            menuItems={[{ label: 'Download PDF report', onClick: pdf, disabled: !canReport }]}
+          />
+
+          {phoneCode && !link.phones.some((p) => p.bookingId === bookingId) && <div className="mt-4"><PhoneCodeBanner initial={phoneCode} via={phoneCode.via} /></div>}
+          {link.phones.some((p) => p.bookingId && p.bookingId !== bookingId) && (
+            <div className="mt-4 p-3 bg-[#FFFAF0] border border-[#F5D9A8] rounded-lg flex flex-wrap items-center justify-between gap-2 text-[13px]">
+              <span className="flex items-center gap-2"><Icon name="AlertTriangle" size={15} className="text-[#B45309]" />Your phone is on a different patient, so recordings and photos won’t appear here.</span>
+              <button type="button" onClick={() => link.openOnPhone(bookingId, { autoStart: false })} className="h-7 px-2.5 rounded-md border border-[#E8C98C] bg-white text-[12.5px] font-medium">Open this patient on the phone</button>
             </div>
-
-            {/* Steps */}
-            <div className="flex items-center gap-3 text-sm">
-              {[{ key: 'active', label: 'Capture', n: 1 }, { key: 'review', label: 'Review & finish', n: 2 }].map((st, idx) => {
-                const current = phase === st.key;
-                return (
-                  <React.Fragment key={st.key}>
-                    {idx > 0 && <span className="h-0.5 w-8 shrink-0 rounded bg-gradient-to-r from-primary/40 to-gray-200" />}
-                    <button type="button" disabled={busy || current} onClick={() => setPhase(st.key)}
-                            className={`flex-1 justify-center flex items-center gap-2 px-4 py-2 rounded-full border font-medium transition ${current ? 'bg-primary text-white border-primary shadow-md shadow-primary/25' : 'bg-white text-text-secondary border-gray-200 hover:bg-gray-50 hover:border-primary/40'}`}>
-                      <span className={`w-6 h-6 rounded-full text-xs flex items-center justify-center ${current ? 'bg-white/25' : 'bg-gray-100'}`}>{st.n}</span>
-                      {st.label}
-                    </button>
-                  </React.Fragment>
-                );
-              })}
+          )}
+          {booking.status !== 'In-Progress' && booking.status !== 'Completed' && (
+            <div className="mt-4 p-3 bg-[#FFFAF0] border border-[#F5D9A8] rounded-lg text-[13px] flex items-center gap-2"><Icon name="AlertTriangle" size={15} className="text-[#B45309]" />This booking is {booking.status}. Consultations are normally started once the booking is In-Progress.</div>
+          )}
+          {stage === 'saved' && bookingInProgress && (
+            <div role="status" className="mt-4 px-4 py-2.5 rounded-lg border border-[#BFE6D3] bg-[#F1FBF6] text-[13px] flex items-start sm:items-center gap-2"><Icon name="Check" size={15} className="text-[#1F9D6C] shrink-0" />
+              <span><b className="font-medium text-[#0F5F40]">Note saved to {patientFirst}’s chart</b> by {userName} at {hhmm(savedAt)}. The visit is still in progress: complete it when {patientFirst} leaves, so it can be billed.</span></div>
+          )}
+          {error && (
+            <div className="mt-4 p-3 bg-error/5 border border-error/20 rounded-lg flex items-start gap-2 text-[13px]">
+              <Icon name="AlertCircle" size={15} className="text-error mt-0.5 shrink-0" />
+              <div className="flex-1 text-text-secondary">{error}</div>
+              <button onClick={() => setError(null)} aria-label="Dismiss"><Icon name="X" size={14} className="text-text-tertiary" /></button>
             </div>
+          )}
+          {received && <div className="mt-4 p-3 bg-[#F1FBF6] border border-[#BFE6D3] rounded-lg text-[13px] flex items-center gap-2"><Icon name="Download" size={15} className="text-[#1F9D6C]" />{received}</div>}
 
-            {phoneCode && !link.phones.some((p) => p.bookingId === bookingId) && (
-              <PhoneCodeBanner initial={phoneCode} via={phoneCode.via} />
-            )}
-
-            {link.phones.some((p) => p.bookingId && p.bookingId !== bookingId) && (
-              <div className="p-3 bg-warning/10 border border-warning/30 rounded-md flex flex-wrap items-center justify-between gap-2 text-sm">
-                <span className="flex items-center gap-2 text-text-primary">
-                  <Icon name="AlertTriangle" size={16} className="text-warning shrink-0" />
-                  Your phone is on a different patient, so recordings and photos won't appear here.
-                </span>
-                <Button variant="primary" size="xs" iconName="Smartphone" iconPosition="left"
-                        onClick={() => link.openOnPhone(bookingId, { autoStart: false })}>
-                  Open this patient on the phone
-                </Button>
-              </div>
-            )}
-
-            {link.phones.length > 0 && (
-              <div className="p-3 bg-primary/5 border border-primary/20 rounded-md flex flex-wrap items-center justify-between gap-2 text-sm">
-                <span className="flex items-center gap-2 text-text-primary">
-                  <Icon name="Smartphone" size={16} className="text-primary" />
-                  Doctor phone connected ({link.phones[0].label})
-                </span>
-              </div>
-            )}
-
-            {booking.status !== 'In-Progress' && booking.status !== 'Completed' && (
-              <div className="p-3 bg-warning/10 border border-warning/30 rounded-md text-sm text-text-secondary flex items-center gap-2">
-                <Icon name="AlertTriangle" size={16} className="text-warning shrink-0" />
-                This booking is {booking.status}. Consultations are normally started once the booking is In-Progress.
-              </div>
-            )}
-
-            {/* Patient (prefilled from the booking) */}
-            <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm overflow-hidden">
-              <div className="flex flex-col lg:flex-row">
-                <div className="flex items-center gap-4 p-5 lg:w-72 shrink-0 bg-gradient-to-br from-primary/10 via-primary/[0.04] to-transparent lg:border-r border-b lg:border-b-0 border-gray-100">
-                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-heading font-heading-semibold text-xl shadow-md shrink-0">
-                    {(booking.customer_name || '?').trim().charAt(0).toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-[11px] uppercase tracking-wider text-primary font-semibold">Patient</p>
-                    <p className="font-heading font-heading-semibold text-lg text-text-primary leading-tight break-words">{booking.customer_name}</p>
-                    <p className="text-xs text-text-tertiary mt-0.5">{booking.booking_number || '—'}</p>
-                  </div>
-                </div>
-                <dl className="flex-1 grid grid-cols-2 md:grid-cols-5 gap-px bg-gray-100 text-sm">
-                  {[
-                    ['Stethoscope', 'Treatment', booking.treatment?.name || booking.treatment_name_snapshot || '—'],
-                    ['UserRound', 'Dentist', booking.dentist?.name || booking.dentist_name_snapshot || 'Unassigned'],
-                    ['Calendar', 'Visit date', formatVisitDate(sessionDate)],
-                    ['History', 'Last visit', lastVisit || '…'],
-                    ['UserCheck', 'Attended by', attendedBy.length ? attendedBy.join(', ') : 'No one yet'],
-                  ].map(([icon, k, v]) => (
-                    <div key={k} className="bg-white px-4 py-3.5 min-w-0">
-                      <dt className="text-xs text-text-tertiary flex items-center gap-1.5 mb-1">
-                        <Icon name={icon} size={13} className="text-primary" /> {k}
-                      </dt>
-                      <dd className="font-semibold text-text-primary break-words leading-snug">{v}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </div>
-            </div>
-
-            {error && (
-              <div className="p-3 bg-error/5 border border-error/20 rounded-md flex items-start gap-2">
-                <Icon name="AlertCircle" size={16} className="text-error mt-0.5 shrink-0" />
-                <div className="flex-1 text-sm text-text-secondary">
-                  {error}
-                  {failedRecording && (
-                    <button type="button" className="ml-2 text-primary font-medium hover:underline" disabled={busy}
-                            onClick={() => processRecording(failedRecording)}>
-                      Retry
-                    </button>
-                  )}
-                </div>
-                <button onClick={() => setError(null)} aria-label="Dismiss"><Icon name="X" size={14} className="text-text-tertiary" /></button>
-              </div>
-            )}
-            {received && (
-              <div className="p-3 bg-success/10 border border-success/30 rounded-md text-sm text-text-primary flex items-center gap-2">
-                <Icon name="Download" size={16} className="text-success shrink-0" /> {received}
-              </div>
-            )}
-            {phase === 'active' && (
-              <>
-                {/* Recording */}
-                <Card title="Voice Recording" icon="Mic">
-                  {pendingRemoteStart && !recorder.isRecording && (
-                    <div className="mb-4 p-4 bg-primary/10 border border-primary/30 rounded-lg text-center">
-                      <p className="text-sm text-text-primary mb-3">Ready to record. Tap the button to start with this phone's microphone.</p>
-                      <Button variant="primary" size="lg" fullWidth iconName="Mic" iconPosition="left" onClick={handleStart}>Tap to start recording</Button>
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap items-center gap-4">
-                    {remote ? (
-                      <>
-                        <span className="inline-flex items-center gap-2 text-sm text-text-primary">
-                          <Icon name="Smartphone" size={16} className="text-primary" />
-                          {remote.state === 'processing'
-                            ? `${remotePhone?.label || 'Phone'} is converting speech to text…`
-                            : `Recording on ${remotePhone?.label || 'phone'}${remote.state === 'paused' ? ' (paused)' : ''}`}
-                        </span>
-                        {remote.state !== 'processing' && (
-                          <>
-                            <span className="font-mono text-lg text-text-primary tabular-nums">{formatTimer(remote.seconds || 0)}</span>
-                            <Button variant="danger" iconName="Square" iconPosition="left" onClick={() => sendCommand({ action: 'stop', target: remote.from })}>
-                              Stop
-                            </Button>
-                          </>
-                        )}
-                      </>
-                    ) : !recorder.isRecording ? (
-                      <>
-                        {phones.length > 0 && (
-                          <Button variant="primary" iconName="Smartphone" iconPosition="left" disabled={processing !== null}
-                                  onClick={() => sendCommand({ action: 'start', target: phones[0].deviceId })}>
-                            Record on {phones[0].label || 'phone'}
-                          </Button>
-                        )}
-                        <Button variant={phones.length > 0 ? 'outline' : 'primary'} iconName="Mic" iconPosition="left" disabled={processing !== null} onClick={handleStart}>
-                          {phones.length > 0 ? 'Record on this device' : (form.audioPaths.length ? 'Record more' : 'Start recording')}
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <span className="font-mono text-lg text-text-primary tabular-nums">{formatTimer(recorder.recordingTime)}</span>
-                        <Button variant="outline" iconName={recorder.isPaused ? 'Play' : 'Pause'} iconPosition="left"
-                                onClick={recorder.isPaused ? recorder.resume : recorder.pause}>
-                          {recorder.isPaused ? 'Resume' : 'Pause'}
-                        </Button>
-                        <Button variant="danger" iconName="Square" iconPosition="left" onClick={handleStop}>Stop</Button>
-                      </>
-                    )}
-                    {processing === 'transcribing' && <span className="text-sm text-text-secondary flex items-center gap-2"><span className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full" />Converting speech to text…</span>}
-                    {processing === 'summarizing' && <span className="text-sm text-text-secondary flex items-center gap-2"><span className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full" />Generating summary…</span>}
-                  </div>
-                  {phones.length === 0 && !remote && (
-                    <p className="mt-4 text-sm text-text-secondary flex items-center gap-2">
-                      <Icon name="Smartphone" size={14} className="shrink-0" /> Prefer your phone's mic? Tap <strong>Continue on phone</strong> at the top.
-                    </p>
-                  )}
-                  {recorder.error && <p className="mt-3 text-sm text-error">{recorder.error}</p>}
-                  {form.audioPaths.length > 0 && (
-                    <div className="mt-4 space-y-2">
-                      {form.audioPaths.map((p, i) => <SavedRecording key={p} path={p} index={i} />)}
-                    </div>
-                  )}
-                </Card>
-
-                <Card title="Transcript" icon="FileText">
-                  <TextArea value={form.transcript} onChange={(v) => patchForm({ transcript: v })} rows={form.transcript ? 8 : 4}
-                            placeholder="The transcript appears here after you stop recording. You can also type or edit it." />
-                </Card>
-
-                <Card
-                  title="Consultation Summary"
-                  icon="Sparkles"
-                  action={form.transcript.trim() && processing === null ? (
-                    <Button variant="outline" size="xs" iconName="RefreshCw" iconPosition="left" onClick={() => generatePreliminary(form.transcript)}>
-                      {form.preliminarySummary ? 'Regenerate' : 'Generate'}
-                    </Button>
-                  ) : null}
-                >
-                  <TextArea value={form.preliminarySummary} onChange={(v) => patchForm({ preliminarySummary: v })} rows={form.preliminarySummary ? 10 : 4}
-                            placeholder="An AI summary of the recording appears here. You can also write or edit it." />
-                </Card>
-
-                <ImageAnalysisCard
-                  title="X-ray Analysis" icon="ScanLine" kind="xray" bookingId={bookingId} onBusyChange={onXrayBusy} externalBusy={remoteActivity.xray}
-                  imagePaths={form.xrayPaths} analysis={form.xrayAnalysis}
-                  onChange={({ imagePaths, analysis }) => patchForm({ xrayPaths: imagePaths, xrayAnalysis: analysis })}
-                  onAnalysisEdit={(v) => patchForm({ xrayAnalysis: v })}
-                  disabled={recorder.isRecording}
+          <div className="mt-5 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-5 items-start">
+            <div className="space-y-4 min-w-0">
+              {stage === 'drafting' ? (
+                <section aria-label="Drafting progress" className="rounded-xl border border-border bg-white px-5 py-4 flex items-center gap-4">
+                  <span className="w-14 h-14 rounded-full bg-[#F1F1F3] grid place-items-center flex-shrink-0"><Icon name="Mic" size={20} className="text-[#515152]" /></span>
+                  <ul className="space-y-1.5 text-[13.5px]">
+                    {draftingSteps(flow, { sources: sourcesText(form) }).map((st) => (
+                      <li key={st.key} className="flex items-center gap-2.5">
+                        {st.state === 'done' ? <span className="w-[18px] h-[18px] rounded-full bg-[#1F9D6C] grid place-items-center"><Icon name="Check" size={11} className="text-white" /></span>
+                          : st.state === 'active' ? <span className="w-[18px] h-[18px] rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                          : <span className="w-[18px] h-[18px] rounded-full border border-[#D6D6DB]" />}
+                        <span className={st.state === 'todo' ? 'text-[#8A8A90]' : ''}>{st.label}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : (
+                <RecorderBar
+                  firstName={patientFirst} consent={consent} onConsent={setConsent} recorder={recorder} remote={remote} remotePhoneLabel={remotePhone?.label}
+                  locked={stage === 'saved'} phones={phones} processing={processing} audioPaths={form.audioPaths} durationSeconds={form.durationSeconds}
+                  onStart={handleStart} onStop={handleStopDesk} onRecordOnPhone={() => sendCommand({ action: 'start', target: phones[0]?.deviceId })}
+                  onStopRemote={() => sendCommand({ action: 'stop', target: remote?.from })} onContinueOnPhone={() => setShowPhone(true)} errorText={recorderError}
                 />
-                <ImageAnalysisCard
-                  title="Clinical Photo Analysis" icon="Camera" kind="photo" bookingId={bookingId} onBusyChange={onPhotoBusy} externalBusy={remoteActivity.photo}
-                  imagePaths={form.photoPaths} analysis={form.photoAnalysis}
-                  onChange={({ imagePaths, analysis }) => patchForm({ photoPaths: imagePaths, photoAnalysis: analysis })}
-                  onAnalysisEdit={(v) => patchForm({ photoAnalysis: v })}
-                  disabled={recorder.isRecording}
-                />
-
-                <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-primary/20 bg-gradient-to-r from-primary/[0.07] to-accent/[0.08] px-5 py-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="w-10 h-10 rounded-xl bg-white text-primary shadow-sm flex items-center justify-center shrink-0">
-                      <Icon name="ClipboardCheck" size={20} />
-                    </span>
-                    <div>
-                      <p className="font-heading font-heading-semibold text-text-primary leading-tight">Done capturing?</p>
-                      <p className="text-sm text-text-secondary">Add your notes and create the final summary.</p>
-                    </div>
-                  </div>
-                  <button type="button" disabled={busy}
-                          onClick={() => { setPhase('review'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-                          className="group inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-md shadow-primary/25 hover:shadow-lg hover:-translate-y-px active:translate-y-0 transition disabled:opacity-50 disabled:pointer-events-none">
-                    Finish Consultation
-                    <Icon name="ArrowRight" size={18} className="transition-transform group-hover:translate-x-0.5" />
-                  </button>
-                </div>
-              </>
-            )}
-
-            {phase === 'review' && (
-              <>
-                <Card title="Doctor's Notes" icon="Stethoscope">
-                  <TextArea value={form.doctorNotes} onChange={(v) => patchForm({ doctorNotes: v })} rows={6}
-                            placeholder="Assessment, diagnosis and treatment plan." />
-                </Card>
-                <Card title="Additional Notes" icon="StickyNote">
-                  <TextArea value={form.additionalNotes} onChange={(v) => patchForm({ additionalNotes: v })} rows={4}
-                            placeholder="Anything else to record." />
-                </Card>
-                <Card
-                  title="Final Summary"
-                  icon="ClipboardCheck"
-                  action={
-                    <Button variant="outline" size="xs" iconName="Sparkles" iconPosition="left" disabled={busy} loading={processing === 'final'} onClick={generateFinal}>
-                      {form.finalSummary ? 'Regenerate' : 'Generate final summary'}
-                    </Button>
-                  }
-                >
-                  <TextArea value={form.finalSummary} onChange={(v) => patchForm({ finalSummary: v })} rows={form.finalSummary ? 12 : 4}
-                            placeholder="Combines the recording, X-rays, photos and your notes. You can also write it yourself." />
-                </Card>
-              </>
-            )}
-
-            {/* Actions */}
-            <div className="px-5 py-4 bg-white border border-gray-200/80 rounded-2xl shadow-sm">
-              <div className="flex flex-wrap items-center gap-2">
-                <Button variant={isSavedClean ? 'success' : 'primary'} iconName={isSavedClean ? 'Check' : 'Save'} iconPosition="left" loading={saving} disabled={busy || !hasContent(form)} onClick={handleSave}>
-                  {isSavedClean ? 'Saved' : (dbStatus === 'completed' ? 'Save changes' : 'Save Consultation')}
-                </Button>
-                {saveBlockedReason && (
-                  <span className="text-xs text-text-tertiary">{saveBlockedReason}</span>
-                )}
-                <div className="flex flex-wrap items-center gap-2 ml-auto">
-                  <button type="button" disabled={!booking.customer_id} onClick={() => setShowChart(true)}
-                          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-primary/30 bg-primary/5 text-primary text-sm font-medium hover:bg-primary/10 hover:border-primary/50 transition disabled:opacity-50 disabled:pointer-events-none">
-                    <Icon name="UserRound" size={16} /> Patient Chart
-                  </button>
-                  <Button variant="outline" size="sm" iconName="FileText" iconPosition="left" disabled={!canReport}
-                          className="border-purple-200 text-purple-600 hover:bg-purple-50 hover:text-purple-700"
-                          onClick={() => generateConsultationPdf(reportData, profile?.organizations?.name)}>
-                    PDF Report
-                  </Button>
-                  <Button variant="outline" size="sm" iconName="Download" iconPosition="left" disabled={!canReport}
-                          className="border-sky-200 text-sky-700 hover:bg-sky-50 hover:text-sky-800"
-                          onClick={() => exportConsultationJson(reportData)}>
-                    Export
-                  </Button>
-                  <Button variant="ghost" size="sm" iconName="RotateCcw" iconPosition="left" disabled={busy} onClick={handleClear}>
-                    Clear &amp; New
-                  </Button>
-                </div>
-              </div>
+              )}
+              {recorder.isRecording && (
+                <p className="text-[12.5px] text-[#8A8A90] -mt-2 flex items-center gap-1.5"><Icon name="Lock" size={12} />Keep this page open while recording. If you try to leave, you’ll be asked to stop first so nothing is lost.</p>
+              )}
+              <NoteCard
+                stage={stage} note={note} onNoteChange={editNote} view={noteView} onView={setNoteView}
+                transcript={form.transcript} onTranscript={(v) => patchForm({ transcript: v })} hasTranscript={!!form.transcript.trim()}
+                badge={badge} drafting={drafting} noAiBanner={noAiBanner} onTryAgain={retryDraft} tryAgainBusy={flow.step !== 'idle'}
+                readOnly={stage === 'saved' || readOnlyRole} findingsTags={findingsTags} footer={footer} onRedraft={flow.aiDrafted && stage === 'review' && !readOnlyRole ? redraft : null}
+                updateDraftOffer={stage === 'review' && hasNote && draftIsStale(flow, draftInputsKey(form), { readOnly: readOnlyRole })} onUpdateDraft={redraft}
+                onWriteMyself={() => dispatchFlow({ type: 'WRITE_MYSELF' })} earlierDoctorNotes={form.doctorNotes.trim() ? form.doctorNotes : ''}
+                onDraftNow={showDraftNow ? retryDraft : null}
+              />
             </div>
+            <ConsultationRail
+              booking={booking} record={record} lastPlan={lastPlan} xrayPaths={form.xrayPaths} photoPaths={form.photoPaths}
+              imageBusy={imageBusy || remoteActivity.xray || remoteActivity.photo} imageError={imageError} onAddImages={addImages}
+              privateNotes={form.additionalNotes} onPrivateNotes={(v) => patchForm({ additionalNotes: v })}
+              onOpenChart={() => window.open(`/${orgSlug}/patients/${booking.customer_id}`, '_blank', 'noopener')}
+              readOnly={readOnlyRole} phoneLinked={link.phones.length > 0}
+            />
           </div>
-        )}
+        </div>
+      )}
     </AppShell>
   );
 };

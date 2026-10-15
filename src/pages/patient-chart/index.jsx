@@ -17,8 +17,7 @@ import SummaryStrip from './SummaryStrip';
 import { SummaryCard, ActivityFeed, DetailsRail } from './OverviewTab';
 import { VisitsTab, ClinicalNotesTab, MediaTab, BillingTab } from './RecordTabs';
 
-// The full-page chart lives in the app shell. Kept as its own component so the embedded chart (shown inside the consultation page,
-// which already has the shell) doesn't subscribe to notifications a second time.
+// The full-page chart lives in the app shell.
 const PatientChartShell = ({ orgSlug, children }) => {
   const { header, assistantOpen } = useShellHeader(orgSlug);
   return (
@@ -30,7 +29,7 @@ const PatientChartShell = ({ orgSlug, children }) => {
 
 const TAB_KEYS = ['overview', 'visits', 'notes', 'media', 'billing'];
 
-const PatientChart = ({ embedded = false, customerId: customerIdProp }) => {
+const PatientChart = ({ customerId: customerIdProp }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { customerId: customerIdParam, orgSlug: urlOrgSlug } = useParams();
@@ -41,14 +40,12 @@ const PatientChart = ({ embedded = false, customerId: customerIdProp }) => {
   const readOnly = role === 'admin_viewer';
   const canEdit = !readOnly;
 
-  // The tab lives in the URL on the full page; the embedded chart (inside the consultation page) keeps it locally.
+  // The tab lives in the URL.
   const [searchParams, setSearchParams] = useSearchParams();
-  const [localTab, setLocalTab] = useState('overview');
   const urlTab = searchParams.get('tab');
-  const tab = embedded ? localTab : (TAB_KEYS.includes(urlTab) ? urlTab : 'overview');
-  const focusConsultation = embedded ? null : searchParams.get('consultation');
+  const tab = TAB_KEYS.includes(urlTab) ? urlTab : 'overview';
+  const focusConsultation = searchParams.get('consultation');
   const setTab = (t, extra = {}) => {
-    if (embedded) { setLocalTab(t); return; }
     const next = new URLSearchParams(searchParams);
     if (t === 'overview') next.delete('tab'); else next.set('tab', t);
     next.delete('consultation');
@@ -132,7 +129,7 @@ const PatientChart = ({ embedded = false, customerId: customerIdProp }) => {
   ];
 
   const content = (
-    <div className={embedded ? '' : 'max-w-[1240px]'}>
+    <div className="max-w-[1240px]">
       {loading && (
         <div className="p-16 text-center">
           <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
@@ -149,7 +146,7 @@ const PatientChart = ({ embedded = false, customerId: customerIdProp }) => {
       {!loading && data && derived && (
         <>
           <RecordHeader
-            embedded={embedded} customer={customer} patient={patient} ids={listState?.ids} customerId={customerId}
+            customer={customer} patient={patient} ids={listState?.ids} customerId={customerId}
             onBack={goBack} onGoTo={goTo} readOnly={readOnly} canDuplicates={!readOnly && ['admin', 'manager'].includes(role)}
             onNewBooking={newBooking} onCollect={() => startCollect(customer.phone)}
             onDuplicates={() => navigate(`/${orgSlug}/dashboard?view=customers&segment=duplicates`)}
@@ -178,7 +175,7 @@ const PatientChart = ({ embedded = false, customerId: customerIdProp }) => {
                 onSaveDob={(dob) => save({ dateOfBirth: dob }, 'Date of birth saved')} onSaveNotes={(n) => save({ notes: n }, 'Notes saved')} />
             </div>
           )}
-          {tab === 'visits' && <VisitsTab today={today} bookings={derived.visitRows} consultations={consultations} notes={derived.treatmentNotes} customerName={customer.full_name} onOpenBooking={embedded ? null : openBooking} />}
+          {tab === 'visits' && <VisitsTab today={today} bookings={derived.visitRows} consultations={consultations} notes={derived.treatmentNotes} customerName={customer.full_name} onOpenBooking={openBooking} />}
           {tab === 'notes' && <ClinicalNotesTab consultations={consultations} focusId={focusConsultation} customerName={customer.full_name} />}
           {tab === 'media' && <MediaTab groups={derived.media} />}
           {tab === 'billing' && <BillingTab today={today} patient={patient} bookings={derived.visitRows} stats={derived.stats} />}
@@ -191,7 +188,6 @@ const PatientChart = ({ embedded = false, customerId: customerIdProp }) => {
     </div>
   );
 
-  if (embedded) return <div className="p-4 sm:p-6">{content}</div>;
   return <PatientChartShell orgSlug={orgSlug}>{content}</PatientChartShell>;
 };
 

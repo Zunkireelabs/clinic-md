@@ -11941,10 +11941,10 @@ export async function transcribeConsultationAudio(audioPath) {
   return { text: data?.text ?? '', language: data?.language ?? null, error };
 }
 
-/** mode 'preliminary' (from transcript) or 'final' (combines everything). */
+/** mode 'preliminary' (from transcript), 'final' (combines everything) or 'note' (structured six-section clinical note → `note`). */
 export async function summarizeConsultation(payload) {
   const { data, error } = await invokeConsultationFunction('consultation-summarize', payload);
-  return { summary: data?.summary ?? '', error };
+  return { summary: data?.summary ?? '', note: data?.note ?? null, error };
 }
 
 /** kind: 'xray' | 'photo'; imagePaths from uploadConsultationFile. */

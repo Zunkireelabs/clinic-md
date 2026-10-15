@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Icon from '../../components/AppIcon';
+import NoteText from '../../components/ui/NoteText';
 import { ACTIVITY_FILTERS } from '../../utils/patientRecord';
 import { shortDate, localISO } from '../../utils/patientDirectory';
 import { formatPhoneDisplay } from '../../utils/phone';
@@ -39,9 +40,9 @@ export const SummaryCard = ({ summary, canStart, onFull, onStart }) => (
       {summary ? (
         summary.rows.length ? (
           <dl className="grid grid-cols-[110px_1fr] gap-y-2 text-[13.5px]">
-            {summary.rows.map(([k, v]) => (<React.Fragment key={k}><dt className="text-[#8A8A90]">{k}</dt><dd className="whitespace-pre-wrap break-words">{v}</dd></React.Fragment>))}
+            {summary.rows.map(([k, v]) => (<React.Fragment key={k}><dt className="text-[#8A8A90]">{k}</dt><dd><NoteText text={v} /></dd></React.Fragment>))}
           </dl>
-        ) : <p className="text-[13.5px] whitespace-pre-wrap break-words line-clamp-6">{summary.raw}</p>
+        ) : <NoteText text={summary.raw} className="text-[13.5px] line-clamp-6" />
       ) : <p className="text-[13.5px] text-[#8A8A90]">No consultation recorded yet</p>}
       <div className="flex gap-2 mt-3 flex-wrap">
         {summary && <Btn icon="FileText" onClick={onFull}>Full consultation</Btn>}

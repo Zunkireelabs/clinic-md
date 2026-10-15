@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Icon from '../../components/AppIcon';
+import NoteText from '../../components/ui/NoteText';
 import VisitRecord from './VisitRecord';
 import { getConsultationFileUrl } from '../../services/api';
 import { parseSummarySections } from '../../utils/summarySections';
@@ -66,7 +67,7 @@ export const VisitsTab = ({ bookings, consultations, notes, customerName, onOpen
 
 // ── Clinical notes: consultations, newest first ──────────────────────────────────────────────
 const Section = ({ label, children }) => (children ? (
-  <div><h4 className="text-[11.5px] font-medium uppercase tracking-[.05em] text-[#8A8A90] mb-1">{label}</h4><p className="text-[13.5px] whitespace-pre-wrap break-words">{children}</p></div>
+  <div><h4 className="text-[11.5px] font-medium uppercase tracking-[.05em] text-[#8A8A90] mb-1">{label}</h4><NoteText text={children} className="text-[13.5px]" /></div>
 ) : null);
 
 const ConsultationCard = ({ c, focus, customerName }) => {
@@ -74,7 +75,7 @@ const ConsultationCard = ({ c, focus, customerName }) => {
   const [open, setOpen] = useState(!!focus);
   useEffect(() => { if (focus) { setOpen(true); ref.current?.scrollIntoView({ block: 'center' }); } }, [focus]);
   const s = parseSummarySections(c.final_summary || c.preliminary_summary || '');
-  const structured = s.complaint || s.findings || s.diagnosis || s.plan || s.followup;
+  const structured = s.complaint || s.history || s.findings || s.diagnosis || s.plan || s.followup;
   const report = () => generateConsultationPdf(rowToReportData({ ...c, patient_name: c.patient_name || customerName }));
   return (
     <Card className={focus ? 'ring-2 ring-primary/30' : ''}>
@@ -91,13 +92,14 @@ const ConsultationCard = ({ c, focus, customerName }) => {
           <div className="px-4 pb-4 pt-3 border-t border-[#F1F1F3] space-y-4">
             {structured ? (<>
               <Section label="Chief complaint">{s.complaint}</Section>
+              <Section label="History">{s.history}</Section>
               <Section label="Findings">{[s.findings, c.xray_analysis || s.xray, c.photo_analysis || s.photo].filter(Boolean).join('\n\n')}</Section>
-              <Section label="Diagnosis">{s.diagnosis}</Section>
+              <Section label="Assessment">{s.diagnosis}</Section>
               <Section label="Plan">{s.plan}</Section>
               <Section label="Follow-up">{s.followup}</Section>
             </>) : <Section label="Summary">{c.final_summary || c.preliminary_summary}</Section>}
             <Section label="Doctor's notes">{c.doctor_notes}</Section>
-            <Section label="Additional notes">{c.additional_notes}</Section>
+            <Section label="Private notes (staff only)">{c.additional_notes}</Section>
             {c.transcript && <details className="text-[13px]"><summary className="cursor-pointer text-[#515152]">Transcript</summary><p className="mt-2 whitespace-pre-wrap text-[#515152]">{c.transcript}</p></details>}
             {!structured && !c.final_summary && !c.preliminary_summary && !c.doctor_notes && !c.additional_notes && !c.transcript && <p className="text-[13px] text-[#8A8A90]">Nothing written down for this consultation.</p>}
             <button type="button" onClick={report} className="h-7 px-2.5 rounded-md border border-border bg-white text-[12.5px] font-medium inline-flex items-center gap-1.5 hover:bg-[#FAFAFB]"><Icon name="FileText" size={13} />Download PDF report</button>

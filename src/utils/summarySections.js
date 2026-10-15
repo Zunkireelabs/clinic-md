@@ -17,7 +17,8 @@ const canonical = (title) => {
   return hit ? hit[0] : null;
 };
 
-const HEADING = /^\s*(?:#{1,6}\s*(.+?)|\*\*(.+?)\*\*:?)\s*:?\s*$/;
+// A markdown heading needs a space after the #'s ('#36 distal' is body text, not a heading).
+const HEADING = /^\s*(?:#{1,6}\s+(.+?)|\*\*(.+?)\*\*:?)\s*:?\s*$/;
 
 /** Returns { complaint, history, findings, xray, photo, diagnosis, plan, followup, other } (strings, empty when absent). */
 export const parseSummarySections = (text = '') => {
@@ -29,7 +30,7 @@ export const parseSummarySections = (text = '') => {
       current = canonical((m[1] || m[2] || '').trim()) || 'other';
       return;
     }
-    out[current] += `${line}\n`;
+    out[current] += `${line.replace(/^(\s*)\\(#)/, '$1$2')}\n`; // un-escape a body line that began with '#'
   });
   Object.keys(out).forEach((k) => { out[k] = out[k].replace(/\*\*/g, '').trim(); });
   return out;

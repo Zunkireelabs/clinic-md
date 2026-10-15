@@ -7,9 +7,9 @@ import { InClinicTag } from '../branch-manager-dashboard/components/CRM/PatientP
 const npr = (n) => `NPR ${Number(n || 0).toLocaleString('en-IN')}`;
 
 // Breadcrumb + prev/next (when the list passed its ordered ids) and the record header with its actions.
-const RecordHeader = ({ embedded, customer, patient, ids, customerId, onBack, onGoTo, readOnly, canDuplicates, onNewBooking, onCollect, onDuplicates }) => {
+const RecordHeader = ({ customer, patient, ids, customerId, onBack, onGoTo, readOnly, canDuplicates, onNewBooking, onCollect, onDuplicates }) => {
   const index = ids ? ids.indexOf(customerId) : -1;
-  const hasPager = !embedded && index >= 0;
+  const hasPager = index >= 0;
   const prev = hasPager && index > 0 ? ids[index - 1] : null;
   const next = hasPager && index < ids.length - 1 ? ids[index + 1] : null;
 
@@ -37,7 +37,7 @@ const RecordHeader = ({ embedded, customer, patient, ids, customerId, onBack, on
 
   return (
     <>
-      {!embedded && (
+      {(
         <div className="flex items-center justify-between text-[13px]">
           <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-[#8A8A90]">
             <button type="button" onClick={onBack} className="inline-flex items-center gap-1 hover:text-text-primary"><Icon name="ChevronLeft" size={14} />Patients</button>
@@ -51,7 +51,7 @@ const RecordHeader = ({ embedded, customer, patient, ids, customerId, onBack, on
           )}
         </div>
       )}
-      <div className={`flex items-center gap-4 flex-wrap ${embedded ? '' : 'mt-5'}`}>
+      <div className={`flex items-center gap-4 flex-wrap mt-5`}>
         <div className="w-14 h-14 rounded-full bg-[#F1F1F3] text-[#4A4A4F] text-[18px] font-semibold grid place-items-center flex-shrink-0">{initials(customer.full_name)}</div>
         <div className="min-w-0 flex-1">
           <h1 className="text-[24px] font-semibold tracking-[-0.5px] flex items-center gap-2.5 leading-tight text-text-primary">
@@ -60,7 +60,7 @@ const RecordHeader = ({ embedded, customer, patient, ids, customerId, onBack, on
           </h1>
           <p className="text-[13px] text-[#515152] mt-1 flex flex-wrap gap-x-3 gap-y-0.5">{meta.map((m, i) => <span key={i} className={i === 1 ? 'break-all' : ''}>{m}</span>)}</p>
         </div>
-        {!embedded && !readOnly && (
+        {!readOnly && (
           <div className="flex items-center gap-2">
             <Menu canDuplicates={canDuplicates} onDuplicates={onDuplicates} />
             {patient.balance > 0 && <button type="button" onClick={onCollect} className="h-8 px-3 rounded-md border border-border bg-white text-[13px] font-medium hover:bg-[#FAFAFB]">Collect {npr(patient.balance)}</button>}

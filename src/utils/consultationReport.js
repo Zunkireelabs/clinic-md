@@ -11,14 +11,13 @@ export const stripMarkdown = (text = '') =>
 
 const safeFilePart = (s = '') => s.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'patient';
 
-// Sections shown in both the PDF and the JSON export, in report order.
+// Sections shown in both the PDF and the JSON export, in report order. Private staff notes (additional_notes) are never included.
 const sections = (c) => [
   ['Final Summary', c.finalSummary],
   ['Consultation Summary', c.preliminarySummary],
   ['X-ray Analysis', c.xrayAnalysis],
   ['Clinical Photo Analysis', c.photoAnalysis],
   ["Doctor's Notes", c.doctorNotes],
-  ['Additional Notes', c.additionalNotes],
   ['Transcript', c.transcript],
 ].filter(([, body]) => body && body.trim());
 
@@ -39,7 +38,6 @@ export const buildConsultationExport = (c) => ({
   preliminarySummary: c.preliminarySummary,
   xrayAnalysis: c.xrayAnalysis,
   photoAnalysis: c.photoAnalysis,
-  additionalNotes: c.additionalNotes,
   doctorNotes: c.doctorNotes,
   finalSummary: c.finalSummary,
   exportedAt: new Date().toISOString(),

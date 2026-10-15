@@ -15,6 +15,8 @@ export default function useAudioRecorder() {
   const [isPaused, setIsPaused] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [error, setError] = useState(null);
+  const [stream, setStream] = useState(null); // the live microphone stream (for a level meter); null when not recording
+  const [deviceLabel, setDeviceLabel] = useState('');
 
   const recorderRef = useRef(null);
   const streamRef = useRef(null);
@@ -39,6 +41,7 @@ export default function useAudioRecorder() {
   const releaseStream = () => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    setStream(null);
   };
 
   const startRecording = useCallback(async () => {
@@ -57,6 +60,8 @@ export default function useAudioRecorder() {
         audio: { echoCancellation: true, noiseSuppression: true },
       });
       streamRef.current = stream;
+      setStream(stream);
+      setDeviceLabel(stream.getAudioTracks()[0]?.label || '');
       const mimeType = pickRecordingMimeType();
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       chunksRef.current = [];
@@ -136,5 +141,5 @@ export default function useAudioRecorder() {
     releaseStream();
   }, []);
 
-  return { isRecording, isPaused, recordingTime, error, start, pause, resume, stop };
+  return { isRecording, isPaused, recordingTime, error, start, pause, resume, stop, stream, deviceLabel };
 }
