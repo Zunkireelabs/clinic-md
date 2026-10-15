@@ -14,31 +14,35 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const auth = await authenticate(req);
   if (auth instanceof Response) return auth;
 
-  const apiKey = Deno.env.get('GEMINI_API_KEY');
-  if (!apiKey) return keyMissing('GEMINI_API_KEY');
+  const apiKey = Deno.env.get('OPENAI_API_KEY');
+  if (!apiKey) return keyMissing('OPENAI_API_KEY');
 
   const { kind, imagePaths } = await req.json().catch(() => ({}));
   if (!PROMPTS[kind]) return json({ error: "kind must be 'xray' or 'photo'" }, 400);
   if (!Array.isArray(imagePaths) || imagePaths.length === 0) return json({ error: 'imagePaths is required' }, 400);
 
-  const parts: unknown[] = [{ text: PROMPTS[kind] }];
+  // OpenAI vision (Chat Completions with image inputs), same model as consultation-summarize. Images are read with the
+  // caller's JWT (storage RLS) and sent inline as base64 data URLs.
+  const content: unknown[] = [{ type: 'text', text: PROMPTS[kind] }];
   for (const path of imagePaths.slice(0, 6)) {
     const { data: blob, error } = await auth.supabase.storage.from('consultation-images').download(path);
     if (error || !blob) return json({ error: `Could not read image ${path}` }, 404);
-    parts.push({ inline_data: { mime_type: blob.type || 'image/jpeg', data: encodeBase64(new Uint8Array(await blob.arrayBuffer())) } });
+    const mime = blob.type || 'image/jpeg';
+    content.push({ type: 'image_url', image_url: { url: `data:${mime};base64,${encodeBase64(new Uint8Array(await blob.arrayBuffer()))}` } });
   }
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.1 } }),
-    },
-  );
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'gpt-4o',
+      temperature: 0.1,
+      max_tokens: 1500,
+      messages: [{ role: 'user', content }],
+    }),
+  });
   if (!res.ok) return json({ error: 'Image analysis failed', detail: (await res.text()).slice(0, 500) }, 502);
 
   const result = await res.json();
-  const analysis = result.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('') ?? '';
-  return json({ analysis });
+  return json({ analysis: result.choices?.[0]?.message?.content ?? '' });
 });
