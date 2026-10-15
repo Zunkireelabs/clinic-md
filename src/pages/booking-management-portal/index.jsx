@@ -11,7 +11,7 @@ import Button from '../../components/ui/Button';
 import { searchBookingPublic, updateBookingStatus, rescheduleBooking } from '../../services/api';
 import { transformBookings, toDbStatus } from '../../services/bookingTransformers';
 import { useBranch } from '../../contexts/BranchContext';
-import logo from 'assets/logo.png';
+import BrandWordmark from 'components/ui/BrandWordmark';
 
 const BookingManagementPortal = () => {
   const { branchId } = useBranch();
@@ -274,7 +274,7 @@ const BookingManagementPortal = () => {
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <div className="text-center">
               <div className="flex items-center justify-center mb-4">
-                <img src={logo} alt="ClinicMD" className="h-8 w-auto" />
+                <BrandWordmark size="sm" />
               </div>
               <p className="font-caption font-caption-normal text-sm text-text-secondary mb-4">
                 Your wellness journey, simplified and secure.

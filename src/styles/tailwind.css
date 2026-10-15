@@ -35,27 +35,27 @@
 @layer base {
   :root {
     /* Primary Colors */
-    --color-primary: #0F6E8C; /* clinical teal-blue */
+    --color-primary: #7B2FF7; /* brand purple (landing CTA) */
     --color-primary-foreground: #FFFFFF; /* white */
 
     /* Secondary Colors */
-    --color-secondary: #2B4C6F; /* deep clinical navy */
+    --color-secondary: #0E0D0C; /* brand ink */
     --color-secondary-foreground: #FFFFFF; /* white */
 
     /* Accent Colors */
-    --color-accent: #3FB8AF; /* fresh mint teal */
-    --color-accent-foreground: #1A1A1A; /* near-black */
+    --color-accent: #146EF4; /* brand blue (links) */
+    --color-accent-foreground: #FFFFFF; /* white */
     
     /* Background Colors */
-    --color-background: #FAFAF9; /* soft off-white */
+    --color-background: #FAFAFB; /* brand grey */
     --color-surface: #FFFFFF; /* pure white */
     
     /* Text Colors */
-    --color-text-primary: #1A1A1A; /* near-black */
-    --color-text-secondary: #6B7280; /* medium gray */
+    --color-text-primary: #0E0D0C; /* brand ink */
+    --color-text-secondary: #515152; /* brand muted */
     
     /* Status Colors */
-    --color-success: #10B981; /* emerald green (distinct from primary) */
+    --color-success: #1F9D6C; /* brand green */
     --color-success-foreground: #FFFFFF; /* white */
     
     --color-warning: #D97706; /* warm amber */
@@ -65,14 +65,14 @@
     --color-error-foreground: #FFFFFF; /* white */
     
     /* Border Colors */
-    --color-border: #E1E3E5; /* soft gray (Shopify-style) */
-    --color-border-muted: rgba(225, 227, 229, 0.5); /* soft gray with opacity */
+    --color-border: #E9E9EC; /* brand hairline */
+    --color-border-muted: rgba(233, 233, 236, 0.5); /* soft gray with opacity */
     
     /* Shadow Colors */
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-    --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
-    --shadow-lg: 0 4px 6px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.06);
-    --shadow-xl: 0 10px 15px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05);
+    --shadow-sm: 0 1px 2px rgba(14, 13, 12, 0.04);
+    --shadow-md: 0 1px 2px rgba(14, 13, 12, 0.04);
+    --shadow-lg: 0 12px 32px rgba(14, 13, 12, 0.08), 0 0 0 1px #E9E9EC;
+    --shadow-xl: 0 20px 40px rgba(14, 13, 12, 0.12), 0 0 0 1px #E9E9EC;
     
     /* Animation Timing */
     --timing-fast: 150ms;
@@ -118,7 +118,7 @@
   }
 
   .font-data {
-    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: 'Inter', sans-serif;
   }
 }
 
@@ -164,197 +164,46 @@
   }
 }
 
-/* ── FullCalendar ClinicMD Theme ─────────────────────────────── */
-.bookspa-calendar {
-  /* Reset FullCalendar chrome to match ClinicMD surface tokens */
-  --fc-border-color: var(--color-border);
-  --fc-button-bg-color: var(--color-background);
-  --fc-button-border-color: var(--color-border);
-  --fc-button-text-color: var(--color-text-primary);
-  --fc-button-hover-bg-color: var(--color-border);
-  --fc-button-hover-border-color: var(--color-border);
-  --fc-button-active-bg-color: var(--color-primary);
-  --fc-button-active-border-color: var(--color-primary);
-  --fc-page-bg-color: var(--color-surface);
-  --fc-neutral-bg-color: var(--color-background);
-  --fc-today-bg-color: rgba(15, 110, 140,0.04);
-  --fc-now-indicator-color: var(--color-primary);
-  --fc-event-border-color: transparent;
-  --fc-non-business-color: rgba(0, 0, 0, 0.02);
-}
-
-/* Toolbar */
-.bookspa-calendar .fc .fc-toolbar {
-  padding: 0.75rem 1.5rem;
-  gap: 0.5rem;
-}
-
-.bookspa-calendar .fc .fc-toolbar-title {
-  font-family: 'Inter', sans-serif;
-  font-weight: 600;
-  font-size: 1rem;
-  color: var(--color-text-primary);
-}
-
-/* Buttons */
-.bookspa-calendar .fc .fc-button {
-  font-family: 'Inter', sans-serif;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  padding: 0.375rem 0.75rem;
-  border-radius: 6px;
-  box-shadow: none;
-  text-transform: none;
-  transition: all 150ms ease-out;
-}
-
-.bookspa-calendar .fc .fc-button:focus {
-  box-shadow: 0 0 0 2px rgba(15, 110, 140,0.25);
-}
-
-.bookspa-calendar .fc .fc-button-active {
-  background-color: var(--color-primary) !important;
-  border-color: var(--color-primary) !important;
-  color: #fff !important;
-}
-
-/* Table / Grid */
-.bookspa-calendar .fc .fc-scrollgrid {
-  border-radius: 0 0 12px 12px;
-  overflow: hidden;
-}
-
-.bookspa-calendar .fc td,
-.bookspa-calendar .fc th {
-  border-color: var(--color-border);
-}
-
-.bookspa-calendar .fc .fc-col-header-cell {
-  background: var(--color-background);
-  padding: 0.5rem 0;
-}
-
-.bookspa-calendar .fc .fc-col-header-cell-cushion {
-  font-family: 'Inter', sans-serif;
-  font-size: 0.8125rem;
-  color: var(--color-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-/* Resource area */
-.bookspa-calendar .fc .fc-datagrid-cell-frame {
-  padding: 0.25rem 0.75rem;
-}
-
-.bookspa-calendar .fc .fc-resource-area .fc-datagrid-header .fc-datagrid-cell-frame {
-  background: var(--color-background);
-}
-
-.bookspa-calendar .fc .fc-resource-area .fc-datagrid-header .fc-datagrid-cell-cushion {
-  font-family: 'Inter', sans-serif;
-  font-size: 0.8125rem;
-  color: var(--color-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: 600;
-}
-
-/* Slot labels */
-.bookspa-calendar .fc .fc-timeline-slot-label-cushion {
-  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.8125rem;
-  color: var(--color-text-secondary);
-}
-
-/* Events */
-.bookspa-calendar .fc .fc-event {
-  border-radius: 4px;
-  border-width: 2px;
-  cursor: pointer;
-  transition: opacity 150ms ease-out, transform 150ms ease-out;
-  overflow: visible;
-}
-
-.bookspa-calendar .fc .fc-event-main {
-  overflow: visible;
-}
-
-.bookspa-calendar .fc .fc-timeline-lane,
-.bookspa-calendar .fc .fc-timeline-lane-frame {
-  overflow: visible;
-}
-
-.bookspa-calendar .fc .fc-event:hover {
-  opacity: 0.9;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
-}
-
-.bookspa-calendar .fc .fc-event-main {
-  padding: 1px 2px;
-}
-
-/* Now indicator line */
-.bookspa-calendar .fc .fc-timeline-now-indicator-line {
-  border-color: var(--color-primary);
-  border-width: 2px;
-}
-
-.bookspa-calendar .fc .fc-timeline-now-indicator-arrow {
-  border-color: var(--color-primary);
-}
-
-/* DayGrid month view */
-.bookspa-calendar .fc .fc-daygrid-day-number {
-  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.8125rem;
-  color: var(--color-text-secondary);
-  padding: 0.25rem 0.5rem;
-}
-
-.bookspa-calendar .fc .fc-daygrid-event {
-  border-radius: 4px;
-  margin: 1px 2px;
-}
-
-/* Scrollbar styling */
-.bookspa-calendar .fc .fc-scroller::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-.bookspa-calendar .fc .fc-scroller::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 3px;
-}
-
-.bookspa-calendar .fc .fc-scroller::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-/* ── Sidebar thin scrollbar ──────────────────────────────────── */
-.sidebar-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
-}
-
+/* ── Sidebar scrollbar: thin rounded thumb, no track, shown only while the pointer is over the nav ──
+   Chrome/Safari use the ::-webkit-scrollbar rules (they ignore them once the standard scrollbar-* properties
+   are set, so those are only applied where ::-webkit-scrollbar is unsupported, i.e. Firefox). The 8px gutter
+   is always reserved so items don't shift when the thumb appears; the thumb is 4px, inset by a transparent border. */
 .sidebar-scroll::-webkit-scrollbar {
-  width: 4px;
-  height: 6px;
-}
-
-.sidebar-scroll::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 2px;
-}
-
-.sidebar-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-secondary);
+  width: 8px;
+  height: 8px;
 }
 
 .sidebar-scroll::-webkit-scrollbar-track {
   background: transparent;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 9999px;
+}
+
+/* Chromium doesn't repaint the thumb on the scroller's own :hover, so key the reveal off an ancestor :has(). */
+aside:has(.sidebar-scroll:hover) .sidebar-scroll::-webkit-scrollbar-thumb,
+aside:has(.sidebar-scroll:focus-within) .sidebar-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(14, 13, 12, 0.18);
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(14, 13, 12, 0.32);
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .sidebar-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+  .sidebar-scroll:hover,
+  .sidebar-scroll:focus-within {
+    scrollbar-color: rgba(14, 13, 12, 0.18) transparent;
+  }
 }
 
 /* ── Calendar grid scroller — thicker horizontal bar, always visible ── */
@@ -386,3 +235,35 @@
   background: var(--color-background);
 }
 
+
+/* Control height shared by the app header and the calendar toolbar: compact with a mouse, today's 36px for touch. */
+:root { --control-h: 32px; }
+@media (pointer: coarse) { :root { --control-h: 36px; } }
+
+/* ── AppShell content scroller (desktop): thin neutral thumb, no track, always visible ── */
+.content-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.content-scroll::-webkit-scrollbar-track { background: transparent; }
+.content-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(14, 13, 12, 0.18);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 9999px;
+}
+.content-scroll::-webkit-scrollbar-thumb:hover { background-color: rgba(14, 13, 12, 0.32); }
+
+/* Standard properties only where ::-webkit-scrollbar is unsupported (Chrome ignores the webkit rules once they're set). */
+@supports not selector(::-webkit-scrollbar) {
+  .content-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(14, 13, 12, 0.18) transparent;
+  }
+}
+
+/* Print: let the frame grow to its content so long pages print in full. */
+@media print {
+  .app-shell, .app-shell-main, .app-shell-frame, .content-scroll {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}

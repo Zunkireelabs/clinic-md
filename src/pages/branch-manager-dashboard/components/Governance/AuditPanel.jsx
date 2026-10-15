@@ -202,9 +202,6 @@ const AuditPanel = ({ branchId, initialRecordId = '' }) => {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="font-heading font-heading-semibold text-xl text-text-primary mb-1">
-          Audit Log
-        </h2>
         <p className="font-body text-sm text-text-secondary">
           Read-only governance view of all tracked changes. No data can be modified from this panel.
         </p>

@@ -20,7 +20,7 @@ const PhoneCodeBanner = ({ initial, via = 'notification' }) => {
 
   const newCode = useCallback(async () => {
     setBusy(true);
-    const { shortCode, expiresAt, error } = await createPhonePairing();
+    const { shortCode, expiresAt, error } = await createPhonePairing({ purpose: 'verify' });
     if (!error) setCode({ shortCode, expiresAt });
     setBusy(false);
   }, []);

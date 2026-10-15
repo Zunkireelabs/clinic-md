@@ -76,7 +76,7 @@ Phones only allow the microphone/camera/notifications on `https://` pages and ca
    VITE_DEV_SUPABASE_PROXY_TARGET=http://127.0.0.1:54321
    VITE_VAPID_PUBLIC_KEY=<public key>                      # Web Push, from `npx web-push generate-vapid-keys`
    ```
-3. `supabase/functions/.env` (gitignored; see `.env.example`): `OPENAI_API_KEY`, `GEMINI_API_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`. Then `supabase functions serve`.
+3. `supabase/functions/.env` (gitignored; see `.env.example`): `OPENAI_API_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`. Then `supabase functions serve`.
 4. Run `scripts/dev-phone.sh`: it starts a Cloudflare tunnel (a trusted `https://...trycloudflare.com` address), points the QR code at it, and starts the dev server. Use `http://localhost:4028` on the computer.
 
 The tunnel address changes each run, and a phone's saved login belongs to the address it was opened on, so locally you scan again after a restart. On a deployed site with a fixed address it is one time. The tunnel is public while it runs, so use a strong password for the local staff login.

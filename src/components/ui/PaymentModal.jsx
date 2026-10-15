@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import Icon from '../AppIcon';
 import Button from './Button';
+import { getBookingStatusColors } from '../../utils/bookingStatusColors';
 import PaymentMethodSelector from './PaymentMethodSelector';
 import MembershipWalletCard from './MembershipWalletCard';
 import ReferralRewardCard from './ReferralRewardCard';
@@ -38,6 +39,9 @@ function formatNPR(amount) {
 }
 
 const round2 = (n) => Math.round(Number(n) * 100) / 100;
+
+// Amber (the Pending status text tone) marks due / outstanding amounts; success green is reserved for a Paid / Settled state.
+const AMBER = getBookingStatusColors('Pending').text;
 
 const PaymentModal = ({
   booking,
@@ -477,16 +481,16 @@ const PaymentModal = ({
 
   return (
     <div className="fixed inset-0 bg-text-primary/50 backdrop-blur-sm z-modal-overlay flex items-center justify-center p-4">
-      <div className="bg-surface rounded-spa-lg spa-shadow-modal w-full max-w-md animate-fade-in max-h-[90vh] overflow-y-auto">
+      <div className="bg-surface rounded-spa-lg shadow-spa-modal border border-border w-full max-w-md animate-fade-in max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-success/10 rounded-lg flex items-center justify-center">
-              <Icon name="CreditCard" size={20} className="text-success" />
+            <div className="w-10 h-10 bg-gray-100 rounded-spa flex items-center justify-center">
+              <Icon name="CreditCard" size={20} className="text-text-primary" />
             </div>
             <div>
               <h2 className="font-heading font-heading-semibold text-lg text-text-primary">
-                Record Payment
+                Record payment
               </h2>
               <p className="font-caption font-caption-normal text-sm text-text-secondary">
                 {booking.booking_number || booking.id}
@@ -505,53 +509,53 @@ const PaymentModal = ({
         {/* Body */}
         <div className="p-5 space-y-5">
           {/* Financial Summary (read-only) */}
-          <div className="bg-background rounded-spa p-4 space-y-3">
-            <h4 className="font-heading font-heading-medium text-sm text-text-secondary uppercase tracking-wider">
-              Payment Summary
+          <div>
+            <h4 className="font-body font-medium text-xs uppercase tracking-wider text-text-tertiary mb-2">
+              Payment summary
             </h4>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-body font-body-normal text-sm text-text-secondary truncate pr-2">
+            <dl className="border border-border rounded-spa divide-y divide-border text-[13px]">
+              <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+                <dt className="font-body text-text-secondary truncate">
                   {booking.treatment?.name || booking.treatment || 'This booking'}
-                </span>
-                <span className="font-body font-body-medium text-sm text-text-primary flex-shrink-0">
+                </dt>
+                <dd className="font-body font-body-medium text-text-primary tabular-nums text-right flex-shrink-0">
                   {formatNPR(remaining)}
-                </span>
+                </dd>
               </div>
               {!hasPreviousDue && alreadyPaid > 0 && (
-                <div className="flex items-center justify-between">
-                  <span className="font-body font-body-normal text-sm text-text-secondary">Already paid</span>
-                  <span className="font-body font-body-medium text-sm text-success">- {formatNPR(alreadyPaid)}</span>
+                <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+                  <dt className="font-body text-text-secondary">Already paid</dt>
+                  <dd className="font-body font-body-medium text-text-primary tabular-nums text-right">− {formatNPR(alreadyPaid)}</dd>
                 </div>
               )}
               {hasPreviousDue && (
-                <div className="flex items-center justify-between">
-                  <span className="font-body font-body-normal text-sm text-warning">
+                <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+                  <dt className="font-body" style={{ color: AMBER }}>
                     Previous due ({additionalBookings.length})
-                  </span>
-                  <span className="font-body font-body-medium text-sm text-warning flex-shrink-0">
+                  </dt>
+                  <dd className="font-body font-body-medium tabular-nums text-right flex-shrink-0" style={{ color: AMBER }}>
                     {formatNPR(additionalRemaining)}
-                  </span>
+                  </dd>
                 </div>
               )}
-              <div className="border-t border-border pt-2 flex items-center justify-between">
-                <span className="font-body font-body-semibold text-base text-text-primary">
-                  {hasPreviousDue ? 'Total Due' : 'Balance Due'}
-                </span>
-                <span className="font-heading font-heading-semibold text-lg text-success">
+              <div className="flex items-center justify-between gap-3 px-3 py-3">
+                <dt className="font-body font-body-semibold text-sm text-text-primary">
+                  {hasPreviousDue ? 'Total due' : 'Balance due'}
+                </dt>
+                <dd className="font-heading font-heading-semibold text-base text-text-primary tabular-nums text-right">
                   {formatNPR(grandTotal)}
-                </span>
+                </dd>
               </div>
-            </div>
+            </dl>
           </div>
 
           <MembershipWalletCard membership={membership} pendingDeduction={membershipCommitted} />
 
           {activePendingReward && (
-            <div className="rounded-spa border border-amber-300 bg-amber-50 p-3 space-y-2.5">
+            <div className="rounded-spa border border-border bg-background p-3 space-y-2.5">
               <div className="flex items-center gap-2">
-                <Icon name="Gift" size={14} className="text-amber-700 flex-shrink-0" />
-                <p className="font-body font-body-medium text-sm text-amber-900">
+                <Icon name="Gift" size={14} className="text-text-secondary flex-shrink-0" />
+                <p className="font-body font-body-medium text-sm text-text-primary">
                   {activePendingReward.referredName} they referred has completed a visit — this customer has earned a referral reward.
                 </p>
               </div>
@@ -582,7 +586,7 @@ const PaymentModal = ({
                   )}
                 </>
               ) : (
-                <p className="font-caption text-xs text-amber-800">
+                <p className="font-caption text-xs text-text-secondary">
                   Ask a manager or admin to apply this referral's wallet reward.
                 </p>
               )}
@@ -886,8 +890,8 @@ const PaymentModal = ({
               </div>
               {leftover > 0 && (
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-warning font-body-medium">Leave as due</span>
-                  <span className="font-data text-warning font-body-medium">{formatNPR(leftover)}</span>
+                  <span className="font-body-medium" style={{ color: AMBER }}>Leave as due</span>
+                  <span className="font-data font-body-medium tabular-nums" style={{ color: AMBER }}>{formatNPR(leftover)}</span>
                 </div>
               )}
 
@@ -953,14 +957,14 @@ const PaymentModal = ({
             Cancel
           </Button>
           <Button
-            variant="success"
+            variant="primary"
             onClick={handleSubmit}
             loading={isSubmitting}
             disabled={(entered <= 0 && leftover <= 0) || referralRewardBlocksPayment}
             iconName="Check"
             iconPosition="left"
           >
-            {leftover > 0 ? 'Record & Leave Due' : 'Confirm Payment'}
+            {leftover > 0 ? 'Record & leave due' : 'Record payment'}
           </Button>
         </div>
       </div>

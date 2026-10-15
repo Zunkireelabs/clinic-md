@@ -149,9 +149,6 @@ const DailyOperationalReportPanel = ({ branchId }) => {
               <Icon name="FileText" size={20} className="text-primary" />
             </div>
             <div className="min-w-0">
-              <h2 className="font-heading font-heading-semibold text-base sm:text-lg text-text-primary truncate">
-                Daily Operational Report
-              </h2>
               <p className="text-xs sm:text-sm text-text-secondary truncate">
                 {formatDate(selectedDate)}
               </p>

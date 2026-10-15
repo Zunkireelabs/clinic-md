@@ -143,7 +143,6 @@ const ChairManagementPanel = ({ branchId }) => {
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h3 className="font-heading font-heading-semibold text-lg text-text-primary">{locationLabel} Management</h3>
           <p className="font-body text-sm text-text-secondary">{chairs.length} {locationLabelPlural} configured</p>
         </div>
         <Button variant="primary" size="sm" iconName="Plus" onClick={handleOpenCreate}>

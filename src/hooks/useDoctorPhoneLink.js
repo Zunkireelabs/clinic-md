@@ -21,7 +21,7 @@ export default function useDoctorPhoneLink(userId, { kind, label, bookingId = nu
     if (!userId) return undefined;
     const deviceId = deviceIdRef.current;
     const channel = supabase.channel(`doctor-phone-${userId}`, {
-      config: { presence: { key: deviceId }, broadcast: { self: false } },
+      config: { private: true, presence: { key: deviceId }, broadcast: { self: false } },
     });
 
     channel

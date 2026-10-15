@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { EMPTY_FORM, formFromRow, columnsForChanges, mergeRemote, changedKeys } from './consultationSync';
+import { EMPTY_FORM, formFromRow, columnsForChanges, mergeRemote, changedKeys, mergeAfterSave } from './consultationSync';
 
 const row = (over = {}) => ({
   transcript: null, detected_language: null, recording_duration_seconds: null, audio_paths: [],
@@ -54,5 +54,35 @@ describe('mergeRemote', () => {
     const local = { ...synced, doctorNotes: 'mine' };
     const merged = mergeRemote(local, synced, row({ transcript: 'phone' }));
     expect(changedKeys(merged.form, merged.synced)).toEqual(['doctorNotes']);
+  });
+});
+
+describe('mergeRemote: array fields are unioned', () => {
+  it('keeps an X-ray added here AND one added on the other device', () => {
+    const synced = formFromRow(row({ xray_image_paths: ['a.png'] }));
+    const local = { ...synced, xrayPaths: ['a.png', 'local.png'] };
+    const { form } = mergeRemote(local, synced, row({ xray_image_paths: ['a.png', 'phone.png'] }));
+    expect(form.xrayPaths).toEqual(['a.png', 'phone.png', 'local.png']);
+  });
+  it('does not duplicate a path both sides have', () => {
+    const synced = formFromRow(row());
+    const local = { ...synced, photoPaths: ['p.png'] };
+    expect(mergeRemote(local, synced, row({ photo_image_paths: ['p.png'] })).form.photoPaths).toEqual(['p.png']);
+  });
+});
+
+describe('mergeAfterSave', () => {
+  it('takes the saved row but keeps what was typed while the save was in flight', () => {
+    const sent = { ...EMPTY_FORM, finalSummary: 'v1', additionalNotes: 'a' };
+    const current = { ...sent, additionalNotes: 'a, typed during save' };
+    const saved = formFromRow(row({ final_summary: 'v1', additional_notes: 'a' }));
+    const merged = mergeAfterSave(sent, current, saved);
+    expect(merged.additionalNotes).toBe('a, typed during save');
+    expect(merged.finalSummary).toBe('v1');
+  });
+  it('with no edits during the save the form simply becomes the saved row', () => {
+    const sent = { ...EMPTY_FORM, transcript: 't' };
+    const saved = formFromRow(row({ transcript: 't', detected_language: 'Nepali' }));
+    expect(mergeAfterSave(sent, { ...sent }, saved)).toEqual(saved);
   });
 });

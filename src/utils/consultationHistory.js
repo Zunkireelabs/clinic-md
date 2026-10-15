@@ -75,7 +75,6 @@ export const rowToReportData = (row) => ({
   preliminarySummary: row.preliminary_summary,
   xrayAnalysis: row.xray_analysis,
   photoAnalysis: row.photo_analysis,
-  additionalNotes: row.additional_notes,
   doctorNotes: row.doctor_notes,
   finalSummary: row.final_summary,
 });

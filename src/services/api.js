@@ -3,7 +3,29 @@ import { transformMembership, transformMemberships, toTitleCase } from './bookin
 import { capture } from '../lib/analytics';
 import { MEMBERSHIP_ENABLED, CUSTOMER_REFERRALS_ENABLED, VOUCHER_ENABLED } from '../lib/featureFlags';
 import { toE164, samePhone } from '../utils/phone';
+import { consultationAiError } from '../utils/consultationAiError';
 import { isAfterCheckout } from './dentistBranchWindow';
+import { expandBlockOccurrences } from '../utils/blockRecurrence';
+import { dedupeTransfersByKey, sortTransfersByTime } from './transferDedup';
+import { transferWindowOccurrencesForDate } from '../utils/transferOccurrences';
+import { buildPatientDirectory, localISO } from '../utils/patientDirectory';
+import { summarizeMoney, classifyBooking, roundMoney, paidPaisa } from '../utils/bookingMoney';
+
+// PostgREST puts .in() lists in the URL, which breaks (and supabase-js then retries the network error with backoff,
+// ~7s) once it gets long — so id lists are always sent in chunks of at most this many.
+const IN_CHUNK = 100;
+const inChunks = async (ids, run) => {
+  const results = [];
+  for (let i = 0; i < ids.length; i += IN_CHUNK) {
+    const { data, error } = await run(ids.slice(i, i + IN_CHUNK));
+    if (error) throw error;
+    results.push(...(data || []));
+  }
+  return results;
+};
+// Optional enrichment must never hold the calendar up: resolve to `fallback` if it takes longer than `ms`.
+const failOpenAfter = (promise, ms, fallback) =>
+  Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(fallback), ms))]);
 
 // Sentinel "branch" meaning "all branches in the admin's org" (the Overall view).
 // Admin RLS is already org-scoped, so dropping the per-branch filter for this value
@@ -811,42 +833,35 @@ export async function setDueHolder({ bookingId, dueHolderName }) {
   }
 }
 
-// Outstanding (unpaid + partial) balances grouped by responsible person.
-// from/to are ISO dates (inclusive); omit for all-time.
+// What is actually OWED, grouped by responsible person. "Owed" = rendered visits (In-Progress / Completed) with price − payments > 0,
+// computed by bookingMoney (paisa-exact, from payments — never from payment_status). Future appointments are not owed.
+// from/to are ISO dates (inclusive) on the booking date; omit for all-time.
+// Why payment_status is NOT used to find debt: the update_booking_payment_status trigger only fires AFTER INSERT on payments, never on a
+// payment update/delete or on a bookings.final_amount change (e.g. a treatment added after payment). So payment_status can be stale
+// (a stale 'paid' would hide real debt). Payments are the source of truth. Candidates are chosen by status only: due can only exist on
+// rendered visits (In-Progress / Completed); payments(amount) is always embedded and bookingMoney classifies each row.
 export async function getOutstandingByStaff({ branchId, from, to } = {}) {
   try {
-    // payments is embedded (FK payments_booking_id_fkey) instead of fetched via a
-    // second query keyed on `.in('booking_id', bookingIds)`. With "All Time" (no
-    // date filter) a busy branch can have 1000+ outstanding bookings; a bare
-    // booking-ID .in() list that large builds a URL long enough to get rejected
-    // upstream of PostgREST with a bare 400 "Bad Request" (no detail) — confirmed
-    // against prod (Lazimpat, all-time: 1095 outstanding bookings, failing
-    // consistently above ~500-700 IDs). Embedding returns everything in one
-    // request regardless of dataset size, so there's no ceiling to hit again.
-    let query = supabase
-      .from('bookings')
-      .select('id, booking_number, customer_name, customer_phone, date, final_amount, payment_status, due_holder_name, treatment_name_snapshot, payments(amount)')
-      .in('payment_status', ['unpaid', 'partial'])
-      .not('status', 'in', '("Cancelled","No Show")');
-    if (from) query = query.gte('date', from);
-    if (to) query = query.lte('date', to);
-    query = withBranch(query, branchId);
-    const { data: bookings, error } = await query;
-    if (error) throw error;
-
-    const all = bookings || [];
+    const today = localISO(new Date());
+    // payments is embedded (FK payments_booking_id_fkey) instead of a second `.in('booking_id', ids)` query: with "All Time" a busy
+    // branch can have 1000+ outstanding bookings, and a bare id list that long gets rejected upstream with a bare 400.
+    const rows = await pageAll(() => {
+      let query = supabase
+        .from('bookings')
+        .select('id, booking_number, customer_name, customer_phone, date, status, final_amount, payment_status, due_holder_name, treatment_name_snapshot, is_locked, payments(amount), payment_refunds(amount)')
+        .in('status', ['In-Progress', 'Completed'])
+        .order('id');
+      if (from) query = query.gte('date', from);
+      if (to) query = query.lte('date', to);
+      return withBranch(query, branchId);
+    });
 
     const groups = {};
-    for (const b of all) {
-      const collected = (b.payments || []).reduce((sum, p) => sum + Number(p.amount), 0);
-      const due = Math.round((Number(b.final_amount) - collected) * 100) / 100;
-      if (due <= 0) continue;
+    for (const b of summarizeMoney(rows, { today }).dueBookings) {
       const rawName = (b.due_holder_name || '').trim();
       const key = rawName || '__unassigned__';
-      if (!groups[key]) {
-        groups[key] = { dueHolderName: rawName || null, totalDue: 0, bookingCount: 0, bookings: [] };
-      }
-      groups[key].totalDue = Math.round((groups[key].totalDue + due) * 100) / 100;
+      if (!groups[key]) groups[key] = { dueHolderName: rawName || null, totalDue: 0, bookingCount: 0, bookings: [] };
+      groups[key].totalDue = roundMoney(groups[key].totalDue + b.money.due);
       groups[key].bookingCount += 1;
       groups[key].bookings.push({
         bookingId: b.id,
@@ -855,86 +870,148 @@ export async function getOutstandingByStaff({ branchId, from, to } = {}) {
         customerPhone: b.customer_phone,
         date: b.date,
         treatmentName: b.treatment_name_snapshot || '—',
-        finalAmount: Number(b.final_amount),
-        amountPaid: collected,
-        amountDue: due,
+        finalAmount: b.money.price,
+        amountPaid: b.money.paid,
+        amountDue: b.money.due,
         paymentStatus: b.payment_status,
+        isLocked: !!b.is_locked,
       });
     }
-
-    const result = Object.values(groups).sort((a, b) => b.totalDue - a.totalDue);
-    return { data: result, error: null };
+    return { data: Object.values(groups).sort((x, y) => y.totalDue - x.totalDue), error: null };
   } catch (error) {
     console.error('[API] getOutstandingByStaff error:', error.message);
     return { data: null, error };
   }
 }
 
-// One customer's total outstanding balance (unpaid + partial), across all dates —
-// used to warn staff of a returning customer's previous due at booking time, and
-// to bundle a customer's other outstanding bookings into a single payment.
-// Matches on phone alone — phone numbers are unique per customer, while names
-// aren't (two different customers can share a name), so phone is the reliable
-// identifier here. Compared normalized (reduced to its last 10 digits) rather
-// than as an exact string, since the same real customer is often recorded with
-// slightly different phone formatting (with/without country code) across visits.
-// customerName is accepted but purely cosmetic — it is never used to filter.
+// Outstanding report extras: past Pending/Confirmed bookings that were never closed ("Needs closing"), plus the total of
+// upcoming unpaid bookings (not owed yet). Same date filter semantics as getOutstandingByStaff.
+export async function getNeedsClosing({ branchId, from, to } = {}) {
+  try {
+    const today = localISO(new Date());
+    const rows = await pageAll(() => {
+      let query = supabase
+        .from('bookings')
+        .select('id, booking_number, customer_id, customer_name, customer_phone, date, start_time, status, final_amount, treatment_name_snapshot, dentist_name_snapshot, is_locked, payments(amount), payment_refunds(amount)')
+        .in('status', ['Pending', 'Confirmed', 'In-Progress']) // In-Progress only matters when from a previous day (stale)
+        .order('id');
+      if (from) query = query.gte('date', from);
+      if (to) query = query.lte('date', to);
+      return withBranch(query, branchId);
+    });
+    const m = summarizeMoney(rows, { today });
+    const unclosed = m.unclosed
+      .map((b) => ({
+        bookingId: b.id, bookingNumber: b.booking_number, customerName: b.customer_name, customerId: b.customer_id, date: b.date,
+        startTime: (b.start_time || '').slice(0, 5), treatmentName: b.treatment_name_snapshot || '—', dentistName: b.dentist_name_snapshot || '—',
+        status: b.status, atStake: b.money.atStake, stillInProgress: false, isLocked: !!b.is_locked,
+      }))
+      .concat(m.staleInProgress.map((b) => ({
+        bookingId: b.id, bookingNumber: b.booking_number, customerName: b.customer_name, customerId: b.customer_id, date: b.date,
+        startTime: (b.start_time || '').slice(0, 5), treatmentName: b.treatment_name_snapshot || '—', dentistName: b.dentist_name_snapshot || '—',
+        status: b.status, atStake: 0, stillInProgress: true, isLocked: !!b.is_locked, // the money is already in Outstanding; nothing extra at stake
+      })))
+      .sort((x, y) => (x.date + x.startTime < y.date + y.startTime ? -1 : 1));
+    return { data: { unclosed, unclosedAtStake: m.unclosedAtStake, upcoming: m.upcoming, upcomingCount: m.upcomingCount }, error: null };
+  } catch (error) {
+    console.error('[API] getNeedsClosing error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Close a past Pending/Confirmed booking that never got a status ("Needs closing"). Uses the normal status path
+// (updateBookingStatus), so locks, terminal-status and transition rules all apply. The state machine has no direct
+// Confirmed → Completed, so completing walks Pending → Confirmed → In-Progress → Completed one valid step at a time.
+export async function closePastBooking({ bookingId, outcome, reason }) {
+  const { data: b, error } = await supabase.from('bookings').select('id, status').eq('id', bookingId).single();
+  if (error) return { data: null, error };
+  const steps = outcome === 'no_show'
+    ? [['No Show', reason]]
+    : { Pending: ['Confirmed', 'In-Progress', 'Completed'], Confirmed: ['In-Progress', 'Completed'], 'In-Progress': ['Completed'] }[b.status]?.map((st) => [st]);
+  if (!steps) return { data: null, error: { code: 'NOT_OPEN', message: `This booking is already ${b.status}.` } };
+  for (const [newStatus, why] of steps) {
+    const res = await updateBookingStatus({ bookingId, newStatus, reason: why });
+    if (res.error) return res;
+  }
+  return { data: { bookingId }, error: null };
+}
+
+// Local-DB audit helper: how many bookings have a payment_status that disagrees with their recorded payments?
+export async function countPaymentStatusMismatches({ branchId } = {}) {
+  const rows = await pageAll(() => withBranch(supabase.from('bookings').select('id, status, payment_status, final_amount, date, payments(amount), payment_refunds(amount)').order('id'), branchId));
+  const today = localISO(new Date());
+  return rows.filter((b) => {
+    const m = classifyBooking(b, { today });
+    const settled = m.paid >= m.price && m.price > 0;
+    if (b.payment_status === 'paid') return !settled && m.kind !== 'void';
+    if (b.payment_status === 'unpaid') return m.paid > 0;
+    return false;
+  });
+}
+
+// The "other bookings still owed" for one patient (matched by phone): calendar Prev. due, the booking-form warning and the
+// Collect bundle. Only DUE counts (rendered visits), never future appointments; pass `excludeBookingId` where a current booking
+// exists. Compared on the normalized phone, bounded and fail-open like before. customerName is cosmetic.
 export async function getCustomerOutstandingBalance({ customerPhone, branchId, excludeBookingId } = {}) {
   try {
     const normalizedPhone = toE164(customerPhone);
-    // Need a full number (country code + national) before matching — a stray
-    // fragment must not sweep up unrelated bookings.
+    // Need a full number (country code + national) before matching — a stray fragment must not sweep up unrelated bookings.
     if (!normalizedPhone || normalizedPhone.length < 11) {
-      return { data: { totalDue: 0, bookingCount: 0, bookings: [] }, error: null };
+      return { data: { totalDue: 0, bookingCount: 0, collectableDue: 0, bookings: [], lockedDue: 0, lockedBookings: [] }, error: null };
     }
-
-    let query = supabase
-      .from('bookings')
-      .select('id, booking_number, customer_name, customer_phone, date, final_amount, payment_status, treatment_name_snapshot')
-      .in('payment_status', ['unpaid', 'partial'])
-      .not('status', 'in', '("Cancelled","No Show")');
-    if (excludeBookingId) query = query.neq('id', excludeBookingId);
-    query = withBranch(query, branchId);
-    const { data: bookings, error } = await query;
-    if (error) throw error;
-
-    const all = (bookings || []).filter((b) => samePhone(b.customer_phone, normalizedPhone));
-    const bookingIds = all.map(b => b.id);
-    const paidMap = {};
-    if (bookingIds.length > 0) {
-      const { data: payments, error: payError } = await supabase
-        .from('payments')
-        .select('booking_id, amount')
-        .in('booking_id', bookingIds);
-      if (payError) throw payError;
-      for (const p of (payments || [])) {
-        paidMap[p.booking_id] = (paidMap[p.booking_id] || 0) + Number(p.amount);
-      }
-    }
-
-    let totalDue = 0;
-    const dueBookings = [];
-    for (const b of all) {
-      const collected = paidMap[b.id] || 0;
-      const due = Math.round((Number(b.final_amount) - collected) * 100) / 100;
-      if (due <= 0) continue;
-      totalDue = Math.round((totalDue + due) * 100) / 100;
-      dueBookings.push({
-        bookingId: b.id,
-        bookingNumber: b.booking_number,
-        customerName: b.customer_name,
-        date: b.date,
-        treatmentName: b.treatment_name_snapshot || '—',
-        finalAmount: Number(b.final_amount),
-        amountPaid: collected,
-        amountDue: due,
-        paymentStatus: b.payment_status,
-      });
-    }
-
-    return { data: { totalDue, bookingCount: dueBookings.length, bookings: dueBookings }, error: null };
+    const today = localISO(new Date());
+    // Candidates by status only (see getOutstandingByStaff): payment_status can be stale, so it is never used as a filter.
+    // Filtered on the server by the normalised phone (bookings.customer_phone is canonicalised on write), so this no longer
+    // downloads the branch's whole history. samePhone below stays as a safety net for any legacy-format straggler.
+    const rows = await pageAll(() => {
+      let query = supabase
+        .from('bookings')
+        .select(DUE_COLUMNS)
+        .eq('customer_phone', normalizedPhone)
+        .in('status', ['In-Progress', 'Completed'])
+        .order('id');
+      if (excludeBookingId) query = query.neq('id', excludeBookingId);
+      return withBranch(query, branchId);
+    });
+    const mine = rows.filter((b) => samePhone(b.customer_phone, normalizedPhone));
+    return { data: dueSummary(summarizeMoney(mine, { today, excludeBookingId })), error: null };
   } catch (error) {
     console.error('[API] getCustomerOutstandingBalance error:', error.message);
+    return { data: null, error };
+  }
+}
+
+const DUE_COLUMNS = 'id, booking_number, customer_id, customer_name, customer_phone, date, status, final_amount, payment_status, is_locked, treatment_name_snapshot, payments(amount), payment_refunds(amount)';
+
+// Shape returned to Collect / Prev. due callers. `bookings` are only the COLLECTABLE ones: bookings on closed (locked) days can't be
+// paid from here until the closed-day policy is decided, so they are reported separately (lockedDue / lockedBookings) and never bundled.
+const dueSummary = (m) => {
+  const row = (b) => ({
+    bookingId: b.id, bookingNumber: b.booking_number, customerName: b.customer_name, date: b.date,
+    treatmentName: b.treatment_name_snapshot || '—', finalAmount: b.money.price, amountPaid: b.money.paid, amountDue: b.money.due,
+    paymentStatus: b.payment_status, isLocked: !!b.is_locked,
+  });
+  const collectable = m.dueBookings.filter((b) => !b.is_locked);
+  const locked = m.dueBookings.filter((b) => b.is_locked);
+  return {
+    totalDue: m.due, // everything owed (the warning / chip)
+    bookingCount: m.dueCount,
+    collectableDue: roundMoney(collectable.reduce((x, b) => x + b.money.due, 0)),
+    bookings: collectable.map(row),
+    lockedDue: roundMoney(locked.reduce((x, b) => x + b.money.due, 0)),
+    lockedBookings: locked.map(row),
+  };
+};
+
+// What a patient owes, by customer id (the same scope as the chart's balance: every booking RLS lets the caller see, across branches
+// for admins). Used by the chart's and panel's Collect so the amount collected matches the balance shown.
+export async function getCustomerDueBookings(customerId) {
+  try {
+    if (!customerId) return { data: { totalDue: 0, bookingCount: 0, collectableDue: 0, bookings: [], lockedDue: 0, lockedBookings: [] }, error: null };
+    const rows = await pageAll(() => supabase.from('bookings').select(DUE_COLUMNS).eq('customer_id', customerId).in('status', ['In-Progress', 'Completed']).order('id'));
+    return { data: dueSummary(summarizeMoney(rows, { today: localISO(new Date()) })), error: null };
+  } catch (error) {
+    console.error('[API] getCustomerDueBookings error:', error.message);
     return { data: null, error };
   }
 }
@@ -1877,16 +1954,17 @@ export async function fetchRelatedUnpaidBookings({ customerName, date, excludeBo
   try {
     const { data, error } = await supabase
       .from('bookings')
-      .select('id, booking_number, customer_name, date, start_time, end_time, base_amount, discount_amount, final_amount, payment_status, status, treatment:treatments(name, duration_minutes), chair:chairs(name), dentist:dentists(name)')
+      .select('id, booking_number, customer_name, date, start_time, end_time, base_amount, discount_amount, final_amount, payment_status, status, treatment:treatments(name, duration_minutes), chair:chairs(name), dentist:dentists(name), payments(amount), payment_refunds(amount)')
       .eq('customer_name', customerName)
       .eq('date', date)
-      .eq('payment_status', 'unpaid')
       .not('status', 'in', '("Cancelled","No Show")')
       .neq('id', excludeBookingId)
       .order('start_time');
 
     if (error) throw error;
-    return { data: data || [], error: null };
+    // "Unpaid" = nothing held on it (payments − refunds = 0), decided from the payments like every other money figure — the same rule the
+    // calendar's Prev. due uses to drop these siblings, so the two can never disagree.
+    return { data: (data || []).filter((b) => paidPaisa(b) === 0), error: null };
   } catch (error) {
     console.error('[API] fetchRelatedUnpaidBookings error:', error.message);
     return { data: [], error };
@@ -4189,6 +4267,94 @@ export async function searchBookings(branchId, query) {
   }
 }
 
+// Bounded, server-side customer lookup (org-wide, like the booking form's autocomplete): never downloads the whole customer list, so it
+// can't run into PostgREST's 1,000-row cap. Read-only, same table and RLS as the Customers panel.
+//   searchBy: 'name' | 'phone' | 'email' | 'name_or_phone' (default; used by the ⌘K palette)
+//   withMembership: attach `primaryMembership` (status RPC, MEMBERSHIP_ENABLED only) to the returned rows only — the badge and the
+//                   "card depleted / lapsed" hint in the booking form and Enroll Member modal.
+export async function searchCustomers(branchId, query, limit = 5, { searchBy = 'name_or_phone', withMembership = false } = {}) {
+  try {
+    const resolvedBranchId = resolveBranchId(branchId);
+    const term = (query || '').trim();
+    if (!term) return { data: [], error: null };
+
+    const { data: branch, error: branchErr } = await supabase
+      .from('branches')
+      .select('org_id')
+      .eq('id', resolvedBranchId)
+      .single();
+    if (branchErr) throw branchErr;
+
+    // Sanitize to prevent PostgREST filter injection (same as searchBookings)
+    const sanitized = term.replace(/[,.()"\\]/g, '');
+    if (!sanitized) return { data: [], error: null };
+    const filters = {
+      name: `full_name.ilike.%${sanitized}%`,
+      phone: `phone.ilike.%${sanitized}%`,
+      email: `email.ilike.%${sanitized}%`,
+      name_or_phone: `full_name.ilike.%${sanitized}%,phone.ilike.%${sanitized}%`,
+    };
+    const { data, error } = await supabase
+      .from('customers')
+      .select('id, full_name, phone, email, gender')
+      .eq('org_id', branch.org_id)
+      .eq('is_active', true)
+      .or(filters[searchBy] || filters.name_or_phone)
+      .order('full_name')
+      .limit(limit);
+    if (error) throw error;
+
+    let rows = data || [];
+    if (withMembership && MEMBERSHIP_ENABLED && rows.length > 0) {
+      // Status RPC (migration-087): status/tier only, readable for every role. One call per returned row (≤ limit), not per customer in the org.
+      const statuses = await Promise.all(rows.map((c) => fetchMembershipStatus({ customerId: c.id })));
+      rows = rows.map((c, i) => {
+        const st = (statuses[i].data || []).find((r) => r.customerId === c.id) || (statuses[i].data || [])[0];
+        return { ...c, primaryMembership: st ? { id: st.membershipId, status: st.status, tierName: st.tierName, membershipNumber: st.membershipNumber } : null };
+      });
+    } else if (withMembership) {
+      rows = rows.map((c) => ({ ...c, primaryMembership: null }));
+    }
+    return { data: rows, error: null };
+  } catch (error) {
+    console.error('[API] searchCustomers error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// One customer by phone, or null. Stored formats vary (that is why samePhone exists), so the server query is deliberately loose — the last
+// 10 digits with a wildcard between each digit, so "+977 984-123-4567", "9841234567" and "+9779841234567" rows all come back — and the
+// match is then confirmed client-side with the same samePhone() the old whole-list scan used.
+export async function findCustomerByPhone(branchId, phone) {
+  try {
+    const e164 = toE164(phone);
+    const digits = e164 ? e164.replace(/\D/g, '').slice(-10) : '';
+    if (digits.length < 7) return { data: null, error: null };
+
+    const resolvedBranchId = resolveBranchId(branchId);
+    const { data: branch, error: branchErr } = await supabase
+      .from('branches')
+      .select('org_id')
+      .eq('id', resolvedBranchId)
+      .single();
+    if (branchErr) throw branchErr;
+
+    const { data, error } = await supabase
+      .from('customers')
+      .select('id, full_name, phone, email, gender')
+      .eq('org_id', branch.org_id)
+      .eq('is_active', true)
+      .ilike('phone', `%${digits.split('').join('%')}%`)
+      .order('full_name')
+      .limit(25);
+    if (error) throw error;
+    return { data: (data || []).find((c) => samePhone(c.phone, e164)) || null, error: null };
+  } catch (error) {
+    console.error('[API] findCustomerByPhone error:', error.message);
+    return { data: null, error };
+  }
+}
+
 export async function getCustomerBookingHistory(customerAccountId) {
   try {
     if (!customerAccountId) {
@@ -4247,6 +4413,205 @@ export async function fetchBookingById(bookingId) {
 // Phase 8.1: Calendar Read-Only Query
 // ============================================================
 
+// ============================================================
+// Staff (dentist) transfers (supabase/migration-003/004/005) — see supabase/TRANSFERS_DESIGN.md
+// ============================================================
+
+// True when an error means "the transfer tables / RPCs don't exist on this database" (e.g. the
+// cloud DB before promotion). Callers fail open: no transfer data, nothing breaks.
+export function isTransferFeatureMissing(error) {
+  return ['PGRST205', 'PGRST202', '42P01', '42883'].includes(error?.code);
+}
+
+// One cheap probe per page load (cached): does this database have the staff-transfer tables?
+// Resolves true/false; any non-"missing" error (network, permissions) counts as available so the
+// feature is never hidden by a transient failure.
+let transferFeatureProbe = null;
+export function probeTransferFeature() {
+  if (!transferFeatureProbe) {
+    transferFeatureProbe = supabase
+      .from('staff_transfers')
+      .select('id', { head: true, count: 'exact' })
+      .limit(0)
+      .then(({ error }) => !isTransferFeatureMissing(error))
+      .catch(() => true);
+  }
+  return transferFeatureProbe;
+}
+
+const kathmanduInstant = (date, time) => (date && time ? `${date}T${String(time).slice(0, 8)}+05:45` : null);
+
+// Per-day "unavailable" occurrences for transfer windows touching this branch in [startDate, endDate],
+// shaped like block occurrences so findBlockOverlap treats them the same (see utils/transferOccurrences.js).
+// Fail open: any error (including missing tables) -> { data: [], error }.
+export async function fetchTransferOccurrences(branchId, startDate, endDate) {
+  try {
+    const resolvedBranchId = resolveBranchId(branchId);
+    const { data, error } = await supabase
+      .from('staff_transfers')
+      .select('dentist_id, from_branch_id, to_branch_id, effective_date, start_time, revert_at, reverted, reverted_at, fromBranch:branches!staff_transfers_from_branch_id_fkey(name), toBranch:branches!staff_transfers_to_branch_id_fkey(name)')
+      .or(`from_branch_id.eq.${resolvedBranchId},to_branch_id.eq.${resolvedBranchId}`)
+      .eq('applied', true).eq('is_permanent', false).eq('is_return_leg', false)
+      .not('revert_at', 'is', null)
+      .lte('effective_date', endDate);
+    if (error) throw error;
+
+    const rows = (data || []).map(t => {
+      const out = t.from_branch_id === resolvedBranchId;
+      return {
+        dentistId: t.dentist_id,
+        kind: out ? 'out' : 'in',
+        startDate: t.effective_date,
+        startTime: t.start_time,
+        endAt: t.reverted && t.reverted_at ? t.reverted_at : t.revert_at,
+        otherBranch: out ? t.toBranch?.name : t.fromBranch?.name,
+      };
+    });
+
+    const occurrences = [];
+    for (let d = startDate; d <= endDate; d = shiftDateStr(d, 1)) {
+      rows.forEach(r => occurrences.push(...transferWindowOccurrencesForDate(r, d)));
+    }
+    return { data: occurrences, error: null };
+  } catch (error) {
+    if (!isTransferFeatureMissing(error)) console.warn('[API] fetchTransferOccurrences:', error.message);
+    return { data: [], error };
+  }
+}
+
+// Applies transfer data to a branch's calendar dentists for [startDate, endDate]:
+//  - tags dentists currently visiting this branch (transferredIn + window),
+//  - tags dentists with a scheduled (not yet applied) transfer out (scheduledTransfer),
+//  - adds grey "transferred out" columns for dentists who are away (or were, within the range),
+//  - adds a "visiting" column for a visitor who already returned home in the range.
+// Fails open: on any error (including missing tables) returns the dentists unchanged.
+async function applyCalendarTransfers(branchId, startDate, endDate, dentists) {
+  try {
+    const cols = 'id, dentist_id, revert_at, effective_date, start_time, from_display_order, reverted, reverted_at';
+    const dentistCols = 'dentist:dentists!staff_transfers_dentist_id_fkey(id, name, gender, specialties, position, is_treatment_staff, display_order)';
+    // Temporary, applied, non-return-leg windows; still-active ones plus ones that ended within the range.
+    const windowFilter = `reverted.eq.false,and(effective_date.gte.${startDate},effective_date.lte.${endDate})`;
+    const [outRes, inRes, schedRes] = await Promise.all([
+      supabase.from('staff_transfers')
+        .select(`${cols}, ${dentistCols}`)
+        .eq('from_branch_id', branchId).eq('applied', true).eq('is_permanent', false).eq('is_return_leg', false)
+        .not('revert_at', 'is', null).or(windowFilter)
+        .order('effective_date').order('start_time'),
+      supabase.from('staff_transfers')
+        .select(`${cols}, fromBranch:branches!staff_transfers_from_branch_id_fkey(name), ${dentistCols}`)
+        .eq('to_branch_id', branchId).eq('applied', true).eq('is_permanent', false).eq('is_return_leg', false)
+        .not('revert_at', 'is', null).or(windowFilter)
+        .order('effective_date').order('start_time'),
+      supabase.from('staff_transfers')
+        .select('id, dentist_id, effective_date, start_time, toBranch:branches!staff_transfers_to_branch_id_fkey(name)')
+        .eq('from_branch_id', branchId).eq('applied', false)
+        .gte('effective_date', startDate).lte('effective_date', endDate)
+        .order('effective_date').order('start_time'),
+    ]);
+    const err = outRes.error || inRes.error || schedRes.error;
+    if (err) {
+      if (!isTransferFeatureMissing(err)) console.warn('[API] applyCalendarTransfers:', err.message);
+      return dentists;
+    }
+
+    const activeIds = new Set(dentists.map(d => d.id));
+    // A transfer ended early ends at reverted_at, not the originally scheduled revert_at.
+    const windowOf = (t) => ({ returnsAt: t.reverted && t.reverted_at ? t.reverted_at : t.revert_at, transferStartAt: kathmanduInstant(t.effective_date, t.start_time) });
+
+    const scheduledByDentist = {};
+    (schedRes.data || []).forEach(r => {
+      scheduledByDentist[r.dentist_id] ??= { id: r.id, effectiveDate: r.effective_date, startTime: r.start_time, toBranch: r.toBranch?.name || null };
+    });
+
+    const outRows = dedupeTransfersByKey(sortTransfersByTime(outRes.data || []), t => t.dentist?.id);
+    const inRows = dedupeTransfersByKey(sortTransfersByTime(inRes.data || []), t => t.dentist_id);
+    const inById = {};
+    inRows.forEach(t => { inById[t.dentist_id] = { fromBranch: t.fromBranch?.name || null, ...windowOf(t) }; });
+
+    const tagged = dentists.map(d => {
+      const withIn = inById[d.id] ? { ...d, transferredIn: true, ...inById[d.id] } : d;
+      return scheduledByDentist[d.id] ? { ...withIn, scheduledTransfer: scheduledByDentist[d.id] } : withIn;
+    });
+
+    // Away dentists: their dentists.branch_id is elsewhere, so they're not in `dentists`.
+    const awayColumns = outRows
+      .filter(t => t.dentist && !activeIds.has(t.dentist.id))
+      .map(t => ({
+        ...t.dentist,
+        display_order: t.from_display_order ?? t.dentist.display_order,
+        transferredOut: true,
+        transferId: t.id,
+        ...windowOf(t),
+      }));
+    // A visitor who already returned home within the range: keep a column recording the visit.
+    const awayIds = new Set(awayColumns.map(c => c.id));
+    const visitedColumns = inRows
+      .filter(t => t.dentist && !activeIds.has(t.dentist.id) && !awayIds.has(t.dentist.id))
+      .map(t => ({ ...t.dentist, transferredIn: true, fromBranch: t.fromBranch?.name || null, ...windowOf(t) }));
+
+    return [...tagged, ...awayColumns, ...visitedColumns]
+      .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || a.name.localeCompare(b.name));
+  } catch (error) {
+    console.warn('[API] applyCalendarTransfers failed open:', error.message);
+    return dentists;
+  }
+}
+
+
+
+// ── Date-picker booking counts ───────────────────────────────────────────────────────────────────────────────────────
+// One number per day for the calendar's date picker. Read-only, `bookings.date` is the clinic-local date (no UTC maths).
+// Counts = Pending/Confirmed/In-Progress/Completed; Cancelled + No Show are reported separately; a shared (multi-dentist)
+// booking is one row. Paged with .range() so PostgREST's 1,000-row cap can't undercount a busy branch.
+const DAY_COUNT_PAGE = 1000;
+const DAY_COUNT_TTL_MS = 60000;
+const dayCountCache = new Map(); // `${branch}|${start}|${end}` -> { at, promise }
+
+export function invalidateBookingDayCounts() {
+  dayCountCache.clear();
+}
+
+export function getBookingDayCounts(branchId, startDate, endDate) {
+  const resolvedBranchId = resolveBranchId(branchId);
+  const key = `${resolvedBranchId}|${startDate}|${endDate}`;
+  const hit = dayCountCache.get(key);
+  if (hit && Date.now() - hit.at < DAY_COUNT_TTL_MS) return hit.promise;
+
+  const promise = (async () => {
+    try {
+      const counts = {};
+      for (let from = 0; ; from += DAY_COUNT_PAGE) {
+        const { data, error } = await supabase
+          .from('bookings')
+          .select('date, status')
+          .eq('branch_id', resolvedBranchId)
+          .gte('date', startDate)
+          .lte('date', endDate)
+          .order('date', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + DAY_COUNT_PAGE - 1);
+        if (error) throw error;
+        for (const row of data || []) {
+          const c = (counts[row.date] ||= { total: 0, pending: 0, cancelled: 0 });
+          if (row.status === 'Cancelled' || row.status === 'No Show') c.cancelled += 1;
+          else {
+            c.total += 1;
+            if (row.status === 'Pending') c.pending += 1;
+          }
+        }
+        if (!data || data.length < DAY_COUNT_PAGE) break;
+      }
+      return counts;
+    } catch (e) {
+      console.warn('[API] getBookingDayCounts failed:', e.message);
+      dayCountCache.delete(key); // don't cache a failure
+      return null;
+    }
+  })();
+  dayCountCache.set(key, { at: Date.now(), promise });
+  return promise;
+}
+
 export async function getCalendarBookings(branchId, startDate, endDate) {
   try {
     const resolvedBranchId = resolveBranchId(branchId);
@@ -4301,17 +4666,20 @@ export async function getCalendarBookings(branchId, startDate, endDate) {
       checkedOutByDentistAndDate[`${row.dentist_id}_${row.date}`] = row.check_out_time;
     });
 
-    const mergedDentists = (dentistsResult.data || [])
-      .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || a.name.localeCompare(b.name));
+    const mergedDentists = await applyCalendarTransfers(
+      resolvedBranchId, startDate, endDate,
+      (dentistsResult.data || [])
+        .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || a.name.localeCompare(b.name))
+    );
 
     // 3. Fetch bookings in date range, excluding Cancelled and No Show
     const { data: bookings, error: bookingsError } = await supabase
       .from('bookings')
       .select(`
-        id, booking_number, customer_name, customer_phone, status, payment_status,
+        id, booking_number, customer_id, customer_name, customer_phone, status, payment_status,
         date, start_time, end_time, start_datetime, end_datetime, created_at,
         dentist_id, chair_id,
-        base_amount, discount_amount, final_amount, special_requests,
+        base_amount, discount_amount, final_amount, special_requests, referred_by,
         treatment:treatments(name, duration_minutes),
         dentist:dentists(id, name),
         chair:chairs(id, name),
@@ -4326,6 +4694,106 @@ export async function getCalendarBookings(branchId, startDate, endDate) {
       .order('start_time');
 
     if (bookingsError) throw bookingsError;
+
+    // "New" tag: customer has no earlier non-Cancelled booking. Batched for every customer
+    // in this range (one read-only query). No customer_id (walk-in/guest) → never New.
+    const bookingCustomerIds = [...new Set((bookings || []).map(b => b.customer_id).filter(Boolean))];
+    const firstBookingIdByCustomer = {};
+
+    // Hover-card extras — read-only, batched (no N+1) and FAIL-OPEN: any error leaves the field undefined and the
+    // calendar still loads. Started now so they run concurrently with the New-patient query below.
+    //  * patient notes: customers.notes for every customer in range (one query)
+    //  * previous due: the Record Payment modal's "Previous due" figure, for every visible booking (two queries total)
+    const patientNotesPromise = failOpenAfter((async () => {
+      if (bookingCustomerIds.length === 0) return {};
+      try {
+        const rows = await inChunks(bookingCustomerIds, (ids) => supabase.from('customers').select('id, notes').in('id', ids));
+        const out = {};
+        for (const c of rows) { const t = (c.notes || '').trim(); if (t) out[c.id] = t; }
+        return out;
+      } catch (e) {
+        console.warn('[API] getCalendarBookings: patient notes lookup failed:', e.message);
+        return undefined;
+      }
+    })().catch(() => undefined), 4000, undefined);
+    // Same definition as getCustomerOutstandingBalance (what the payment modal bundles as "Previous due"): the same phone's
+    // other DUE bookings (rendered visits owing money, via bookingMoney; future appointments are never due) in this branch,
+    // excluding the booking itself and — as BookingActionModal does — its same-name/same-date unpaid "related treatments".
+    const previousDuePromise = failOpenAfter((async () => {
+      const phoneOf = (b) => { const p = toE164(b.customer_phone); return p && p.length >= 11 ? p : null; };
+      const visiblePhones = new Set((bookings || []).map(phoneOf).filter(Boolean));
+      if (visiblePhones.size === 0) return {};
+      try {
+        // Only DUE counts (rendered visits owing money); future appointments never do. Candidates by status only; payment_status
+        // can be stale so it is never a filter. Paid comes from the embedded payments.
+        // Server-side filter on the normalised phones that are on screen (chunked: PostgREST puts .in() lists in the URL), so the
+        // calendar no longer downloads the branch's whole history; the phoneOf() check below stays as a safety net.
+        const phoneList = [...visiblePhones];
+        const openAll = [];
+        for (let i = 0; i < phoneList.length; i += 40) {
+          openAll.push(...await pageAll(() => supabase
+            .from('bookings')
+            .select('id, customer_name, customer_phone, date, status, final_amount, payment_status, payments(amount), payment_refunds(amount)')
+            .eq('branch_id', resolvedBranchId)
+            .in('customer_phone', phoneList.slice(i, i + 40))
+            .in('status', ['In-Progress', 'Completed'])
+            .order('id')));
+        }
+        // Only rows for a phone that is actually on screen can matter.
+        const open = (openAll || []).filter(o => visiblePhones.has(phoneOf(o)));
+        const todayISO = localISO(new Date());
+        const byPhone = {};
+        for (const o of summarizeMoney(open, { today: todayISO }).dueBookings) {
+          const ph = phoneOf(o);
+          if (!ph) continue;
+          // "Related treatments" bundled in the payment panel are same-name / same-date bookings with NOTHING paid on them. That is decided
+          // from the payments (bookingMoney), never from payment_status, so it can't disagree with the due amount.
+          (byPhone[ph] ||= []).push({ id: o.id, name: o.customer_name, date: o.date, unpaid: o.money.paid === 0, due: o.money.due });
+        }
+        const out = {};
+        for (const b of (bookings || [])) {
+          const ph = phoneOf(b);
+          if (!ph || !byPhone[ph]) continue;
+          const list = byPhone[ph].filter(o => o.id !== b.id && !(o.unpaid && o.name === b.customer_name && o.date === b.date));
+          if (list.length === 0) continue;
+          out[b.id] = { count: list.length, amount: roundMoney(list.reduce((sum, o) => sum + o.due, 0)) };
+        }
+        return out;
+      } catch (e) {
+        console.warn('[API] getCalendarBookings: previous-due lookup failed:', e.message);
+        return undefined;
+      }
+    })().catch(() => undefined), 4000, undefined);
+    let historyFailed = false;
+    if (bookingCustomerIds.length > 0) {
+      let historyRows = [];
+      try {
+        historyRows = await inChunks(bookingCustomerIds, (ids) => supabase
+          .from('bookings')
+          .select('id, customer_id, date, start_time')
+          .in('customer_id', ids)
+          .neq('status', 'Cancelled')
+          .order('date', { ascending: true })
+          .order('start_time', { ascending: true }));
+      } catch (histErr) {
+        // Cosmetic tag only — never block the calendar from loading.
+        console.warn('[API] getCalendarBookings: New-patient lookup failed:', histErr.message);
+        historyFailed = true;
+      }
+      for (const h of (historyRows || [])) {
+        if (!(h.customer_id in firstBookingIdByCustomer)) {
+          firstBookingIdByCustomer[h.customer_id] = h.id;
+        }
+      }
+    }
+    const [patientNotesByCustomer, previousDueByBooking] = await Promise.all([patientNotesPromise, previousDuePromise]);
+    const bookingsWithNewFlag = (bookings || []).map(b => ({
+      ...b,
+      isNewCustomer: !historyFailed && !!b.customer_id && firstBookingIdByCustomer[b.customer_id] === b.id,
+      // undefined (not null/0) when the lookup failed, so the UI shows nothing rather than a false "no alerts / no due".
+      patientNotes: patientNotesByCustomer ? (patientNotesByCustomer[b.customer_id] || null) : undefined,
+      previousDue: previousDueByBooking ? (previousDueByBooking[b.id] || null) : undefined,
+    }));
 
     // A dentist who's since been deactivated or moved to a different branch can still be
     // referenced by a booking made here earlier. Without a column, CalendarGrid's
@@ -4370,7 +4838,7 @@ export async function getCalendarBookings(branchId, startDate, endDate) {
         },
         dentists: finalDentists,
         chairs: chairsResult.data || [],
-        bookings: bookings || [],
+        bookings: bookingsWithNewFlag,
         checkedOutByDentistAndDate,
       },
       error: null,
@@ -6105,65 +6573,6 @@ export async function dismissDuplicateCandidate(orgId, customerIdA, customerIdB)
   }
 }
 
-export async function fetchCustomersLightweight(branchId) {
-  try {
-    if (!branchId) {
-      return { data: null, error: { code: 'BRANCH_REQUIRED', message: 'Branch ID is required.' } };
-    }
-
-    const resolvedBranchId = resolveBranchId(branchId);
-
-    // Resolve the branch's org so autocomplete suggests the whole org's customers
-    // (a returning cross-branch customer appears instead of being invisible).
-    const { data: branch, error: branchErr } = await supabase
-      .from('branches')
-      .select('org_id')
-      .eq('id', resolvedBranchId)
-      .single();
-    if (branchErr) throw branchErr;
-
-    const [{ data, error }, statusRes] = await Promise.all([
-      supabase
-        .from('customers')
-        .select('id, full_name, phone, email, gender')
-        .eq('org_id', branch.org_id)
-        .eq('is_active', true)
-        .order('full_name'),
-      MEMBERSHIP_ENABLED ? fetchMembershipStatus() : Promise.resolve({ data: [] }),
-    ]);
-
-    if (error) throw error;
-
-    // Attach a `primaryMembership` to each customer via the staff-safe status
-    // RPC (migration-087) — status/tier only, no balance, and readable
-    // regardless of role (unlike an embedded `memberships` relation, which
-    // RLS silently empties out for staff). Drives the membership badge in the
-    // booking-creation customer autocomplete AND the "already a member" /
-    // "renew instead" hint in the Enroll Member modal -- depleted/lapsed
-    // cards are surfaced too (not filtered out) so staff sees a returning
-    // member's ended card instead of it looking like they've never had one.
-    const statusByCustomer = new Map((statusRes.data || []).map((r) => [r.customerId, r]));
-    const enriched = (data || []).map((c) => {
-      const s = statusByCustomer.get(c.id);
-      return {
-        id: c.id,
-        full_name: c.full_name,
-        phone: c.phone,
-        email: c.email,
-        gender: c.gender,
-        primaryMembership: s
-          ? { id: s.membershipId, status: s.status, tierName: s.tierName, membershipNumber: s.membershipNumber }
-          : null,
-      };
-    });
-
-    return { data: enriched, error: null };
-  } catch (error) {
-    console.error('[API] fetchCustomersLightweight error:', error.message);
-    return { data: null, error };
-  }
-}
-
 export async function fetchCustomerProfile(customerId) {
   try {
     if (!customerId) {
@@ -6336,6 +6745,59 @@ export async function fetchCustomerProfile(customerId) {
   }
 }
 
+// Full patient page: the customer, every booking (with payments), consultations and treatment notes. The patient-level numbers
+// (balance, paid to date, visits, next/last, in-clinic) come from the same util as the Patients list.
+export async function getPatientRecord(customerId, { now = new Date() } = {}) {
+  try {
+    if (!customerId) return { data: null, error: { code: 'CUSTOMER_REQUIRED', message: 'Customer ID is required.' } };
+    const { data: customer, error: custError } = await supabase
+      .from('customers')
+      .select('id, branch_id, full_name, phone, email, gender, notes, date_of_birth, is_active, created_at')
+      .eq('id', customerId)
+      .single();
+    if (custError) {
+      if (custError.code === 'PGRST116') return { data: null, error: { code: 'CUSTOMER_NOT_FOUND', message: 'Patient not found.' } };
+      throw custError;
+    }
+    const [bookings, cons, notes] = await Promise.all([
+      // History follows the person across branches (merged customers keep one id).
+      pageAll(() => supabase.from('bookings')
+        .select('id, customer_id, booking_number, date, start_time, end_time, status, payment_status, final_amount, discount_amount, treatment_name_snapshot, dentist_name_snapshot, dentist_id, is_locked, payments(id, amount, payment_mode, created_at), payment_refunds(amount)')
+        .eq('customer_id', customerId)
+        .order('date', { ascending: false })
+        .order('id')),
+      fetchConsultationsForCustomer(customerId),
+      fetchTreatmentNotesForCustomer(customerId),
+    ]);
+    if (cons.error) throw cons.error;
+    const patient = buildPatientDirectory({ customers: [customer], bookings, now })[0];
+    return {
+      data: { customer, patient, bookings, consultations: cons.data || [], treatmentNotes: notes.data || [] },
+      error: null,
+    };
+  } catch (error) {
+    console.error('[API] getPatientRecord error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Inline edits on the patient page (date of birth, notes). Uses the signed-in user's session, so RLS decides who may write;
+// zero updated rows means "not allowed" rather than success.
+export async function updateCustomerFields(customerId, fields) {
+  try {
+    const patch = {};
+    if ('dateOfBirth' in fields) patch.date_of_birth = fields.dateOfBirth || null;
+    if ('notes' in fields) patch.notes = fields.notes?.trim() ? fields.notes.trim() : null;
+    const { data, error } = await supabase.from('customers').update(patch).eq('id', customerId).select('id, notes, date_of_birth');
+    if (error) throw error;
+    if (!data || data.length === 0) return { data: null, error: { code: 'NOT_ALLOWED', message: 'You don\'t have permission to edit this patient.' } };
+    return { data: data[0], error: null };
+  } catch (error) {
+    console.error('[API] updateCustomerFields error:', error.message);
+    return { data: null, error };
+  }
+}
+
 export async function getCustomerIntelligence({ branchId }) {
   try {
     if (!branchId) {
@@ -6502,6 +6964,95 @@ export async function getCustomerIntelligence({ branchId }) {
     };
   } catch (error) {
     console.error('[API] getCustomerIntelligence error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Patients list: every customer of the branch with next/last appointment, balance etc. (derivation in utils/patientDirectory).
+// Both tables are paged with .range() so PostgREST's 1,000-row cap never truncates the list.
+const pageAll = async (buildQuery) => {
+  const PAGE = 1000;
+  const rows = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await buildQuery().range(from, from + PAGE - 1);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if (!data || data.length < PAGE) break;
+  }
+  return rows;
+};
+
+export async function getPatientsDirectory({ branchId, now = new Date() }) {
+  try {
+    if (!branchId) {
+      return { data: null, error: { code: 'BRANCH_REQUIRED', message: 'Branch ID is required.' } };
+    }
+    const [homeCustomers, bookings] = await Promise.all([
+      pageAll(() => withBranch(
+        supabase.from('customers').select('id, full_name, phone, email, gender, created_at').order('id'),
+        branchId
+      )),
+      pageAll(() => withBranch(
+        supabase.from('bookings')
+          .select('id, customer_id, status, payment_status, final_amount, date, start_time, treatment_name_snapshot, dentist_id, dentist_name_snapshot, is_locked, payments(amount), payment_refunds(amount)')
+          .not('customer_id', 'is', null)
+          .order('id'),
+        branchId
+      )),
+    ]);
+    // A patient belongs in this branch's list if they have bookings here, even when their customer row was created at another branch.
+    const known = new Set(homeCustomers.map((c) => c.id));
+    const missingIds = [...new Set(bookings.map((b) => b.customer_id))].filter((id) => !known.has(id));
+    const visitors = missingIds.length
+      ? await inChunks(missingIds, (ids) => supabase.from('customers').select('id, full_name, phone, email, gender, created_at').in('id', ids))
+      : [];
+    const customers = [...homeCustomers, ...visitors];
+    const dentists = new Map();
+    for (const b of bookings) if (b.dentist_id && b.dentist_name_snapshot && !dentists.has(b.dentist_id)) dentists.set(b.dentist_id, b.dentist_name_snapshot);
+    const patients = buildPatientDirectory({ customers, bookings, now });
+    return {
+      data: {
+        patients,
+        dentists: [...dentists].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
+      },
+      error: null,
+    };
+  } catch (error) {
+    console.error('[API] getPatientsDirectory error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Side-panel detail for one patient (loaded when the panel opens): today's in-progress booking, the next booking and the last 3 visits.
+export async function getPatientPanelDetail({ customerId, now = new Date() }) {
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('id, booking_number, status, date, start_time, end_time, treatment_name_snapshot, dentist_name_snapshot, final_amount, payments(amount), payment_refunds(amount)')
+      .eq('customer_id', customerId)
+      .in('status', ['Pending', 'Confirmed', 'In-Progress', 'Completed'])
+      .order('date', { ascending: false })
+      .order('start_time', { ascending: false })
+      .limit(200);
+    if (error) throw error;
+    const today = localISO(now);
+    const hmNow = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const rows = (data || []).map((b) => ({
+      id: b.id, bookingNumber: b.booking_number, status: b.status, date: b.date,
+      start: (b.start_time || '').slice(0, 5), end: (b.end_time || '').slice(0, 5),
+      treatment: b.treatment_name_snapshot || '', dentist: b.dentist_name_snapshot || '',
+      money: classifyBooking(b, { today }),
+    }));
+    const now_ = rows.find((b) => b.status === 'In-Progress' && b.date === today) || null;
+    const upcoming = rows
+      .filter((b) => ['Pending', 'Confirmed'].includes(b.status) && (b.date > today || (b.date === today && b.start > hmNow)))
+      .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))[0] || null;
+    const recent = rows
+      .filter((b) => ['Completed', 'In-Progress'].includes(b.status) && b.date <= today)
+      .slice(0, 3);
+    return { data: { now: now_, upcoming, recent }, error: null };
+  } catch (error) {
+    console.error('[API] getPatientPanelDetail error:', error.message);
     return { data: null, error };
   }
 }
@@ -8965,7 +9516,7 @@ export async function fetchMembershipForBooking(bookingId) {
 }
 
 // Membership status — status/tier/usable only, no balance/deposit figures
-// (migration-087). Used by fetchCustomersLightweight for the booking-creation
+// (migration-087). Used by searchCustomers (withMembership) for the booking-creation
 // tier badge (every role — the badge never needed balance in the first place).
 export async function fetchMembershipStatus({ customerId } = {}) {
   try {
@@ -10718,6 +11269,645 @@ export async function sendCustomerMessage({ customerId, bookingId = null, channe
 }
 
 // ============================================================
+// Manual Blocks (supabase/migration-001-manual-blocks.sql) — Calendar "block time off"
+// ============================================================
+
+// 'YYYY-MM-DD' +/- N days, calendar math only (no timezone drift).
+function shiftDateStr(dateStr, days) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  return dt.toISOString().split('T')[0];
+}
+
+function transformBlockRow(row) {
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    branchId: row.branch_id,
+    dentistId: row.dentist_id,
+    chairId: row.chair_id,
+    blockDate: row.block_date,
+    startTime: row.start_time,
+    durationMinutes: row.duration_minutes,
+    description: row.description,
+    preventOnlineBooking: row.prevent_online_booking,
+    recurrenceFreq: row.recurrence_freq,
+    recurrenceInterval: row.recurrence_interval,
+    recurrenceEndDate: row.recurrence_end_date,
+    recurrenceCount: row.recurrence_count,
+    seriesId: row.series_id,
+    isCancelled: row.is_cancelled,
+  };
+}
+
+export async function createBlock({
+  orgId, branchId, dentistId = null, chairId = null, blockDate, startTime,
+  durationMinutes, description = null, preventOnlineBooking = true,
+  recurrenceFreq = null, recurrenceInterval = 1, recurrenceEndDate = null, recurrenceCount = null,
+}) {
+  try {
+    const { user, error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    if (!orgId || !branchId) return { data: null, error: { code: 'INVALID_INPUT', message: 'orgId and branchId are required.' } };
+    if (!blockDate || !startTime) return { data: null, error: { code: 'INVALID_INPUT', message: 'A date and start time are required.' } };
+    const duration = Number(durationMinutes);
+    if (!Number.isFinite(duration) || duration <= 0) {
+      return { data: null, error: { code: 'INVALID_INPUT', message: 'Duration must be greater than zero.' } };
+    }
+
+    const isRecurring = !!recurrenceFreq;
+    const { data, error } = await supabase
+      .from('manual_blocks')
+      .insert({
+        org_id: orgId,
+        branch_id: resolveBranchId(branchId),
+        dentist_id: dentistId,
+        chair_id: chairId,
+        block_date: blockDate,
+        start_time: startTime,
+        duration_minutes: duration,
+        description: description?.trim() || null,
+        prevent_online_booking: preventOnlineBooking,
+        created_by: user?.id || null,
+        recurrence_freq: recurrenceFreq,
+        recurrence_interval: recurrenceInterval || 1,
+        recurrence_end_date: isRecurring ? recurrenceEndDate : null,
+        recurrence_count: isRecurring ? recurrenceCount : null,
+        series_id: isRecurring ? crypto.randomUUID() : null,
+      })
+      .select('id')
+      .single();
+
+    if (error) throw error;
+    return { data: { id: data.id }, error: null };
+  } catch (error) {
+    console.error('[API] createBlock error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Full row for the Edit Block modal — occurrence rows from fetchBlocksForRange carry only what's
+// needed to render/gate, not the full recurrence rule.
+export async function fetchBlockById(blockId) {
+  try {
+    const { data, error } = await supabase
+      .from('manual_blocks')
+      .select('*')
+      .eq('id', blockId)
+      .single();
+    if (error) throw error;
+    return { data: transformBlockRow(data), error: null };
+  } catch (error) {
+    console.error('[API] fetchBlockById error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Fetches manual_blocks rows (+ exceptions) whose recurrence could touch [startDate, endDate],
+// expands them client-side, and returns flat occurrence rows
+// { date, startTime, endTime, blockId, seriesId, dentistId, chairId, description, preventOnlineBooking }.
+export async function fetchBlocksForRange(branchId, startDate, endDate) {
+  try {
+    const resolvedBranchId = resolveBranchId(branchId);
+
+    const { data: rows, error } = await supabase
+      .from('manual_blocks')
+      .select('*')
+      .eq('branch_id', resolvedBranchId)
+      .eq('is_cancelled', false)
+      .lte('block_date', endDate)
+      .or(`recurrence_freq.not.is.null,block_date.gte.${startDate}`);
+    if (error) throw error;
+
+    const blocks = (rows || []).map(transformBlockRow);
+    const seriesIds = [...new Set(blocks.map(b => b.seriesId).filter(Boolean))];
+
+    const exceptionsBySeriesId = {};
+    if (seriesIds.length > 0) {
+      const { data: exceptions, error: excError } = await supabase
+        .from('manual_block_exceptions')
+        .select('series_id, exception_date')
+        .in('series_id', seriesIds);
+      if (excError) throw excError;
+      for (const e of (exceptions || [])) {
+        (exceptionsBySeriesId[e.series_id] ||= []).push(e.exception_date);
+      }
+    }
+
+    const occurrences = [];
+    for (const block of blocks) {
+      const exceptions = block.seriesId ? (exceptionsBySeriesId[block.seriesId] || []) : [];
+      for (const occ of expandBlockOccurrences(block, exceptions, startDate, endDate)) {
+        occurrences.push({
+          ...occ,
+          blockId: block.id,
+          seriesId: block.seriesId,
+          dentistId: block.dentistId,
+          chairId: block.chairId,
+          description: block.description,
+          preventOnlineBooking: block.preventOnlineBooking,
+        });
+      }
+    }
+    return { data: occurrences, error: null };
+  } catch (error) {
+    console.error('[API] fetchBlocksForRange error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// scope: 'this' (cancel just this occurrence), 'following' (cap the series the day before
+// occurrenceDate), or 'series' (cancel the whole thing).
+export async function deleteBlock({ blockId, scope, occurrenceDate = null }) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    if (scope === 'series') {
+      const { error } = await supabase
+        .from('manual_blocks')
+        .update({ is_cancelled: true, cancelled_at: new Date().toISOString() })
+        .eq('id', blockId);
+      if (error) throw error;
+      return { data: { ok: true }, error: null };
+    }
+
+    if (scope === 'this') {
+      if (!occurrenceDate) return { data: null, error: { code: 'INVALID_INPUT', message: 'occurrenceDate is required.' } };
+      const { data: block, error: fetchError } = await supabase
+        .from('manual_blocks')
+        .select('series_id, block_date, recurrence_freq')
+        .eq('id', blockId)
+        .single();
+      if (fetchError) throw fetchError;
+
+      if (!block.recurrence_freq) {
+        const { error } = await supabase
+          .from('manual_blocks')
+          .update({ is_cancelled: true, cancelled_at: new Date().toISOString() })
+          .eq('id', blockId);
+        if (error) throw error;
+        return { data: { ok: true }, error: null };
+      }
+
+      const { error } = await supabase
+        .from('manual_block_exceptions')
+        .insert({ series_id: block.series_id, exception_date: occurrenceDate });
+      if (error) throw error;
+      return { data: { ok: true }, error: null };
+    }
+
+    if (scope === 'following') {
+      if (!occurrenceDate) return { data: null, error: { code: 'INVALID_INPUT', message: 'occurrenceDate is required.' } };
+      const { error } = await supabase
+        .from('manual_blocks')
+        .update({ recurrence_end_date: shiftDateStr(occurrenceDate, -1) })
+        .eq('id', blockId);
+      if (error) throw error;
+      return { data: { ok: true }, error: null };
+    }
+
+    return { data: null, error: { code: 'INVALID_INPUT', message: `Unknown scope: ${scope}` } };
+  } catch (error) {
+    console.error('[API] deleteBlock error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// scope 'this'/'following' edits split the series like deleteBlock's scopes, then insert a new
+// row carrying the edited fields from occurrenceDate onward. scope 'series' updates in place.
+export async function updateBlock({ blockId, scope, occurrenceDate = null, ...fields }) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    const { data: existing, error: fetchError } = await supabase
+      .from('manual_blocks')
+      .select('*')
+      .eq('id', blockId)
+      .single();
+    if (fetchError) throw fetchError;
+
+    const patch = {};
+    if (fields.description !== undefined) patch.description = fields.description?.trim() || null;
+    if (fields.startTime !== undefined) patch.start_time = fields.startTime;
+    if (fields.durationMinutes !== undefined) patch.duration_minutes = Number(fields.durationMinutes);
+    if (fields.preventOnlineBooking !== undefined) patch.prevent_online_booking = fields.preventOnlineBooking;
+    if (fields.dentistId !== undefined) patch.dentist_id = fields.dentistId;
+    if (fields.chairId !== undefined) patch.chair_id = fields.chairId;
+    // blockDate = where the occurrence is moving to; occurrenceDate = the ORIGINAL occurrence acted on.
+    if (fields.blockDate !== undefined) patch.block_date = fields.blockDate;
+
+    if (scope === 'series') {
+      const { error } = await supabase.from('manual_blocks').update(patch).eq('id', blockId);
+      if (error) throw error;
+      return { data: { ok: true }, error: null };
+    }
+
+    if (scope === 'this' || scope === 'following') {
+      if (!occurrenceDate) return { data: null, error: { code: 'INVALID_INPUT', message: 'occurrenceDate is required.' } };
+
+      if (!existing.recurrence_freq) {
+        const { error } = await supabase.from('manual_blocks').update(patch).eq('id', blockId);
+        if (error) throw error;
+        return { data: { ok: true }, error: null };
+      }
+
+      // Fields explicitly passed as null (e.g. "whole branch") must clear, so use `in` not `??`.
+      const pick = (key) => (key in patch ? patch[key] : existing[key]);
+      const base = {
+        org_id: existing.org_id,
+        branch_id: existing.branch_id,
+        dentist_id: pick('dentist_id'),
+        chair_id: pick('chair_id'),
+        block_date: patch.block_date ?? occurrenceDate,
+        start_time: pick('start_time'),
+        duration_minutes: pick('duration_minutes'),
+        description: pick('description'),
+        prevent_online_booking: pick('prevent_online_booking'),
+        created_by: existing.created_by,
+      };
+
+      if (scope === 'this') {
+        const { error: excError } = await supabase
+          .from('manual_block_exceptions')
+          .insert({ series_id: existing.series_id, exception_date: occurrenceDate });
+        if (excError) throw excError;
+
+        const { error: insError } = await supabase.from('manual_blocks').insert({
+          ...base,
+          recurrence_freq: null,
+          series_id: null,
+        });
+        if (insError) throw insError;
+        return { data: { ok: true }, error: null };
+      }
+
+      // 'following': cap the existing series the day before occurrenceDate, then start a new
+      // row at occurrenceDate with the edited fields.
+      const endDateStr = shiftDateStr(occurrenceDate, -1);
+      const { error: capError } = await supabase
+        .from('manual_blocks')
+        .update({ recurrence_end_date: endDateStr })
+        .eq('id', blockId);
+      if (capError) throw capError;
+
+      // The new row restarts occurrence counting at n=0, so subtract what the original series
+      // already consumed before the split.
+      const remainingCount = existing.recurrence_count != null
+        ? Math.max(existing.recurrence_count - expandBlockOccurrences(transformBlockRow(existing), [], existing.block_date, endDateStr).length, 0)
+        : null;
+
+      const { error: insError } = await supabase.from('manual_blocks').insert({
+        ...base,
+        recurrence_freq: existing.recurrence_freq,
+        recurrence_interval: existing.recurrence_interval,
+        recurrence_end_date: existing.recurrence_end_date,
+        recurrence_count: remainingCount,
+        series_id: existing.series_id,
+      });
+      if (insError) throw insError;
+      return { data: { ok: true }, error: null };
+    }
+
+    return { data: null, error: { code: 'INVALID_INPUT', message: `Unknown scope: ${scope}` } };
+  } catch (error) {
+    console.error('[API] updateBlock error:', error.message);
+    return { data: null, error };
+  }
+}
+
+/**
+ * Transfer a dentist to another branch in the same org, either Temporary (required
+ * duration, auto-reverts) or Permanent (no duration, stays until transferred again).
+ * Authorization + the audit row are enforced server-side by the SECURITY DEFINER
+ * transfer_dentist() function (migration-004): only an admin, or the
+ * manager of the dentist's CURRENT branch, may transfer.
+ */
+export async function transferDentist({
+  dentistId,
+  toBranchId,
+  permanent = false,
+  startTime = null,
+  durationValue = null,
+  durationUnit = null,
+  note = null,
+  effectiveDate = null,
+}) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    const { data, error } = await supabase.rpc('transfer_dentist', {
+      p_dentist_id: dentistId,
+      p_to_branch_id: toBranchId,
+      p_start_time: permanent ? null : startTime,
+      p_duration_value: permanent ? null : durationValue,
+      p_duration_unit: permanent ? null : durationUnit,
+      p_note: note,
+      p_effective_date: effectiveDate,
+      p_permanent: permanent,
+    });
+
+    if (error) throw error;
+    capture('staff_transfer_scheduled', {
+      dentist_id: dentistId,
+      to_branch_id: toBranchId,
+      effective_date: effectiveDate,
+      permanent,
+      duration_value: durationValue,
+      duration_unit: durationUnit,
+    });
+
+    const { data: row } = await supabase
+      .from('staff_transfers')
+      .select('applied, effective_date, start_time')
+      .eq('id', data)
+      .single();
+
+    return {
+      data: {
+        transferId: data,
+        applied: row?.applied ?? null,
+        effectiveDate: row?.effective_date ?? null,
+        startTime: row?.start_time ?? null,
+      },
+      error: null,
+    };
+  } catch (error) {
+    console.error('[API] transferDentist error:', error.message);
+    return { data: null, error };
+  }
+}
+
+
+// Org-wide staff transfer history. RLS scopes rows to the caller's org.
+export async function fetchStaffTransfers() {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    const { data, error } = await supabase
+      .from('staff_transfers')
+      .select(`
+        id, transferred_at, effective_date, applied, note,
+        start_time, duration_value, duration_unit, revert_at, reverted, reverted_at, is_permanent,
+        is_return_leg,
+        dentist:dentists!staff_transfers_dentist_id_fkey(name),
+        fromBranch:branches!staff_transfers_from_branch_id_fkey(name),
+        toBranch:branches!staff_transfers_to_branch_id_fkey(name),
+        transferredBy:users!staff_transfers_transferred_by_fkey(full_name)
+      `)
+      .order('transferred_at', { ascending: false });
+
+    if (error) throw error;
+
+    const transfers = (data || []).map(t => ({
+      id: t.id,
+      transferredAt: t.transferred_at,
+      effectiveDate: t.effective_date,
+      applied: t.applied,
+      note: t.note,
+      startTime: t.start_time,
+      durationValue: t.duration_value,
+      durationUnit: t.duration_unit,
+      revertAt: t.revert_at,
+      isPermanent: t.is_permanent,
+      reverted: t.reverted,
+      revertedAt: t.reverted_at,
+      isReturnLeg: t.is_return_leg,
+      dentistName: t.dentist?.name || '—',
+      fromBranch: t.fromBranch?.name || '—',
+      toBranch: t.toBranch?.name || '—',
+      transferredBy: t.transferredBy?.full_name || 'System',
+    }));
+
+    return { data: transfers, error: null };
+  } catch (error) {
+    console.error('[API] fetchStaffTransfers error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Pending (scheduled, not-yet-applied) transfers. When branchId is given, returns
+// only those moving a dentist OUT of that branch (the source branch's manager view).
+export async function fetchPendingTransfers(branchId = null) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    let query = supabase
+      .from('staff_transfers')
+      .select(`
+        id, transferred_at, effective_date, applied, note, dentist_id,
+        start_time, duration_value, duration_unit, revert_at, reverted, reverted_at, is_permanent,
+        dentist:dentists!staff_transfers_dentist_id_fkey(name),
+        fromBranch:branches!staff_transfers_from_branch_id_fkey(name),
+        toBranch:branches!staff_transfers_to_branch_id_fkey(name),
+        transferredBy:users!staff_transfers_transferred_by_fkey(full_name)
+      `)
+      .eq('applied', false)
+      .order('effective_date', { ascending: true });
+
+    if (branchId && !isOverallBranch(branchId)) {
+      query = query.eq('from_branch_id', branchId);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const transfers = (data || []).map(t => ({
+      id: t.id,
+      dentistId: t.dentist_id,
+      transferredAt: t.transferred_at,
+      effectiveDate: t.effective_date,
+      applied: t.applied,
+      note: t.note,
+      startTime: t.start_time,
+      durationValue: t.duration_value,
+      durationUnit: t.duration_unit,
+      revertAt: t.revert_at,
+      isPermanent: t.is_permanent,
+      reverted: t.reverted,
+      revertedAt: t.reverted_at,
+      dentistName: t.dentist?.name || '—',
+      fromBranch: t.fromBranch?.name || '—',
+      toBranch: t.toBranch?.name || '—',
+      transferredBy: t.transferredBy?.full_name || 'System',
+    }));
+
+    return { data: transfers, error: null };
+  } catch (error) {
+    console.error('[API] fetchPendingTransfers error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Cancel a scheduled (not-yet-applied) transfer. Org/role checked server-side.
+export async function cancelScheduledTransfer(transferId) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    const { data, error } = await supabase.rpc('cancel_scheduled_transfer', {
+      p_id: transferId,
+    });
+
+    if (error) throw error;
+    return { data, error: null };
+  } catch (error) {
+    console.error('[API] cancelScheduledTransfer error:', error.message);
+    return { data: null, error };
+  }
+}
+
+/**
+ * Push an ACTIVE (applied, not yet reverted) transfer's revert_at further out —
+ * "Add Extra Time" — without creating a second transfer row. Only the destination
+ * branch's manager (whoever currently has the dentist) or an admin may do this;
+ * enforced server-side by extend_staff_transfer() (migration-004). Fails cleanly if
+ * the transfer has already auto-reverted (race-safe — checked atomically server-side).
+ */
+export async function extendStaffTransfer({ transferId, additionalValue, additionalUnit }) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    const { data, error } = await supabase.rpc('extend_staff_transfer', {
+      p_transfer_id: transferId,
+      p_additional_value: additionalValue,
+      p_additional_unit: additionalUnit,
+    });
+
+    if (error) throw error;
+    capture('staff_transfer_extended', { transfer_id: transferId, additional_value: additionalValue, additional_unit: additionalUnit });
+    return { data: { revertAt: data }, error: null };
+  } catch (error) {
+    console.error('[API] extendStaffTransfer error:', error.message);
+    return { data: null, error };
+  }
+}
+
+/**
+ * Move an ACTIVE (applied, not yet reverted) transfer's scheduled return to a new, still-FUTURE
+ * date/time — e.g. a 2-day transfer that only turns out to be needed for 1 day, so the manager
+ * wants the dentist back tomorrow instead of waiting the full original duration. Distinct from
+ * revertStaffTransferNow(), which only records a return that already happened (a past time).
+ * The destination branch's manager, the origin branch's manager, or an admin may do this;
+ * enforced server-side by reschedule_staff_transfer_return() (migration-004).
+ */
+export async function rescheduleStaffTransferReturn({ transferId, newRevertAt }) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    const { data, error } = await supabase.rpc('reschedule_staff_transfer_return', {
+      p_transfer_id: transferId,
+      p_new_revert_at: new Date(newRevertAt).toISOString(),
+    });
+
+    if (error) throw error;
+    capture('staff_transfer_return_rescheduled', { transfer_id: transferId });
+    return { data: { revertAt: data }, error: null };
+  } catch (error) {
+    console.error('[API] rescheduleStaffTransferReturn error:', error.message);
+    return { data: null, error };
+  }
+}
+
+/**
+ * End an ACTIVE (applied, not yet reverted) transfer right now — "Mark Returned Early" —
+ * instead of waiting for the scheduled revert_at / the apply_due_staff_reverts() cron tick.
+ * The destination branch's manager (whoever currently has the dentist), the origin branch's
+ * manager, or an admin may do this; enforced server-side by revert_staff_transfer_now()
+ * (migration-004). Fails cleanly
+ * if the transfer has already ended (race-safe — checked atomically server-side).
+ *
+ * @param {string} transferId
+ * @param {Date|string} [revertedAt] - When the dentist actually returned, if not "right now".
+ *   Must be in the past and before the transfer's scheduled revert_at (validated server-side).
+ *   Omit to use the server's current time.
+ */
+export async function revertStaffTransferNow({ transferId, revertedAt } = {}) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    const { data, error } = await supabase.rpc('revert_staff_transfer_now', {
+      p_transfer_id: transferId,
+      p_reverted_at: revertedAt ? new Date(revertedAt).toISOString() : null,
+    });
+
+    if (error) throw error;
+    capture('staff_transfer_reverted_early', { transfer_id: transferId, custom_time: !!revertedAt });
+    return { data: { revertedAt: data }, error: null };
+  } catch (error) {
+    console.error('[API] revertStaffTransferNow error:', error.message);
+    return { data: null, error };
+  }
+}
+
+/**
+ * For each dentist currently AT branchId, the single most recent staff_transfers
+ * row (either direction), used by the Attendance panel to decide what the Transfer
+ * button should open: a blank create form, the ACTIVE transfer (destination's view,
+ * offering "Add Extra Time"), or a just-COMPLETED summary (origin's view, offering
+ * "Transfer Dentist Again").
+ */
+export async function fetchDentistTransferStatus(branchId) {
+  try {
+    const { error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+
+    const { data, error } = await supabase
+      .from('staff_transfers')
+      .select(`
+        id, dentist_id, from_branch_id, to_branch_id, transferred_at, effective_date,
+        start_time, duration_value, duration_unit, revert_at, applied, reverted, reverted_at, is_permanent, note,
+        dentist:dentists!staff_transfers_dentist_id_fkey(name),
+        fromBranch:branches!staff_transfers_from_branch_id_fkey(name),
+        toBranch:branches!staff_transfers_to_branch_id_fkey(name)
+      `)
+      .or(`from_branch_id.eq.${branchId},to_branch_id.eq.${branchId}`)
+      .order('transferred_at', { ascending: false });
+
+    if (error) throw error;
+
+    // Keep only the latest row per dentist (data is already ordered newest-first).
+    const map = {};
+    (data || []).forEach(t => {
+      if (map[t.dentist_id]) return;
+      map[t.dentist_id] = {
+        id: t.id,
+        dentistId: t.dentist_id,
+        dentistName: t.dentist?.name || '—',
+        fromBranchId: t.from_branch_id,
+        toBranchId: t.to_branch_id,
+        fromBranch: t.fromBranch?.name || '—',
+        toBranch: t.toBranch?.name || '—',
+        transferredAt: t.transferred_at,
+        effectiveDate: t.effective_date,
+        startTime: t.start_time,
+        durationValue: t.duration_value,
+        durationUnit: t.duration_unit,
+        revertAt: t.revert_at,
+        isPermanent: t.is_permanent,
+        applied: t.applied,
+        reverted: t.reverted,
+        revertedAt: t.reverted_at,
+        note: t.note,
+      };
+    });
+
+    return { data: map, error: null };
+  } catch (error) {
+    console.error('[API] fetchDentistTransferStatus error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// ============================================================
 // Doctor consultations (voice recording, AI summary, X-ray/photo analysis)
 // ============================================================
 
@@ -10779,10 +11969,9 @@ async function invokeConsultationFunction(name, body) {
 
   let payload = null;
   try { payload = await error.context?.json?.(); } catch { /* not JSON */ }
-  if (payload?.error === 'AI_KEY_MISSING') {
-    return { data: null, error: { code: 'AI_KEY_MISSING', message: 'AI is not set up yet. The API key has not been added, so this step is unavailable.' } };
-  }
-  return { data: null, error: { code: 'AI_FAILED', message: payload?.message || payload?.error || error.message || 'The AI request failed.' } };
+  const status = typeof error.context?.status === 'number' ? error.context.status : null;
+  // AI_KEY_MISSING comes back as a 503 with a JSON body; check the body first, so it isn't mistaken for "unavailable"
+  return { data: null, error: consultationAiError(status, payload) };
 }
 
 export async function transcribeConsultationAudio(audioPath) {
@@ -10790,10 +11979,10 @@ export async function transcribeConsultationAudio(audioPath) {
   return { text: data?.text ?? '', language: data?.language ?? null, error };
 }
 
-/** mode 'preliminary' (from transcript) or 'final' (combines everything). */
+/** mode 'preliminary' (from transcript), 'final' (combines everything) or 'note' (structured six-section clinical note → `note`). */
 export async function summarizeConsultation(payload) {
   const { data, error } = await invokeConsultationFunction('consultation-summarize', payload);
-  return { summary: data?.summary ?? '', error };
+  return { summary: data?.summary ?? '', note: data?.note ?? null, error };
 }
 
 /** kind: 'xray' | 'photo'; imagePaths from uploadConsultationFile. */
@@ -10842,7 +12031,7 @@ export async function fetchConsultationForBooking(bookingId) {
  * booking's treatment notes (only the first time, not on re-saves) so it
  * shows with the patient's other notes.
  */
-export async function saveConsultation({ booking, consultationId, fields, status, previousStatus }) {
+export async function saveConsultation({ booking, consultationId, fields, status }) {
   try {
     const { user, profile, error: authError } = await getAuthenticatedUser();
     if (authError) return { data: null, error: authError };
@@ -10880,17 +12069,28 @@ export async function saveConsultation({ booking, consultationId, fields, status
       saved = data;
     }
 
+    // The treatment-note summary follows the consultation: created on the first completion and UPDATED on every later save
+    // (e.g. after Edit note), so the chart never keeps a stale copy and never gets a duplicate.
     let noteError = null;
-    if (status === 'completed' && previousStatus !== 'completed') {
+    if (status === 'completed') {
       const noteText = (fields.final_summary || fields.preliminary_summary || fields.doctor_notes || '').trim();
       if (noteText) {
-        const note = await createTreatmentNote({
-          bookingId: booking.id,
-          customerId: booking.customer_id,
-          dentistId: booking.dentist_id,
-          note: `Consultation ${fields.session_date || ''}\n\n${noteText}`.trim(),
-        });
-        noteError = note.error;
+        const body = `Consultation ${fields.session_date || ''}\n\n${noteText}`.trim();
+        const { data: existing } = await supabase
+          .from('treatment_notes')
+          .select('id')
+          .eq('booking_id', booking.id)
+          .ilike('note', 'Consultation %')
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (existing) {
+          const { error: updateError } = await supabase.from('treatment_notes').update({ note: body }).eq('id', existing.id);
+          noteError = updateError;
+        } else {
+          const note = await createTreatmentNote({ bookingId: booking.id, customerId: booking.customer_id, dentistId: booking.dentist_id, note: body });
+          noteError = note.error;
+        }
       }
     }
     capture('consultation_saved', { status, has_transcript: !!fields.transcript });
@@ -11028,32 +12228,36 @@ export async function notifyDoctorPhone(bookingId) {
   return { sent: data?.sent ?? 0, shortCode: data?.shortCode ?? null, expiresAt: data?.expiresAt ?? null, error: null };
 }
 
-/** Phone (already signed in): check the code shown on the computer before opening a patient. */
+/** Phone (already signed in): check the code shown on the computer before opening a patient. Never signs anyone in. */
 export async function verifyPhoneCode(shortCode) {
   const { error } = await supabase.functions.invoke('phone-pair', { body: { action: 'verify', shortCode } });
   if (!error) return { ok: true, error: null };
   let payload = null;
   try { payload = await error.context?.json?.(); } catch { /* not JSON */ }
-  return { ok: false, error: { message: payload?.error || 'That code could not be checked.' } };
-}
-
-/** Computer: get one-time codes (valid 3 minutes): a long one for the QR link and 6 digits to type. */
-export async function createPhonePairing() {
-  const { data, error } = await supabase.functions.invoke('phone-pair', { body: { action: 'create' } });
-  if (error) return { code: null, shortCode: null, expiresAt: null, error: { message: 'Could not create a pairing code.' } };
-  return { code: data.code, shortCode: data.shortCode, expiresAt: data.expiresAt, error: null };
+  return { ok: false, error: { code: payload?.error, message: payload?.message || 'That code could not be checked.' } };
 }
 
 /**
- * Phone: sign this phone in with a pairing code. Pass { code } (from the QR
- * link) or { shortCode } (the 6 digits typed in the Doctor app).
+ * Computer: get a one-time code. purpose 'signin' (default): the long code for the QR link, the only thing that can sign a phone in.
+ * purpose 'verify': 6 digits to type on a phone that is already signed in as this user.
  */
-export async function redeemPhonePairing({ code, shortCode }) {
-  const { data, error } = await supabase.functions.invoke('phone-pair', { body: { action: 'redeem', code, shortCode } });
+export async function createPhonePairing({ purpose = 'signin' } = {}) {
+  const { data, error } = await supabase.functions.invoke('phone-pair', { body: { action: 'create', purpose } });
   if (error) {
     let payload = null;
     try { payload = await error.context?.json?.(); } catch { /* not JSON */ }
-    return { error: { message: payload?.error || 'This code could not be used.' } };
+    return { code: null, shortCode: null, expiresAt: null, error: { code: payload?.error, message: payload?.message || 'Could not create a pairing code.' } };
+  }
+  return { code: data.code ?? null, shortCode: data.shortCode ?? null, expiresAt: data.expiresAt, error: null };
+}
+
+/** Phone: sign this phone in with the long pairing code from the QR link. (6-digit codes cannot sign in.) */
+export async function redeemPhonePairing({ code }) {
+  const { data, error } = await supabase.functions.invoke('phone-pair', { body: { action: 'redeem', code } });
+  if (error) {
+    let payload = null;
+    try { payload = await error.context?.json?.(); } catch { /* not JSON */ }
+    return { error: { message: payload?.message || 'This code could not be used.' } };
   }
   const { error: verifyError } = await supabase.auth.verifyOtp({ token_hash: data.tokenHash, type: 'magiclink' });
   if (verifyError) return { error: { message: 'Could not sign this phone in. Show a new code on the computer.' } };

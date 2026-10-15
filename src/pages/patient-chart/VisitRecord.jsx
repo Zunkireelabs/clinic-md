@@ -20,15 +20,15 @@ const Thumb = ({ path, label }) => {
   const url = useSignedUrl('image', path);
   return (
     <a href={url || undefined} target="_blank" rel="noopener noreferrer" aria-label={`Open ${label}`}
-       className="w-28 h-28 rounded-lg border border-gray-200 bg-gray-50 overflow-hidden flex items-center justify-center hover:ring-2 hover:ring-primary/40">
+       className="w-28 h-28 rounded-lg border border-gray-200 bg-gray-50 overflow-hidden flex items-center justify-center hover:ring-2 hover:ring-primary/30">
       {url ? <img src={url} alt={label} className="w-full h-full object-cover" /> : <Icon name="Image" size={22} className="text-gray-400" />}
     </a>
   );
 };
 
-const Field = ({ icon, label, children, tone = 'text-text-tertiary' }) => (
+const Field = ({ icon, label, children, tone = 'text-[#8A8A90]' }) => (
   <div>
-    <h4 className={`flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-medium mb-1 ${tone}`}>
+    <h4 className={`flex items-center gap-1.5 text-[11.5px] uppercase tracking-[.05em] font-medium mb-1 ${tone}`}>
       <Icon name={icon} size={12} /> {label}
     </h4>
     <div className={`text-sm whitespace-pre-wrap break-words ${children ? 'text-text-primary' : 'text-text-tertiary italic'}`}>{children || 'Not recorded'}</div>
@@ -54,7 +54,7 @@ const VisitRecord = ({ visit, consultation: c0, customerName, notes }) => {
   }, patient_name: c.patient_name || customerName }));
 
   return (
-    <div className="px-4 pb-4 pt-3 border-t border-gray-100 space-y-4">
+    <div className="px-4 pb-4 pt-3 space-y-4">
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
         <span className="text-text-secondary">Doctor: <span className="font-medium text-text-primary">{visit.dentistName}</span></span>
         {doctors && doctors !== visit.dentistName && (
@@ -79,9 +79,7 @@ const VisitRecord = ({ visit, consultation: c0, customerName, notes }) => {
         )}
       </div>
 
-      <div className="rounded-lg bg-primary/5 border border-primary/20 p-3">
-        <Field icon="ClipboardCheck" label="Diagnosis" tone="text-primary">{diagnosis}</Field>
-      </div>
+      <Field icon="ClipboardCheck" label="Diagnosis">{diagnosis}</Field>
       <Field icon="ListChecks" label="Treatment plan">{sec.plan}</Field>
       {sec.followup && <Field icon="CalendarCheck" label="Follow-up">{sec.followup}</Field>}
       <Field icon="Stethoscope" label="Doctor's notes">{c.doctor_notes}</Field>

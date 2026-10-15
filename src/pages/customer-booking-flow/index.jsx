@@ -13,7 +13,7 @@ import BookingConfirmation from './components/BookingConfirmation';
 import BookingSuccess from './components/BookingSuccess';
 import { useTenant } from '../../contexts/TenantContext';
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext';
-import logo from 'assets/logo.png';
+import BrandWordmark from 'components/ui/BrandWordmark';
 import { splitE164 } from '../../utils/phone';
 
 const CustomerBookingFlow = () => {
@@ -539,7 +539,7 @@ const CustomerBookingFlow = () => {
         <div className="max-w-4xl mx-auto px-4 py-8">
           <div className="text-center">
             <div className="flex items-center justify-center mb-4">
-              <img src={logo} alt="ClinicMD" className="h-8 w-auto" />
+              <BrandWordmark size="sm" />
             </div>
             <p className="font-body font-body-normal text-sm text-text-secondary mb-4">
               Nepal's premier spa booking platform

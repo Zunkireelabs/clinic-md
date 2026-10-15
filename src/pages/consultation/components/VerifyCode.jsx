@@ -43,7 +43,7 @@ const VerifyCode = ({ onVerified, onCancel, askComputer = false }) => {
   };
   useEffect(() => {
     if (!askComputer || !profile?.id) return undefined;
-    const channel = supabase.channel(`phone-unlock-${profile.id}`, { config: { broadcast: { self: false } } });
+    const channel = supabase.channel(`phone-unlock-${profile.id}`, { config: { private: true, broadcast: { self: false } } });
     channelRef.current = channel;
     channel.subscribe((status) => { if (status === 'SUBSCRIBED') sendRequest(); });
     return () => { supabase.removeChannel(channel); channelRef.current = null; };

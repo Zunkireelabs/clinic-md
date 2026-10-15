@@ -28,7 +28,7 @@ import PlatformLogin from 'pages/platform/PlatformLogin';
 import PlatformDashboard from 'pages/platform/PlatformDashboard';
 import PlatformOrgDetail from 'pages/platform/PlatformOrgDetail';
 import { PLATFORM_ADMIN_ENABLED, CONSULTATION_ENABLED } from 'lib/featureFlags';
-import logo from 'assets/logo.png';
+import BrandWordmark from 'components/ui/BrandWordmark';
 
 // Wrapper component that provides tenant context
 const TenantWrapper = ({ children }) => (
@@ -41,7 +41,7 @@ const TenantWrapper = ({ children }) => (
 const LoadingScreen = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
     <div className="flex flex-col items-center space-y-4">
-      <img src={logo} alt="ClinicMD" className="h-10 w-auto animate-pulse" />
+      <BrandWordmark size="md" className="animate-pulse" />
       <p className="font-body font-body-normal text-sm text-text-secondary">
         Loading...
       </p>
@@ -113,14 +113,8 @@ const AppRoutes = () => {
           </TenantWrapper>
         } />
 
-        {/* Attendance calendar — dedicated full-page grid view */}
-        <Route path="/:orgSlug/attendance-calendar" element={
-          <TenantWrapper>
-            <ProtectedRoute allowedRoles={['manager', 'admin', 'admin_viewer']}>
-              <AttendanceCalendarPage />
-            </ProtectedRoute>
-          </TenantWrapper>
-        } />
+        {/* Attendance calendar now lives inside the Reports area; the old URL redirects (bookmarks keep working) */}
+        <Route path="/:orgSlug/attendance-calendar" element={<AttendanceCalendarRedirect />} />
 
         {/* Org-scoped booking details */}
         <Route path="/:orgSlug/bookings/:bookingId" element={
@@ -231,6 +225,12 @@ const AppRoutes = () => {
 const ManageRedirect = () => {
   const { orgSlug } = useParams();
   return <Navigate to={`/${orgSlug}/book`} replace />;
+};
+
+// Old standalone Attendance Calendar route -> the Reports area
+const AttendanceCalendarRedirect = () => {
+  const { orgSlug } = useParams();
+  return <Navigate to={`/${orgSlug}/dashboard?view=attendance-calendar`} replace />;
 };
 
 // Legacy booking redirect - redirects old /booking-details/:bookingId to org-scoped URL

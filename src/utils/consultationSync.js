@@ -78,8 +78,20 @@ export const mergeRemote = (local, synced, remoteRow) => {
   Object.keys(FIELD_COLUMNS).forEach((k) => {
     const locallyEdited = !same(local[k], synced[k]);
     if (!locallyEdited) form[k] = remote[k];
+    // Two devices may each have added an X-ray/photo/recording: keep both (the remote ones first), never drop either side's.
+    else if (ARRAY_KEYS.has(k)) form[k] = [...(remote[k] || []), ...(local[k] || []).filter((p) => !(remote[k] || []).includes(p))];
   });
   return { form, synced: remote };
+};
+
+/**
+ * After a save returns: take the saved row for every field the user did NOT touch while the request was in flight, and keep
+ * anything they typed meanwhile (so edits made during the save are never wiped). `sent` is the form as it was when Save was pressed.
+ */
+export const mergeAfterSave = (sent, current, rowForm) => {
+  const form = { ...rowForm };
+  Object.keys(FIELD_COLUMNS).forEach((k) => { if (!same(current[k], sent[k])) form[k] = current[k]; });
+  return form;
 };
 
 /** Every column from the form, for a full save (empty text becomes null). */

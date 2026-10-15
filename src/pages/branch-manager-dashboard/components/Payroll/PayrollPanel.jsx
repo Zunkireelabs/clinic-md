@@ -525,10 +525,6 @@ const PayrollPanel = ({ branchId, isOverall }) => {
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-heading font-heading-semibold text-xl text-text-primary flex items-center gap-2">
-            <Icon name="Wallet" size={22} className="text-primary" />
-            Payroll
-          </h3>
           <p className="font-body text-sm text-text-secondary mt-0.5">
             Manage staff compensation and run monthly payroll.
           </p>

@@ -4,7 +4,7 @@ import Icon from '../AppIcon';
 import { useTenant } from 'contexts/TenantContext';
 import { useCustomerAuth } from 'contexts/CustomerAuthContext';
 import useMeasuredHeightVar from 'hooks/useMeasuredHeightVar';
-import logo from 'assets/logo.png';
+import BrandWordmark from 'components/ui/BrandWordmark';
 
 const CustomerHeader = () => {
   const location = useLocation();
@@ -52,7 +52,7 @@ const CustomerHeader = () => {
         <div className="flex items-center justify-between gap-3 h-auto min-h-16 py-3 sm:h-16 sm:py-0">
           {/* Logo */}
           <Link to={bookingPath} className="flex items-center space-x-2 group min-w-0 flex-1">
-            <img src={logo} alt="ClinicMD" className="h-8 sm:h-10 w-auto flex-shrink-0" />
+            <BrandWordmark size="sm" className="flex-shrink-0" />
             {orgName && (
               <div className="flex flex-col min-w-0">
                 <span className="font-heading font-heading-semibold text-base sm:text-lg text-text-primary truncate">
