@@ -10,6 +10,8 @@ import {
 import { formatPhoneDisplay } from '../../../../utils/phone';
 import DuplicateCustomersPanel from './DuplicateCustomersPanel';
 import Spotlight, { useSpotlight } from '../../../../components/ui/Spotlight';
+import MoneyNoticeSpotlight from '../../../../components/ui/MoneyNoticeSpotlight';
+import { pickSpotlight, canSeeMoneyNotice } from '../../../../utils/spotlightPriority';
 import ConsultationSpotlightArt from '../../../../components/ui/spotlight/ConsultationSpotlightArt';
 import { CONSULTATION_ENABLED } from '../../../../lib/featureFlags';
 import PatientPanel, { InClinicTag } from './PatientPanel';
@@ -149,6 +151,7 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
   }, [setSearchParams]);
 
   const spotlight = useSpotlight('ai-consultation-v1');
+  const moneySpotlight = useSpotlight('money-model-v1');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -336,17 +339,25 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
     : laterToday
       ? { label: 'Try it on today\'s first visit', onClick: () => navigate(`?view=calendar&booking=${laterToday.laterTodayConfirmedId}`) }
       : { label: 'Open today\'s calendar', onClick: () => navigate('?view=calendar') };
-  const banner = CONSULTATION_ENABLED && !readOnly && spotlight.visible && patients && !showDuplicates && (
+  // One banner at a time: the AI-consultation announcement wins; the money notice waits until it is dismissed.
+  const showAi = CONSULTATION_ENABLED && !readOnly && spotlight.visible && !!patients && !showDuplicates;
+  const showMoney = canSeeMoneyNotice(role) && moneySpotlight.visible && !!patients && !showDuplicates;
+  const winner = pickSpotlight([{ id: 'ai', show: showAi }, { id: 'money', show: showMoney }]);
+  const banner = winner && (
     <div className="mt-5">
-      <Spotlight
-        id="ai-consultation-v1"
-        eyebrow="New · AI consultation notes"
-        title="Talk to your patient. The notes write themselves."
-        body="Record the visit, get a transcript and a clinical summary in seconds, then review and save to the chart."
-        primary={spotlightPrimary}
-        art={<ConsultationSpotlightArt />}
-        onDismiss={spotlight.dismiss}
-      />
+      {winner === 'ai' ? (
+        <Spotlight
+          id="ai-consultation-v1"
+          eyebrow="New · AI consultation notes"
+          title="Talk to your patient. The notes write themselves."
+          body="Record the visit, get a transcript and a clinical summary in seconds, then review and save to the chart."
+          primary={spotlightPrimary}
+          art={<ConsultationSpotlightArt />}
+          onDismiss={spotlight.dismiss}
+        />
+      ) : (
+        <MoneyNoticeSpotlight onSee={() => navigate('?view=outstanding&section=needs-closing')} onDismiss={moneySpotlight.dismiss} />
+      )}
     </div>
   );
 

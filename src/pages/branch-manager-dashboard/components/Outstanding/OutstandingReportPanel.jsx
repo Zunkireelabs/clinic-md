@@ -7,6 +7,10 @@ import { PERIOD_PRESETS, getPeriodRange, getTodayISO } from '../../../../utils/p
 import { getOutstandingByStaff, fetchDueHolderNames, setDueHolder, recordPayment, getCustomerOutstandingBalance } from '../../../../services/api';
 import SettledDueHistoryPanel from './SettledDueHistoryPanel';
 import NeedsClosingSection from './NeedsClosingSection';
+import MoneyNoticeSpotlight from '../../../../components/ui/MoneyNoticeSpotlight';
+import { useSpotlight } from '../../../../components/ui/Spotlight';
+import { canSeeMoneyNotice } from '../../../../utils/spotlightPriority';
+import { useAuth } from '../../../../contexts/AuthContext';
 
 function formatNPR(amount) {
   return `NPR ${Number(amount || 0).toLocaleString('en-IN')}`;
@@ -23,6 +27,8 @@ function formatDateOnly(d) {
 const UNASSIGNED_LABEL = 'Unassigned';
 
 const OutstandingReportPanel = ({ branchId }) => {
+  const { profile } = useAuth();
+  const moneyNotice = useSpotlight('money-model-v1');
   const [view, setView] = useState('outstanding'); // 'outstanding' | 'settled'
   const today = getTodayISO();
   const [groups, setGroups] = useState([]);
@@ -265,6 +271,12 @@ const OutstandingReportPanel = ({ branchId }) => {
 
   return (
     <div className="space-y-4">
+      {canSeeMoneyNotice(profile?.role) && moneyNotice.visible && (
+        <MoneyNoticeSpotlight
+          onSee={() => document.getElementById('needs-closing')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          onDismiss={moneyNotice.dismiss}
+        />
+      )}
       {/* Tabs */}
       <div className="border-b border-border">
         <nav className="flex gap-6">

@@ -19,7 +19,7 @@ export function useSpotlight(id) {
 }
 
 // A single announcement banner. Callers decide *whether* it is relevant; this only renders it (and tracks shown/clicked/dismissed).
-// 124px tall at lg+; below lg the art is hidden and the height follows the content.
+// At least 124px tall at lg+ (grows if the text needs it; the text keeps clear of the art); below lg the art is hidden and the height follows the content.
 const Spotlight = ({ id, eyebrow, title, body, primary, secondary, art, onDismiss }) => {
   const shown = useRef(false);
   useEffect(() => {
@@ -34,12 +34,12 @@ const Spotlight = ({ id, eyebrow, title, body, primary, secondary, art, onDismis
     <section
       role="region"
       aria-label={title}
-      className="relative overflow-hidden rounded-xl text-white flex items-center px-5 py-4 lg:px-7 lg:py-0 lg:h-[124px]"
+      className="relative overflow-hidden rounded-xl text-white flex items-center px-5 py-4 lg:px-7 lg:min-h-[124px]"
       style={{
         background: 'radial-gradient(120% 160% at 100% 0%,#7B2FF7 0%,rgba(123,47,247,.55) 28%,rgba(14,13,12,0) 60%),linear-gradient(90deg,#0E0D0C 0%,#151320 55%,#2A1650 100%)',
       }}
     >
-      <div className="min-w-0 pr-8 lg:pr-0">
+      <div className={`min-w-0 pr-8 ${art ? 'lg:pr-[380px]' : 'lg:pr-8'}`}>
         <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-[.06em] uppercase text-[#C9B2FF]">
           <Icon name="Sparkles" size={13} />{eyebrow}
         </span>

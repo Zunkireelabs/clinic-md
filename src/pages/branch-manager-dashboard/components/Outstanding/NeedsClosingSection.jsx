@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Icon from '../../../../components/AppIcon';
 import { getNeedsClosing } from '../../../../services/api';
 
@@ -10,6 +10,8 @@ const fmtDate = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB',
 // Listed separately from Outstanding so the due figures stay honest. Also shows the (grey, collapsed) total of upcoming unpaid bookings.
 const NeedsClosingSection = ({ branchId, from, to }) => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const sectionRef = useRef(null);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [showUpcoming, setShowUpcoming] = useState(false);
@@ -20,11 +22,16 @@ const NeedsClosingSection = ({ branchId, from, to }) => {
   }, [branchId, from, to]);
   useEffect(() => { load(); }, [load]);
 
+  // Arriving with ?section=needs-closing (e.g. from the money notice): scroll here once the section has rendered.
+  useEffect(() => {
+    if (data && searchParams.get('section') === 'needs-closing') sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (error) return <p className="font-body text-sm text-error">{error}</p>;
   if (!data) return null;
 
   return (
-    <section aria-label="Needs closing" className="space-y-3 pt-2">
+    <section id="needs-closing" ref={sectionRef} aria-label="Needs closing" className="space-y-3 pt-2 scroll-mt-4">
       <div>
         <h3 className="font-heading font-heading-semibold text-base text-text-primary">Needs closing {data.unclosed.length > 0 && <span className="text-text-tertiary font-normal">· {data.unclosed.length}</span>}</h3>
         <p className="font-caption text-xs text-text-tertiary mt-0.5">Past bookings still Pending or Confirmed, and visits left In-Progress from an earlier day. Nothing extra is owed until they are closed (in-progress visits are already in Outstanding).{data.unclosed.length > 0 && ` ${npr(data.unclosedAtStake)} at stake.`}</p>
