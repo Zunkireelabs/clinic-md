@@ -123,7 +123,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   const [dbStatus, setDbStatus] = useState(null);
   const [sessionDate, setSessionDate] = useState(todayIso());
   const [phase, setPhase] = useState('active'); // 'active' | 'review'
-  const [processing, setProcessing] = useState(null); // 'transcribing' | 'summarizing' | 'final'
+  const [finalProcessing, setProcessing] = useState(null); // 'final': the phone's "generate final summary" call
   const [queue, setQueue] = useState([]); // desktop: recordings not yet safely uploaded AND transcribed
   const queueRef = useRef(queue);
   queueRef.current = queue;
@@ -148,6 +148,10 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   const [savedAt, setSavedAt] = useState(null); // when the note was last saved to the chart (this session, or the row's updated_at)
   const [lastSyncAt, setLastSyncAt] = useState(null);
 
+  // What the page is busy with: the phone's final-summary call, or any recording still going through upload → transcribe.
+  const processing = finalProcessing ?? (queueBusy(queue) ? 'transcribing' : null);
+  // Uploaded recordings that were never transcribed (a failed transcription, then a reload): offered for retry, per path.
+  const orphanCount = untranscribedPaths(form.audioPaths, transcribed).filter((pth) => !queue.some((q) => q.audioPath === pth)).length;
   const acceptRecordingRef = useRef(null);
   const recorder = useAudioRecorder({
     onSegment: (r) => acceptRecordingRef.current?.(r), // a long recording hit the size cap and was split: each part is its own queued recording
@@ -771,6 +775,26 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
               </p>
             </div>
 
+            {autoStopMsg && (
+              <div role="alert" className="p-3 bg-warning/10 border border-warning/30 rounded-md text-sm text-text-secondary flex items-start gap-2">
+                <Icon name="AlertTriangle" size={16} className="text-warning mt-0.5 shrink-0" />
+                <span className="flex-1">{autoStopMsg}</span>
+                <button type="button" onClick={() => setAutoStopMsg(null)} aria-label="Dismiss"><Icon name="X" size={14} className="text-text-tertiary" /></button>
+              </div>
+            )}
+            {(failedItems(queue).length > 0 || orphanCount > 0) && processing === null && (
+              <div role="alert" className="p-3 bg-error/5 border border-error/20 rounded-md flex items-start gap-2">
+                <Icon name="AlertCircle" size={16} className="text-error mt-0.5 shrink-0" />
+                <div className="flex-1 text-sm text-text-secondary">
+                  {hasUploadFailure(queue)
+                    ? 'A recording has not been uploaded yet. Keep this page open.'
+                    : failedItems(queue).length > 0
+                      ? "A recording couldn't be transcribed. It is saved."
+                      : `${orphanCount} recording${orphanCount === 1 ? '' : 's'} not transcribed yet.`}
+                  <button type="button" className="ml-2 text-primary font-medium" onClick={retryDraft}>Retry</button>
+                </div>
+              </div>
+            )}
             {error && (
               <div className="p-3 bg-error/5 border border-error/20 rounded-md flex items-start gap-2">
                 <Icon name="AlertCircle" size={16} className="text-error mt-0.5 shrink-0" />
@@ -973,8 +997,6 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     : null;
   const findingsTags = [form.xrayAnalysis.trim() && form.xrayPaths.length && `${form.xrayPaths.length} X-ray${form.xrayPaths.length === 1 ? '' : 's'}`, form.photoAnalysis.trim() && form.photoPaths.length && `${form.photoPaths.length} photo${form.photoPaths.length === 1 ? '' : 's'}`].filter(Boolean);
   const recorderError = recorder.error;
-  // Uploaded recordings that were never transcribed (a failed transcription, then a reload): offered for retry, per path.
-  const orphanCount = untranscribedPaths(form.audioPaths, transcribed).filter((pth) => !queue.some((q) => q.audioPath === pth)).length;
   const showDraftNow = stage === 'ready' && (form.audioPaths.length > 0 || form.transcript.trim());
   const pdf = () => generateConsultationPdf({ ...reportData, additionalNotes: undefined }, profile?.organizations?.name);
 
