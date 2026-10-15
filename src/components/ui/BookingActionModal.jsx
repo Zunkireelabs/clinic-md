@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import Button from './Button';
 import CustomSelect from './CustomSelect';
 import PaymentModal from './PaymentModal';
@@ -9,6 +10,7 @@ import MembershipWalletCard from './MembershipWalletCard';
 import { fetchRelatedUnpaidBookings, fetchBookingCreator, fetchDiscountApprovers, fetchDueHolderNames, getCustomerOutstandingBalance, fetchMembershipForBooking, fetchCustomerReferralForBooking, resolveCustomerReferralReward } from '../../services/api';
 import { excludeRelatedFromPreviousDue } from '../../services/bookingTransformers';
 import { useBranch } from '../../contexts/BranchContext';
+import { CONSULTATION_ENABLED } from '../../lib/featureFlags';
 import { getExtendOptions } from '../../utils/treatmentVariants';
 import BlockOverlapWarning from './BlockOverlapWarning';
 import SidePanel from './SidePanel';
@@ -86,6 +88,8 @@ const BookingActionModal = ({
   guardRef,                // panel only: parent calls guardRef.current(action) to run `action` through the dirty guard
 }) => {
   const { branchId } = useBranch();
+  const navigate = useNavigate();
+  const { orgSlug } = useParams();
   const [activeTab, setActiveTab] = useState('details');
   const [selectedDentists, setSelectedDentists] = useState([]);
   const [dentistSearch, setDentistSearch] = useState('');
@@ -546,7 +550,11 @@ const BookingActionModal = ({
         await onUpdateStatus(booking.bookingId, newStatus, reason);
       }
       setPendingStatus(null);
-      if (variant === 'panel') {
+      // Starting the visit drops the doctor straight into the consultation.
+      if (newStatus === 'in-progress' && CONSULTATION_ENABLED && userRole !== 'admin_viewer' && orgSlug) {
+        onClose();
+        navigate(`/${orgSlug}/bookings/${booking.bookingId}/consultation`);
+      } else if (variant === 'panel') {
         // The panel stays open on the updated booking instead of closing.
         await onRefreshBooking?.(booking.bookingId);
       } else {
@@ -864,6 +872,7 @@ const BookingActionModal = ({
   })();
   // Visible secondary actions (left), in collapse-priority order; disabled ones are not shown here (only in the overflow).
   const secondaryVisible = [
+    CONSULTATION_ENABLED && booking.status === 'in-progress' && userRole !== 'admin_viewer' && orgSlug && !isEditing && { key: 'consult', label: 'Consultation', icon: 'Mic', run: () => navigate(`/${orgSlug}/bookings/${booking.bookingId}/consultation`) },
     onCreateBooking && !isEditing && { key: 'rebook', label: rebookLabel, icon: 'CalendarClock', run: () => onRebookStart?.(booking) },
     onCreateBooking && !isEditing && { key: 'add', label: '+ Treatment', icon: 'PlusCircle', run: () => { setActiveTab('details'); openNewBookingForm('add-treatment'); } },
     !isTerminal && !isLocked && extendOptions.length > 0 && { key: 'extend', label: 'Extend', icon: 'Timer', run: () => { setActiveTab('details'); setShowExtendPanel(true); } },
@@ -1071,9 +1080,22 @@ const BookingActionModal = ({
                       {booking.status.replace('-', ' ')}
                     </span>
                   </div>
-                  {!isTerminal && !isLocked && nextStatuses.length > 0 && (
+                  {(CONSULTATION_ENABLED && booking.status === 'in-progress' && userRole !== 'admin_viewer' && orgSlug)
+                    || (!isTerminal && !isLocked && nextStatuses.length > 0) ? (
                     <div className="flex flex-wrap gap-2">
-                      {nextStatuses.map((status) => {
+                      {CONSULTATION_ENABLED && booking.status === 'in-progress' && userRole !== 'admin_viewer' && orgSlug && (
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          iconName="Mic"
+                          iconPosition="left"
+                          className="min-h-[40px] sm:min-h-0 sm:h-auto"
+                          onClick={() => navigate(`/${orgSlug}/bookings/${booking.bookingId}/consultation`)}
+                        >
+                          Start Consultation
+                        </Button>
+                      )}
+                      {!isTerminal && !isLocked && nextStatuses.map((status) => {
                         const needsConfirm = status === 'cancelled' || status === 'no show';
                         const noShowGated = status === 'no show' && !hasBookingStarted(booking);
                         return (
@@ -1092,7 +1114,7 @@ const BookingActionModal = ({
                         );
                       })}
                     </div>
-                  )}
+                  ) : null}
                 </div>
                 )}
 

@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { DndContext, pointerWithin } from '@dnd-kit/core';
 import Icon from '../../../../components/AppIcon';
 import BookingActionModal from '../../../../components/ui/BookingActionModal';
@@ -21,6 +22,8 @@ import { useGoTodaySignal } from './calendarSignals';
 import { useBookingActions } from './hooks/useBookingActions';
 import { useAutoRefresh } from '../../../../hooks/useAutoRefresh';
 import { useAuth } from '../../../../contexts/AuthContext';
+import { fetchBookingById } from '../../../../services/api';
+import { transformBooking } from '../../../../services/bookingTransformers';
 import { todayStr, addDays, getStepDays } from './calendarDates';
 
 // ── Component ────────────────────────────────────────────────
@@ -131,6 +134,25 @@ const OperationalCalendar = ({ branchId }) => {
   const goToday = () => setCurrentDate(todayStr());
   const goPrev = () => setCurrentDate(addDays(currentDate, -getStepDays(viewMode)));
   const goNext = () => setCurrentDate(addDays(currentDate, getStepDays(viewMode)));
+
+  // Deep link `?view=calendar&booking=<id>` (patient chart / panel / Spotlight): jump to the booking's day and open its panel.
+  // The param is stripped first so a reload or Back doesn't reopen it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepLinkBookingId = searchParams.get('booking');
+  useEffect(() => {
+    if (!deepLinkBookingId || !branchId) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('booking');
+    setSearchParams(next, { replace: true });
+    fetchBookingById(deepLinkBookingId).then(({ data, error: err }) => {
+      if (err || !data || (data.branch_id && data.branch_id !== branchId)) {
+        showToast(err || !data ? 'That booking could not be found.' : 'That booking is at a different branch.', 'error');
+        return;
+      }
+      setCurrentDate(data.date);
+      handleBookingClick(transformBooking(data));
+    });
+  }, [deepLinkBookingId, branchId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useGoTodaySignal(goToday);
   useCalendarShortcuts({ goToday, goPrev, goNext, setViewMode, handleNewBooking, setTipOpen });

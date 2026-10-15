@@ -53,7 +53,7 @@ function formatNPR(amount) {
   return `NPR ${Number(amount).toLocaleString('en-IN')}`;
 }
 
-const BookingDetailsPanel = ({ booking, onStatusUpdate, onRecordPayment, isLoading }) => {
+const BookingDetailsPanel = ({ booking, onStatusUpdate, onRecordPayment, onStartConsultation, isLoading }) => {
   const navigate = useNavigate();
   const { orgSlug: urlOrgSlug } = useParams();
   const { profile } = useAuth();
@@ -204,6 +204,21 @@ const BookingDetailsPanel = ({ booking, onStatusUpdate, onRecordPayment, isLoadi
           </span>
         </div>
       ) : null}
+
+      {/* Start Consultation — only while In-Progress (and the feature is enabled). */}
+      {booking.status === 'in-progress' && onStartConsultation && (
+        <Button
+          variant="primary"
+          size="sm"
+          fullWidth
+          iconName="Mic"
+          iconPosition="left"
+          onClick={onStartConsultation}
+          disabled={isLoading}
+        >
+          Start Consultation
+        </Button>
+      )}
 
       {/* Customer Information */}
       <div className="space-y-4">

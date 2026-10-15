@@ -3,10 +3,13 @@ import { transformMembership, transformMemberships, toTitleCase } from './bookin
 import { capture } from '../lib/analytics';
 import { MEMBERSHIP_ENABLED, CUSTOMER_REFERRALS_ENABLED, VOUCHER_ENABLED } from '../lib/featureFlags';
 import { toE164, samePhone } from '../utils/phone';
+import { consultationAiError } from '../utils/consultationAiError';
 import { isAfterCheckout } from './dentistBranchWindow';
 import { expandBlockOccurrences } from '../utils/blockRecurrence';
 import { dedupeTransfersByKey, sortTransfersByTime } from './transferDedup';
 import { transferWindowOccurrencesForDate } from '../utils/transferOccurrences';
+import { buildPatientDirectory, localISO } from '../utils/patientDirectory';
+import { summarizeMoney, classifyBooking, roundMoney, paidPaisa } from '../utils/bookingMoney';
 
 // PostgREST puts .in() lists in the URL, which breaks (and supabase-js then retries the network error with backoff,
 // ~7s) once it gets long — so id lists are always sent in chunks of at most this many.
@@ -94,7 +97,7 @@ async function getAuthenticatedUser() {
   }
   const { data: profile, error: profileError } = await supabase
     .from('users')
-    .select('id, role, branch_id, org_id')
+    .select('id, role, branch_id, org_id, full_name')
     .eq('id', user.id)
     .single();
 
@@ -830,42 +833,35 @@ export async function setDueHolder({ bookingId, dueHolderName }) {
   }
 }
 
-// Outstanding (unpaid + partial) balances grouped by responsible person.
-// from/to are ISO dates (inclusive); omit for all-time.
+// What is actually OWED, grouped by responsible person. "Owed" = rendered visits (In-Progress / Completed) with price − payments > 0,
+// computed by bookingMoney (paisa-exact, from payments — never from payment_status). Future appointments are not owed.
+// from/to are ISO dates (inclusive) on the booking date; omit for all-time.
+// Why payment_status is NOT used to find debt: the update_booking_payment_status trigger only fires AFTER INSERT on payments, never on a
+// payment update/delete or on a bookings.final_amount change (e.g. a treatment added after payment). So payment_status can be stale
+// (a stale 'paid' would hide real debt). Payments are the source of truth. Candidates are chosen by status only: due can only exist on
+// rendered visits (In-Progress / Completed); payments(amount) is always embedded and bookingMoney classifies each row.
 export async function getOutstandingByStaff({ branchId, from, to } = {}) {
   try {
-    // payments is embedded (FK payments_booking_id_fkey) instead of fetched via a
-    // second query keyed on `.in('booking_id', bookingIds)`. With "All Time" (no
-    // date filter) a busy branch can have 1000+ outstanding bookings; a bare
-    // booking-ID .in() list that large builds a URL long enough to get rejected
-    // upstream of PostgREST with a bare 400 "Bad Request" (no detail) — confirmed
-    // against prod (Lazimpat, all-time: 1095 outstanding bookings, failing
-    // consistently above ~500-700 IDs). Embedding returns everything in one
-    // request regardless of dataset size, so there's no ceiling to hit again.
-    let query = supabase
-      .from('bookings')
-      .select('id, booking_number, customer_name, customer_phone, date, final_amount, payment_status, due_holder_name, treatment_name_snapshot, payments(amount)')
-      .in('payment_status', ['unpaid', 'partial'])
-      .not('status', 'in', '("Cancelled","No Show")');
-    if (from) query = query.gte('date', from);
-    if (to) query = query.lte('date', to);
-    query = withBranch(query, branchId);
-    const { data: bookings, error } = await query;
-    if (error) throw error;
-
-    const all = bookings || [];
+    const today = localISO(new Date());
+    // payments is embedded (FK payments_booking_id_fkey) instead of a second `.in('booking_id', ids)` query: with "All Time" a busy
+    // branch can have 1000+ outstanding bookings, and a bare id list that long gets rejected upstream with a bare 400.
+    const rows = await pageAll(() => {
+      let query = supabase
+        .from('bookings')
+        .select('id, booking_number, customer_name, customer_phone, date, status, final_amount, payment_status, due_holder_name, treatment_name_snapshot, is_locked, payments(amount), payment_refunds(amount)')
+        .in('status', ['In-Progress', 'Completed'])
+        .order('id');
+      if (from) query = query.gte('date', from);
+      if (to) query = query.lte('date', to);
+      return withBranch(query, branchId);
+    });
 
     const groups = {};
-    for (const b of all) {
-      const collected = (b.payments || []).reduce((sum, p) => sum + Number(p.amount), 0);
-      const due = Math.round((Number(b.final_amount) - collected) * 100) / 100;
-      if (due <= 0) continue;
+    for (const b of summarizeMoney(rows, { today }).dueBookings) {
       const rawName = (b.due_holder_name || '').trim();
       const key = rawName || '__unassigned__';
-      if (!groups[key]) {
-        groups[key] = { dueHolderName: rawName || null, totalDue: 0, bookingCount: 0, bookings: [] };
-      }
-      groups[key].totalDue = Math.round((groups[key].totalDue + due) * 100) / 100;
+      if (!groups[key]) groups[key] = { dueHolderName: rawName || null, totalDue: 0, bookingCount: 0, bookings: [] };
+      groups[key].totalDue = roundMoney(groups[key].totalDue + b.money.due);
       groups[key].bookingCount += 1;
       groups[key].bookings.push({
         bookingId: b.id,
@@ -874,86 +870,148 @@ export async function getOutstandingByStaff({ branchId, from, to } = {}) {
         customerPhone: b.customer_phone,
         date: b.date,
         treatmentName: b.treatment_name_snapshot || '—',
-        finalAmount: Number(b.final_amount),
-        amountPaid: collected,
-        amountDue: due,
+        finalAmount: b.money.price,
+        amountPaid: b.money.paid,
+        amountDue: b.money.due,
         paymentStatus: b.payment_status,
+        isLocked: !!b.is_locked,
       });
     }
-
-    const result = Object.values(groups).sort((a, b) => b.totalDue - a.totalDue);
-    return { data: result, error: null };
+    return { data: Object.values(groups).sort((x, y) => y.totalDue - x.totalDue), error: null };
   } catch (error) {
     console.error('[API] getOutstandingByStaff error:', error.message);
     return { data: null, error };
   }
 }
 
-// One customer's total outstanding balance (unpaid + partial), across all dates —
-// used to warn staff of a returning customer's previous due at booking time, and
-// to bundle a customer's other outstanding bookings into a single payment.
-// Matches on phone alone — phone numbers are unique per customer, while names
-// aren't (two different customers can share a name), so phone is the reliable
-// identifier here. Compared normalized (reduced to its last 10 digits) rather
-// than as an exact string, since the same real customer is often recorded with
-// slightly different phone formatting (with/without country code) across visits.
-// customerName is accepted but purely cosmetic — it is never used to filter.
+// Outstanding report extras: past Pending/Confirmed bookings that were never closed ("Needs closing"), plus the total of
+// upcoming unpaid bookings (not owed yet). Same date filter semantics as getOutstandingByStaff.
+export async function getNeedsClosing({ branchId, from, to } = {}) {
+  try {
+    const today = localISO(new Date());
+    const rows = await pageAll(() => {
+      let query = supabase
+        .from('bookings')
+        .select('id, booking_number, customer_id, customer_name, customer_phone, date, start_time, status, final_amount, treatment_name_snapshot, dentist_name_snapshot, is_locked, payments(amount), payment_refunds(amount)')
+        .in('status', ['Pending', 'Confirmed', 'In-Progress']) // In-Progress only matters when from a previous day (stale)
+        .order('id');
+      if (from) query = query.gte('date', from);
+      if (to) query = query.lte('date', to);
+      return withBranch(query, branchId);
+    });
+    const m = summarizeMoney(rows, { today });
+    const unclosed = m.unclosed
+      .map((b) => ({
+        bookingId: b.id, bookingNumber: b.booking_number, customerName: b.customer_name, customerId: b.customer_id, date: b.date,
+        startTime: (b.start_time || '').slice(0, 5), treatmentName: b.treatment_name_snapshot || '—', dentistName: b.dentist_name_snapshot || '—',
+        status: b.status, atStake: b.money.atStake, stillInProgress: false, isLocked: !!b.is_locked,
+      }))
+      .concat(m.staleInProgress.map((b) => ({
+        bookingId: b.id, bookingNumber: b.booking_number, customerName: b.customer_name, customerId: b.customer_id, date: b.date,
+        startTime: (b.start_time || '').slice(0, 5), treatmentName: b.treatment_name_snapshot || '—', dentistName: b.dentist_name_snapshot || '—',
+        status: b.status, atStake: 0, stillInProgress: true, isLocked: !!b.is_locked, // the money is already in Outstanding; nothing extra at stake
+      })))
+      .sort((x, y) => (x.date + x.startTime < y.date + y.startTime ? -1 : 1));
+    return { data: { unclosed, unclosedAtStake: m.unclosedAtStake, upcoming: m.upcoming, upcomingCount: m.upcomingCount }, error: null };
+  } catch (error) {
+    console.error('[API] getNeedsClosing error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Close a past Pending/Confirmed booking that never got a status ("Needs closing"). Uses the normal status path
+// (updateBookingStatus), so locks, terminal-status and transition rules all apply. The state machine has no direct
+// Confirmed → Completed, so completing walks Pending → Confirmed → In-Progress → Completed one valid step at a time.
+export async function closePastBooking({ bookingId, outcome, reason }) {
+  const { data: b, error } = await supabase.from('bookings').select('id, status').eq('id', bookingId).single();
+  if (error) return { data: null, error };
+  const steps = outcome === 'no_show'
+    ? [['No Show', reason]]
+    : { Pending: ['Confirmed', 'In-Progress', 'Completed'], Confirmed: ['In-Progress', 'Completed'], 'In-Progress': ['Completed'] }[b.status]?.map((st) => [st]);
+  if (!steps) return { data: null, error: { code: 'NOT_OPEN', message: `This booking is already ${b.status}.` } };
+  for (const [newStatus, why] of steps) {
+    const res = await updateBookingStatus({ bookingId, newStatus, reason: why });
+    if (res.error) return res;
+  }
+  return { data: { bookingId }, error: null };
+}
+
+// Local-DB audit helper: how many bookings have a payment_status that disagrees with their recorded payments?
+export async function countPaymentStatusMismatches({ branchId } = {}) {
+  const rows = await pageAll(() => withBranch(supabase.from('bookings').select('id, status, payment_status, final_amount, date, payments(amount), payment_refunds(amount)').order('id'), branchId));
+  const today = localISO(new Date());
+  return rows.filter((b) => {
+    const m = classifyBooking(b, { today });
+    const settled = m.paid >= m.price && m.price > 0;
+    if (b.payment_status === 'paid') return !settled && m.kind !== 'void';
+    if (b.payment_status === 'unpaid') return m.paid > 0;
+    return false;
+  });
+}
+
+// The "other bookings still owed" for one patient (matched by phone): calendar Prev. due, the booking-form warning and the
+// Collect bundle. Only DUE counts (rendered visits), never future appointments; pass `excludeBookingId` where a current booking
+// exists. Compared on the normalized phone, bounded and fail-open like before. customerName is cosmetic.
 export async function getCustomerOutstandingBalance({ customerPhone, branchId, excludeBookingId } = {}) {
   try {
     const normalizedPhone = toE164(customerPhone);
-    // Need a full number (country code + national) before matching — a stray
-    // fragment must not sweep up unrelated bookings.
+    // Need a full number (country code + national) before matching — a stray fragment must not sweep up unrelated bookings.
     if (!normalizedPhone || normalizedPhone.length < 11) {
-      return { data: { totalDue: 0, bookingCount: 0, bookings: [] }, error: null };
+      return { data: { totalDue: 0, bookingCount: 0, collectableDue: 0, bookings: [], lockedDue: 0, lockedBookings: [] }, error: null };
     }
-
-    let query = supabase
-      .from('bookings')
-      .select('id, booking_number, customer_name, customer_phone, date, final_amount, payment_status, treatment_name_snapshot')
-      .in('payment_status', ['unpaid', 'partial'])
-      .not('status', 'in', '("Cancelled","No Show")');
-    if (excludeBookingId) query = query.neq('id', excludeBookingId);
-    query = withBranch(query, branchId);
-    const { data: bookings, error } = await query;
-    if (error) throw error;
-
-    const all = (bookings || []).filter((b) => samePhone(b.customer_phone, normalizedPhone));
-    const bookingIds = all.map(b => b.id);
-    const paidMap = {};
-    if (bookingIds.length > 0) {
-      const { data: payments, error: payError } = await supabase
-        .from('payments')
-        .select('booking_id, amount')
-        .in('booking_id', bookingIds);
-      if (payError) throw payError;
-      for (const p of (payments || [])) {
-        paidMap[p.booking_id] = (paidMap[p.booking_id] || 0) + Number(p.amount);
-      }
-    }
-
-    let totalDue = 0;
-    const dueBookings = [];
-    for (const b of all) {
-      const collected = paidMap[b.id] || 0;
-      const due = Math.round((Number(b.final_amount) - collected) * 100) / 100;
-      if (due <= 0) continue;
-      totalDue = Math.round((totalDue + due) * 100) / 100;
-      dueBookings.push({
-        bookingId: b.id,
-        bookingNumber: b.booking_number,
-        customerName: b.customer_name,
-        date: b.date,
-        treatmentName: b.treatment_name_snapshot || '—',
-        finalAmount: Number(b.final_amount),
-        amountPaid: collected,
-        amountDue: due,
-        paymentStatus: b.payment_status,
-      });
-    }
-
-    return { data: { totalDue, bookingCount: dueBookings.length, bookings: dueBookings }, error: null };
+    const today = localISO(new Date());
+    // Candidates by status only (see getOutstandingByStaff): payment_status can be stale, so it is never used as a filter.
+    // Filtered on the server by the normalised phone (bookings.customer_phone is canonicalised on write), so this no longer
+    // downloads the branch's whole history. samePhone below stays as a safety net for any legacy-format straggler.
+    const rows = await pageAll(() => {
+      let query = supabase
+        .from('bookings')
+        .select(DUE_COLUMNS)
+        .eq('customer_phone', normalizedPhone)
+        .in('status', ['In-Progress', 'Completed'])
+        .order('id');
+      if (excludeBookingId) query = query.neq('id', excludeBookingId);
+      return withBranch(query, branchId);
+    });
+    const mine = rows.filter((b) => samePhone(b.customer_phone, normalizedPhone));
+    return { data: dueSummary(summarizeMoney(mine, { today, excludeBookingId })), error: null };
   } catch (error) {
     console.error('[API] getCustomerOutstandingBalance error:', error.message);
+    return { data: null, error };
+  }
+}
+
+const DUE_COLUMNS = 'id, booking_number, customer_id, customer_name, customer_phone, date, status, final_amount, payment_status, is_locked, treatment_name_snapshot, payments(amount), payment_refunds(amount)';
+
+// Shape returned to Collect / Prev. due callers. `bookings` are only the COLLECTABLE ones: bookings on closed (locked) days can't be
+// paid from here until the closed-day policy is decided, so they are reported separately (lockedDue / lockedBookings) and never bundled.
+const dueSummary = (m) => {
+  const row = (b) => ({
+    bookingId: b.id, bookingNumber: b.booking_number, customerName: b.customer_name, date: b.date,
+    treatmentName: b.treatment_name_snapshot || '—', finalAmount: b.money.price, amountPaid: b.money.paid, amountDue: b.money.due,
+    paymentStatus: b.payment_status, isLocked: !!b.is_locked,
+  });
+  const collectable = m.dueBookings.filter((b) => !b.is_locked);
+  const locked = m.dueBookings.filter((b) => b.is_locked);
+  return {
+    totalDue: m.due, // everything owed (the warning / chip)
+    bookingCount: m.dueCount,
+    collectableDue: roundMoney(collectable.reduce((x, b) => x + b.money.due, 0)),
+    bookings: collectable.map(row),
+    lockedDue: roundMoney(locked.reduce((x, b) => x + b.money.due, 0)),
+    lockedBookings: locked.map(row),
+  };
+};
+
+// What a patient owes, by customer id (the same scope as the chart's balance: every booking RLS lets the caller see, across branches
+// for admins). Used by the chart's and panel's Collect so the amount collected matches the balance shown.
+export async function getCustomerDueBookings(customerId) {
+  try {
+    if (!customerId) return { data: { totalDue: 0, bookingCount: 0, collectableDue: 0, bookings: [], lockedDue: 0, lockedBookings: [] }, error: null };
+    const rows = await pageAll(() => supabase.from('bookings').select(DUE_COLUMNS).eq('customer_id', customerId).in('status', ['In-Progress', 'Completed']).order('id'));
+    return { data: dueSummary(summarizeMoney(rows, { today: localISO(new Date()) })), error: null };
+  } catch (error) {
+    console.error('[API] getCustomerDueBookings error:', error.message);
     return { data: null, error };
   }
 }
@@ -1880,7 +1938,7 @@ export async function fetchTreatmentNotesForCustomer(customerId) {
   try {
     const { data, error } = await supabase
       .from('treatment_notes')
-      .select('id, note, created_at, dentist:dentists(id, name)')
+      .select('id, booking_id, note, created_at, dentist:dentists(id, name)')
       .eq('customer_id', customerId)
       .order('created_at', { ascending: false });
 
@@ -1896,16 +1954,17 @@ export async function fetchRelatedUnpaidBookings({ customerName, date, excludeBo
   try {
     const { data, error } = await supabase
       .from('bookings')
-      .select('id, booking_number, customer_name, date, start_time, end_time, base_amount, discount_amount, final_amount, payment_status, status, treatment:treatments(name, duration_minutes), chair:chairs(name), dentist:dentists(name)')
+      .select('id, booking_number, customer_name, date, start_time, end_time, base_amount, discount_amount, final_amount, payment_status, status, treatment:treatments(name, duration_minutes), chair:chairs(name), dentist:dentists(name), payments(amount), payment_refunds(amount)')
       .eq('customer_name', customerName)
       .eq('date', date)
-      .eq('payment_status', 'unpaid')
       .not('status', 'in', '("Cancelled","No Show")')
       .neq('id', excludeBookingId)
       .order('start_time');
 
     if (error) throw error;
-    return { data: data || [], error: null };
+    // "Unpaid" = nothing held on it (payments − refunds = 0), decided from the payments like every other money figure — the same rule the
+    // calendar's Prev. due uses to drop these siblings, so the two can never disagree.
+    return { data: (data || []).filter((b) => paidPaisa(b) === 0), error: null };
   } catch (error) {
     console.error('[API] fetchRelatedUnpaidBookings error:', error.message);
     return { data: [], error };
@@ -4658,35 +4717,38 @@ export async function getCalendarBookings(branchId, startDate, endDate) {
       }
     })().catch(() => undefined), 4000, undefined);
     // Same definition as getCustomerOutstandingBalance (what the payment modal bundles as "Previous due"): the same phone's
-    // other unpaid/partial, non-cancelled bookings in this branch (any date), amount = final_amount − payments, excluding
-    // the booking itself and — as BookingActionModal does — its same-name/same-date unpaid "related treatments".
+    // other DUE bookings (rendered visits owing money, via bookingMoney; future appointments are never due) in this branch,
+    // excluding the booking itself and — as BookingActionModal does — its same-name/same-date unpaid "related treatments".
     const previousDuePromise = failOpenAfter((async () => {
       const phoneOf = (b) => { const p = toE164(b.customer_phone); return p && p.length >= 11 ? p : null; };
       const visiblePhones = new Set((bookings || []).map(phoneOf).filter(Boolean));
       if (visiblePhones.size === 0) return {};
       try {
-        const { data: openAll, error } = await supabase
-          .from('bookings')
-          .select('id, customer_name, customer_phone, date, final_amount, payment_status')
-          .eq('branch_id', resolvedBranchId)
-          .in('payment_status', ['unpaid', 'partial'])
-          .not('status', 'in', '("Cancelled","No Show")');
-        if (error) throw error;
-        // Only rows for a phone that is actually on screen can matter; don't fetch payments for the rest of the branch.
-        const open = (openAll || []).filter(o => visiblePhones.has(phoneOf(o)));
-        const ids = open.map(o => o.id);
-        const paid = {};
-        if (ids.length > 0) {
-          const pays = await inChunks(ids, (chunk) => supabase.from('payments').select('booking_id, amount').in('booking_id', chunk));
-          for (const p of pays) paid[p.booking_id] = (paid[p.booking_id] || 0) + Number(p.amount);
+        // Only DUE counts (rendered visits owing money); future appointments never do. Candidates by status only; payment_status
+        // can be stale so it is never a filter. Paid comes from the embedded payments.
+        // Server-side filter on the normalised phones that are on screen (chunked: PostgREST puts .in() lists in the URL), so the
+        // calendar no longer downloads the branch's whole history; the phoneOf() check below stays as a safety net.
+        const phoneList = [...visiblePhones];
+        const openAll = [];
+        for (let i = 0; i < phoneList.length; i += 40) {
+          openAll.push(...await pageAll(() => supabase
+            .from('bookings')
+            .select('id, customer_name, customer_phone, date, status, final_amount, payment_status, payments(amount), payment_refunds(amount)')
+            .eq('branch_id', resolvedBranchId)
+            .in('customer_phone', phoneList.slice(i, i + 40))
+            .in('status', ['In-Progress', 'Completed'])
+            .order('id')));
         }
+        // Only rows for a phone that is actually on screen can matter.
+        const open = (openAll || []).filter(o => visiblePhones.has(phoneOf(o)));
+        const todayISO = localISO(new Date());
         const byPhone = {};
-        for (const o of (open || [])) {
+        for (const o of summarizeMoney(open, { today: todayISO }).dueBookings) {
           const ph = phoneOf(o);
           if (!ph) continue;
-          const due = Math.round((Number(o.final_amount) - (paid[o.id] || 0)) * 100) / 100;
-          if (due <= 0) continue;
-          (byPhone[ph] ||= []).push({ id: o.id, name: o.customer_name, date: o.date, unpaid: o.payment_status === 'unpaid', due });
+          // "Related treatments" bundled in the payment panel are same-name / same-date bookings with NOTHING paid on them. That is decided
+          // from the payments (bookingMoney), never from payment_status, so it can't disagree with the due amount.
+          (byPhone[ph] ||= []).push({ id: o.id, name: o.customer_name, date: o.date, unpaid: o.money.paid === 0, due: o.money.due });
         }
         const out = {};
         for (const b of (bookings || [])) {
@@ -4694,7 +4756,7 @@ export async function getCalendarBookings(branchId, startDate, endDate) {
           if (!ph || !byPhone[ph]) continue;
           const list = byPhone[ph].filter(o => o.id !== b.id && !(o.unpaid && o.name === b.customer_name && o.date === b.date));
           if (list.length === 0) continue;
-          out[b.id] = { count: list.length, amount: Math.round(list.reduce((sum, o) => sum + o.due, 0) * 100) / 100 };
+          out[b.id] = { count: list.length, amount: roundMoney(list.reduce((sum, o) => sum + o.due, 0)) };
         }
         return out;
       } catch (e) {
@@ -6536,7 +6598,7 @@ export async function fetchCustomerProfile(customerId) {
     const { data: bookings, error: bookingsError } = await supabase
       .from('bookings')
       .select(`
-        booking_number, date, status, payment_status,
+        id, booking_number, date, status, payment_status,
         final_amount, discount_amount,
         treatment_name_snapshot, dentist_name_snapshot,
         is_locked
@@ -6551,7 +6613,7 @@ export async function fetchCustomerProfile(customerId) {
     // 2b. Treatment notes left by dentists across this customer's appointments
     const { data: treatmentNoteRows, error: notesError } = await supabase
       .from('treatment_notes')
-      .select('id, note, created_at, dentist:dentists(id, name)')
+      .select('id, booking_id, note, created_at, dentist:dentists(id, name)')
       .eq('customer_id', customerId)
       .order('created_at', { ascending: false });
 
@@ -6559,6 +6621,7 @@ export async function fetchCustomerProfile(customerId) {
 
     const treatmentNotes = (treatmentNoteRows || []).map(n => ({
       id: n.id,
+      bookingId: n.booking_id,
       note: n.note,
       createdAt: n.created_at,
       dentistName: n.dentist?.name || 'Unknown',
@@ -6637,6 +6700,7 @@ export async function fetchCustomerProfile(customerId) {
 
     // 5. Build history list
     const history = all.map(b => ({
+      id: b.id,
       bookingNumber: b.booking_number,
       date: b.date,
       treatmentName: b.treatment_name_snapshot || '—',
@@ -6677,6 +6741,59 @@ export async function fetchCustomerProfile(customerId) {
     };
   } catch (error) {
     console.error('[API] fetchCustomerProfile error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Full patient page: the customer, every booking (with payments), consultations and treatment notes. The patient-level numbers
+// (balance, paid to date, visits, next/last, in-clinic) come from the same util as the Patients list.
+export async function getPatientRecord(customerId, { now = new Date() } = {}) {
+  try {
+    if (!customerId) return { data: null, error: { code: 'CUSTOMER_REQUIRED', message: 'Customer ID is required.' } };
+    const { data: customer, error: custError } = await supabase
+      .from('customers')
+      .select('id, branch_id, full_name, phone, email, gender, notes, date_of_birth, is_active, created_at')
+      .eq('id', customerId)
+      .single();
+    if (custError) {
+      if (custError.code === 'PGRST116') return { data: null, error: { code: 'CUSTOMER_NOT_FOUND', message: 'Patient not found.' } };
+      throw custError;
+    }
+    const [bookings, cons, notes] = await Promise.all([
+      // History follows the person across branches (merged customers keep one id).
+      pageAll(() => supabase.from('bookings')
+        .select('id, customer_id, booking_number, date, start_time, end_time, status, payment_status, final_amount, discount_amount, treatment_name_snapshot, dentist_name_snapshot, dentist_id, is_locked, payments(id, amount, payment_mode, created_at), payment_refunds(amount)')
+        .eq('customer_id', customerId)
+        .order('date', { ascending: false })
+        .order('id')),
+      fetchConsultationsForCustomer(customerId),
+      fetchTreatmentNotesForCustomer(customerId),
+    ]);
+    if (cons.error) throw cons.error;
+    const patient = buildPatientDirectory({ customers: [customer], bookings, now })[0];
+    return {
+      data: { customer, patient, bookings, consultations: cons.data || [], treatmentNotes: notes.data || [] },
+      error: null,
+    };
+  } catch (error) {
+    console.error('[API] getPatientRecord error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Inline edits on the patient page (date of birth, notes). Uses the signed-in user's session, so RLS decides who may write;
+// zero updated rows means "not allowed" rather than success.
+export async function updateCustomerFields(customerId, fields) {
+  try {
+    const patch = {};
+    if ('dateOfBirth' in fields) patch.date_of_birth = fields.dateOfBirth || null;
+    if ('notes' in fields) patch.notes = fields.notes?.trim() ? fields.notes.trim() : null;
+    const { data, error } = await supabase.from('customers').update(patch).eq('id', customerId).select('id, notes, date_of_birth');
+    if (error) throw error;
+    if (!data || data.length === 0) return { data: null, error: { code: 'NOT_ALLOWED', message: 'You don\'t have permission to edit this patient.' } };
+    return { data: data[0], error: null };
+  } catch (error) {
+    console.error('[API] updateCustomerFields error:', error.message);
     return { data: null, error };
   }
 }
@@ -6847,6 +6964,95 @@ export async function getCustomerIntelligence({ branchId }) {
     };
   } catch (error) {
     console.error('[API] getCustomerIntelligence error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Patients list: every customer of the branch with next/last appointment, balance etc. (derivation in utils/patientDirectory).
+// Both tables are paged with .range() so PostgREST's 1,000-row cap never truncates the list.
+const pageAll = async (buildQuery) => {
+  const PAGE = 1000;
+  const rows = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await buildQuery().range(from, from + PAGE - 1);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if (!data || data.length < PAGE) break;
+  }
+  return rows;
+};
+
+export async function getPatientsDirectory({ branchId, now = new Date() }) {
+  try {
+    if (!branchId) {
+      return { data: null, error: { code: 'BRANCH_REQUIRED', message: 'Branch ID is required.' } };
+    }
+    const [homeCustomers, bookings] = await Promise.all([
+      pageAll(() => withBranch(
+        supabase.from('customers').select('id, full_name, phone, email, gender, created_at').order('id'),
+        branchId
+      )),
+      pageAll(() => withBranch(
+        supabase.from('bookings')
+          .select('id, customer_id, status, payment_status, final_amount, date, start_time, treatment_name_snapshot, dentist_id, dentist_name_snapshot, is_locked, payments(amount), payment_refunds(amount)')
+          .not('customer_id', 'is', null)
+          .order('id'),
+        branchId
+      )),
+    ]);
+    // A patient belongs in this branch's list if they have bookings here, even when their customer row was created at another branch.
+    const known = new Set(homeCustomers.map((c) => c.id));
+    const missingIds = [...new Set(bookings.map((b) => b.customer_id))].filter((id) => !known.has(id));
+    const visitors = missingIds.length
+      ? await inChunks(missingIds, (ids) => supabase.from('customers').select('id, full_name, phone, email, gender, created_at').in('id', ids))
+      : [];
+    const customers = [...homeCustomers, ...visitors];
+    const dentists = new Map();
+    for (const b of bookings) if (b.dentist_id && b.dentist_name_snapshot && !dentists.has(b.dentist_id)) dentists.set(b.dentist_id, b.dentist_name_snapshot);
+    const patients = buildPatientDirectory({ customers, bookings, now });
+    return {
+      data: {
+        patients,
+        dentists: [...dentists].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
+      },
+      error: null,
+    };
+  } catch (error) {
+    console.error('[API] getPatientsDirectory error:', error.message);
+    return { data: null, error };
+  }
+}
+
+// Side-panel detail for one patient (loaded when the panel opens): today's in-progress booking, the next booking and the last 3 visits.
+export async function getPatientPanelDetail({ customerId, now = new Date() }) {
+  try {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select('id, booking_number, status, date, start_time, end_time, treatment_name_snapshot, dentist_name_snapshot, final_amount, payments(amount), payment_refunds(amount)')
+      .eq('customer_id', customerId)
+      .in('status', ['Pending', 'Confirmed', 'In-Progress', 'Completed'])
+      .order('date', { ascending: false })
+      .order('start_time', { ascending: false })
+      .limit(200);
+    if (error) throw error;
+    const today = localISO(now);
+    const hmNow = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const rows = (data || []).map((b) => ({
+      id: b.id, bookingNumber: b.booking_number, status: b.status, date: b.date,
+      start: (b.start_time || '').slice(0, 5), end: (b.end_time || '').slice(0, 5),
+      treatment: b.treatment_name_snapshot || '', dentist: b.dentist_name_snapshot || '',
+      money: classifyBooking(b, { today }),
+    }));
+    const now_ = rows.find((b) => b.status === 'In-Progress' && b.date === today) || null;
+    const upcoming = rows
+      .filter((b) => ['Pending', 'Confirmed'].includes(b.status) && (b.date > today || (b.date === today && b.start > hmNow)))
+      .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))[0] || null;
+    const recent = rows
+      .filter((b) => ['Completed', 'In-Progress'].includes(b.status) && b.date <= today)
+      .slice(0, 3);
+    return { data: { now: now_, upcoming, recent }, error: null };
+  } catch (error) {
+    console.error('[API] getPatientPanelDetail error:', error.message);
     return { data: null, error };
   }
 }
@@ -11701,3 +11907,414 @@ export async function fetchDentistTransferStatus(branchId) {
   }
 }
 
+// ============================================================
+// Doctor consultations (voice recording, AI summary, X-ray/photo analysis)
+// ============================================================
+
+const CONSULTATION_BUCKETS = { audio: 'consultation-audio', image: 'consultation-images' };
+
+const CONSULTATION_UPLOAD_TYPES = {
+  audio: ['audio/webm', 'audio/mp4', 'audio/ogg', 'audio/mpeg', 'audio/wav', 'audio/x-m4a'],
+  image: ['image/jpeg', 'image/png', 'image/webp'],
+};
+const CONSULTATION_MAX_BYTES = { audio: 50 * 1024 * 1024, image: 10 * 1024 * 1024 };
+
+/**
+ * Upload a recording or X-ray/photo to the private consultation buckets under
+ * "<org_id>/<booking_id>/<file>" (the storage RLS matches the first segment
+ * against the caller's org). Returns { path, error }.
+ */
+export async function uploadConsultationFile(bookingId, file, kind) {
+  try {
+    const { profile, error: authError } = await getAuthenticatedUser();
+    if (authError) return { path: null, error: authError };
+    if (!['staff', 'manager', 'admin'].includes(profile.role)) {
+      return { path: null, error: { code: 'FORBIDDEN', message: 'You do not have permission to upload consultation files.' } };
+    }
+
+    const baseType = (file.type || '').split(';')[0];
+    if (!CONSULTATION_UPLOAD_TYPES[kind]?.includes(baseType)) {
+      return { path: null, error: { code: 'INVALID_FILE_TYPE', message: kind === 'audio' ? 'Unsupported audio format.' : 'Please upload a JPEG, PNG or WebP image.' } };
+    }
+    if (file.size > CONSULTATION_MAX_BYTES[kind]) {
+      return { path: null, error: { code: 'FILE_TOO_LARGE', message: `File is too large (max ${CONSULTATION_MAX_BYTES[kind] / 1024 / 1024}MB).` } };
+    }
+
+    const ext = (baseType.split('/')[1] || 'bin').replace('x-m4a', 'm4a').replace('mpeg', 'mp3');
+    const path = `${profile.org_id}/${bookingId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const { error } = await supabase.storage
+      .from(CONSULTATION_BUCKETS[kind])
+      .upload(path, file, { contentType: baseType, cacheControl: '3600', upsert: false });
+    if (error) throw error;
+    return { path, error: null };
+  } catch (error) {
+    console.error('[API] uploadConsultationFile error:', error.message);
+    return { path: null, error };
+  }
+}
+
+/** Short-lived signed URL for playing a recording or previewing an image. */
+export async function getConsultationFileUrl(kind, path) {
+  const { data, error } = await supabase.storage
+    .from(CONSULTATION_BUCKETS[kind])
+    .createSignedUrl(path, 3600);
+  return { url: data?.signedUrl || null, error };
+}
+
+// Calls a consultation Edge Function and turns its JSON error body into a
+// readable message. A missing provider key comes back as code AI_KEY_MISSING.
+async function invokeConsultationFunction(name, body) {
+  const { data, error } = await supabase.functions.invoke(name, { body });
+  if (!error) return { data, error: null };
+
+  let payload = null;
+  try { payload = await error.context?.json?.(); } catch { /* not JSON */ }
+  const status = typeof error.context?.status === 'number' ? error.context.status : null;
+  // AI_KEY_MISSING comes back as a 503 with a JSON body; check the body first, so it isn't mistaken for "unavailable"
+  return { data: null, error: consultationAiError(status, payload) };
+}
+
+export async function transcribeConsultationAudio(audioPath) {
+  const { data, error } = await invokeConsultationFunction('consultation-transcribe', { audioPath });
+  return { text: data?.text ?? '', language: data?.language ?? null, error };
+}
+
+/** mode 'preliminary' (from transcript), 'final' (combines everything) or 'note' (structured six-section clinical note → `note`). */
+export async function summarizeConsultation(payload) {
+  const { data, error } = await invokeConsultationFunction('consultation-summarize', payload);
+  return { summary: data?.summary ?? '', note: data?.note ?? null, error };
+}
+
+/** kind: 'xray' | 'photo'; imagePaths from uploadConsultationFile. */
+export async function analyzeConsultationImages(kind, imagePaths) {
+  const { data, error } = await invokeConsultationFunction('consultation-analyze-image', { kind, imagePaths });
+  return { analysis: data?.analysis ?? '', error };
+}
+
+/** Most recent consultation for a booking (to resume a saved draft). */
+/** Every consultation recorded for a patient, newest first (for the patient chart). */
+export async function fetchConsultationsForCustomer(customerId) {
+  try {
+    const { data, error } = await supabase
+      .from('consultations')
+      .select('*')
+      .eq('customer_id', customerId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return { data: data || [], error: null };
+  } catch (error) {
+    console.error('[API] fetchConsultationsForCustomer error:', error.message);
+    return { data: [], error };
+  }
+}
+
+export async function fetchConsultationForBooking(bookingId) {
+  try {
+    const { data, error } = await supabase
+      .from('consultations')
+      .select('*')
+      .eq('booking_id', bookingId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return { data, error: null };
+  } catch (error) {
+    console.error('[API] fetchConsultationForBooking error:', error.message);
+    return { data: null, error };
+  }
+}
+
+/**
+ * Create or update the consultation for a booking. `fields` uses the DB column
+ * names. On the first completed save a short summary is also added to the
+ * booking's treatment notes (only the first time, not on re-saves) so it
+ * shows with the patient's other notes.
+ */
+export async function saveConsultation({ booking, consultationId, fields, status }) {
+  try {
+    const { user, profile, error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: null, error: authError };
+    if (!['staff', 'manager', 'admin'].includes(profile.role)) {
+      return { data: null, error: { code: 'FORBIDDEN', message: 'You do not have permission to save consultations.' } };
+    }
+
+    const row = { ...fields, status };
+    let saved;
+    if (consultationId) {
+      const { data, error } = await supabase
+        .from('consultations')
+        .update(row)
+        .eq('id', consultationId)
+        .select('*')
+        .single();
+      if (error) throw error;
+      saved = data;
+    } else {
+      const { data, error } = await supabase
+        .from('consultations')
+        .insert({
+          ...row,
+          org_id: profile.org_id,
+          branch_id: booking.branch_id,
+          booking_id: booking.id,
+          customer_id: booking.customer_id || null,
+          dentist_id: booking.dentist_id || null,
+          created_by: user.id,
+          patient_name: booking.customer_name,
+        })
+        .select('*')
+        .single();
+      if (error) throw error;
+      saved = data;
+    }
+
+    // The treatment-note summary follows the consultation: created on the first completion and UPDATED on every later save
+    // (e.g. after Edit note), so the chart never keeps a stale copy and never gets a duplicate.
+    let noteError = null;
+    if (status === 'completed') {
+      const noteText = (fields.final_summary || fields.preliminary_summary || fields.doctor_notes || '').trim();
+      if (noteText) {
+        const body = `Consultation ${fields.session_date || ''}\n\n${noteText}`.trim();
+        const { data: existing } = await supabase
+          .from('treatment_notes')
+          .select('id')
+          .eq('booking_id', booking.id)
+          .ilike('note', 'Consultation %')
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (existing) {
+          const { error: updateError } = await supabase.from('treatment_notes').update({ note: body }).eq('id', existing.id);
+          noteError = updateError;
+        } else {
+          const note = await createTreatmentNote({ bookingId: booking.id, customerId: booking.customer_id, dentistId: booking.dentist_id, note: body });
+          noteError = note.error;
+        }
+      }
+    }
+    capture('consultation_saved', { status, has_transcript: !!fields.transcript });
+    return { data: saved, error: null, noteError };
+  } catch (error) {
+    console.error('[API] saveConsultation error:', error.message);
+    return { data: null, error };
+  }
+}
+
+/**
+ * Get the booking's open consultation, creating an empty draft the first time.
+ * Two devices opening the same booking at once is safe: the unique open-draft
+ * index makes the second insert fail, and we simply read the winner's row.
+ */
+export async function getOrCreateConsultation(booking) {
+  const existing = await fetchConsultationForBooking(booking.id);
+  if (existing.error || existing.data) return existing;
+
+  const { user, profile, error: authError } = await getAuthenticatedUser();
+  if (authError) return { data: null, error: authError };
+  if (!['staff', 'manager', 'admin'].includes(profile.role)) {
+    return { data: null, error: { code: 'FORBIDDEN', message: 'You do not have permission to start a consultation.' } };
+  }
+
+  const { error } = await supabase.from('consultations').insert({
+    org_id: profile.org_id,
+    branch_id: booking.branch_id,
+    booking_id: booking.id,
+    customer_id: booking.customer_id || null,
+    dentist_id: booking.dentist_id || null,
+    created_by: user.id,
+    created_by_name: profile.full_name || null,
+    patient_name: booking.customer_name,
+    status: 'draft',
+  });
+  // 23505 = the other device created the draft first; just read it.
+  if (error && error.code !== '23505') {
+    console.error('[API] getOrCreateConsultation error:', error.message);
+    return { data: null, error };
+  }
+  return fetchConsultationForBooking(booking.id);
+}
+
+/** Push only the changed columns of a consultation (used by live sync). */
+export async function updateConsultationColumns(consultationId, columns) {
+  if (!columns || Object.keys(columns).length === 0) return { data: null, error: null };
+  const { data, error } = await supabase
+    .from('consultations')
+    .update(columns)
+    .eq('id', consultationId)
+    .select('*')
+    .single();
+  if (error) console.error('[API] updateConsultationColumns error:', error.message);
+  return { data, error };
+}
+
+/** Call onRow with each updated row of this consultation. Returns an unsubscribe fn. */
+export function subscribeToConsultation(consultationId, onRow) {
+  const channel = supabase
+    .channel(`consultation-${consultationId}`)
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'consultations', filter: `id=eq.${consultationId}` },
+      (payload) => onRow(payload.new),
+    )
+    .subscribe();
+  return () => { supabase.removeChannel(channel); };
+}
+
+/** Always start a fresh draft (used by Clear & New after a saved consultation). */
+export async function createConsultationDraft(booking) {
+  const { user, profile, error: authError } = await getAuthenticatedUser();
+  if (authError) return { data: null, error: authError };
+  if (!['staff', 'manager', 'admin'].includes(profile.role)) {
+    return { data: null, error: { code: 'FORBIDDEN', message: 'You do not have permission to start a consultation.' } };
+  }
+  const { data, error } = await supabase
+    .from('consultations')
+    .insert({
+      org_id: profile.org_id,
+      branch_id: booking.branch_id,
+      booking_id: booking.id,
+      customer_id: booking.customer_id || null,
+      dentist_id: booking.dentist_id || null,
+      created_by: user.id,
+      created_by_name: profile.full_name || null,
+      patient_name: booking.customer_name,
+      status: 'draft',
+    })
+    .select('*')
+    .single();
+  if (error) console.error('[API] createConsultationDraft error:', error.message);
+  return { data, error };
+}
+
+/**
+ * Bookings that are In-Progress right now for this user's branch (all branches
+ * for admins). The Doctor phone uses this to find the patient to record.
+ */
+export async function fetchInProgressBookings() {
+  try {
+    const { profile, error: authError } = await getAuthenticatedUser();
+    if (authError) return { data: [], error: authError };
+
+    let query = supabase
+      .from('bookings')
+      .select('id, booking_number, customer_name, treatment_name_snapshot, dentist_name_snapshot, start_time, date, branch_id')
+      .eq('status', 'In-Progress')
+      .order('start_datetime', { ascending: true })
+      .limit(20);
+    if (profile.branch_id && profile.role !== 'admin') query = query.eq('branch_id', profile.branch_id);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return { data: data || [], error: null };
+  } catch (error) {
+    console.error('[API] fetchInProgressBookings error:', error.message);
+    return { data: [], error };
+  }
+}
+
+/**
+ * Ask the server to send the user's phone(s) a "tap to record" notification.
+ * Also returns a one-time 6-digit code to show on the computer: the phone asks for
+ * it after the notification is tapped.
+ */
+export async function notifyDoctorPhone(bookingId) {
+  const { data, error } = await supabase.functions.invoke('consultation-push', { body: { bookingId } });
+  if (error) {
+    let payload = null;
+    try { payload = await error.context?.json?.(); } catch { /* not JSON */ }
+    return { sent: 0, shortCode: null, expiresAt: null, error: { code: payload?.error || 'PUSH_FAILED', message: payload?.message || error.message } };
+  }
+  return { sent: data?.sent ?? 0, shortCode: data?.shortCode ?? null, expiresAt: data?.expiresAt ?? null, error: null };
+}
+
+/** Phone (already signed in): check the code shown on the computer before opening a patient. Never signs anyone in. */
+export async function verifyPhoneCode(shortCode) {
+  const { error } = await supabase.functions.invoke('phone-pair', { body: { action: 'verify', shortCode } });
+  if (!error) return { ok: true, error: null };
+  let payload = null;
+  try { payload = await error.context?.json?.(); } catch { /* not JSON */ }
+  return { ok: false, error: { code: payload?.error, message: payload?.message || 'That code could not be checked.' } };
+}
+
+/**
+ * Computer: get a one-time code. purpose 'signin' (default): the long code for the QR link, the only thing that can sign a phone in.
+ * purpose 'verify': 6 digits to type on a phone that is already signed in as this user.
+ */
+export async function createPhonePairing({ purpose = 'signin' } = {}) {
+  const { data, error } = await supabase.functions.invoke('phone-pair', { body: { action: 'create', purpose } });
+  if (error) {
+    let payload = null;
+    try { payload = await error.context?.json?.(); } catch { /* not JSON */ }
+    return { code: null, shortCode: null, expiresAt: null, error: { code: payload?.error, message: payload?.message || 'Could not create a pairing code.' } };
+  }
+  return { code: data.code ?? null, shortCode: data.shortCode ?? null, expiresAt: data.expiresAt, error: null };
+}
+
+/** Phone: sign this phone in with the long pairing code from the QR link. (6-digit codes cannot sign in.) */
+export async function redeemPhonePairing({ code }) {
+  const { data, error } = await supabase.functions.invoke('phone-pair', { body: { action: 'redeem', code } });
+  if (error) {
+    let payload = null;
+    try { payload = await error.context?.json?.(); } catch { /* not JSON */ }
+    return { error: { message: payload?.message || 'This code could not be used.' } };
+  }
+  const { error: verifyError } = await supabase.auth.verifyOtp({ token_hash: data.tokenHash, type: 'magiclink' });
+  if (verifyError) return { error: { message: 'Could not sign this phone in. Show a new code on the computer.' } };
+  return { error: null };
+}
+
+/** Recent consultations (newest activity first) with the booking details, for the history list. */
+export async function fetchRecentConsultations(limit = 60, { mine = true, customerId = null } = {}) {
+  try {
+    // mine = only consultations this login recorded; mine: false = every doctor's (a colleague covering for someone on leave).
+    const { user, error: authError } = await getAuthenticatedUser();
+    if (authError) throw authError;
+
+    let query = supabase
+      .from('consultations')
+      .select(`
+        id, booking_id, customer_id, created_by, created_by_name, attended_by_names, patient_name, status, session_date, created_at, updated_at,
+        transcript, detected_language, recording_duration_seconds, audio_paths,
+        preliminary_summary, xray_analysis, xray_image_paths, photo_analysis, photo_image_paths,
+        additional_notes, doctor_notes, final_summary,
+        bookings(booking_number, status, treatment_name_snapshot, dentist_name_snapshot)
+      `)
+      .order('updated_at', { ascending: false })
+      .limit(limit);
+    if (mine) query = query.eq('created_by', user.id);
+    if (customerId) query = query.eq('customer_id', customerId);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return { data: data || [], error: null };
+  } catch (error) {
+    console.error('[API] fetchRecentConsultations error:', error.message);
+    return { data: [], error };
+  }
+}
+
+/**
+ * The patient's last visit before this one: their most recent Completed booking
+ * (any doctor), excluding the booking being looked at. null = first visit.
+ */
+export async function fetchLastVisit(customerId, excludeBookingId) {
+  if (!customerId) return { data: null, error: null };
+  try {
+    let query = supabase
+      .from('bookings')
+      .select('id, date, treatment_name_snapshot')
+      .eq('customer_id', customerId)
+      .eq('status', 'Completed')
+      .order('date', { ascending: false })
+      .order('start_time', { ascending: false })
+      .limit(1);
+    if (excludeBookingId) query = query.neq('id', excludeBookingId);
+    const { data, error } = await query.maybeSingle();
+    if (error) throw error;
+    return { data: data || null, error: null };
+  } catch (error) {
+    console.error('[API] fetchLastVisit error:', error.message);
+    return { data: null, error };
+  }
+}

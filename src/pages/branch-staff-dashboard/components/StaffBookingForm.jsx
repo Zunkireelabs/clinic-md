@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import CountryCodeSelect, { parsePhone } from '../../../components/ui/CountryCodeSelect';
@@ -9,6 +10,8 @@ import { useBranch } from '../../../contexts/BranchContext';
 import BlockOverlapWarning from '../../../components/ui/BlockOverlapWarning';
 import { useBlockOverlap } from '../../../hooks/useBlockOverlap';
 import { CUSTOMER_REFERRALS_ENABLED } from '../../../lib/featureFlags';
+
+const toTitleGender = (g) => String(g).charAt(0).toUpperCase() + String(g).slice(1).toLowerCase();
 
 const StaffBookingForm = ({ onBookingCreated }) => {
   const { branchId } = useBranch();
@@ -162,10 +165,21 @@ const StaffBookingForm = ({ onBookingCreated }) => {
     setReferringCustomerPhone('');
     setReferringCustomerCountryCode('+977');
     setReferringCustomerName('');
-    setReferringRewardType('wallet');
     setReferringRewardAmount('');
-    setReferringRewardCatalogId('');
   }, []);
+
+  // "Book" / "New booking" from the Patients list passes the patient via router state so the customer step is already filled.
+  const prefill = useLocation().state?.prefill;
+  const prefilled = useRef(false);
+  useEffect(() => {
+    if (!prefill || prefilled.current) return;
+    prefilled.current = true;
+    handleCustomerSelect({ full_name: prefill.fullName, phone: prefill.phone, email: prefill.email, gender: prefill.gender ? toTitleGender(prefill.gender) : '' });
+    const e164 = toE164(prefill.phone);
+    if (e164 && e164.length >= 11 && branchId) {
+      getCustomerOutstandingBalance({ customerPhone: e164, branchId }).then(({ data }) => setPreviousDue(data && data.totalDue > 0 ? data : null));
+    }
+  }, [prefill, handleCustomerSelect, branchId]);
 
   const handleReferringPhoneChange = useCallback((v) => {
     setReferringCustomerPhone(v.replace(/\D/g, '').slice(0, 15));

@@ -6,6 +6,12 @@ import PaymentModal from '../../../../components/ui/PaymentModal';
 import { PERIOD_PRESETS, getPeriodRange, getTodayISO } from '../../../../utils/periodPresets';
 import { getOutstandingByStaff, fetchDueHolderNames, setDueHolder, recordPayment, getCustomerOutstandingBalance } from '../../../../services/api';
 import SettledDueHistoryPanel from './SettledDueHistoryPanel';
+import NeedsClosingSection from './NeedsClosingSection';
+import MoneyNoticeSpotlight from '../../../../components/ui/MoneyNoticeSpotlight';
+import { useSpotlight } from '../../../../components/ui/Spotlight';
+import { roundMoney } from '../../../../utils/bookingMoney';
+import { canSeeMoneyNotice } from '../../../../utils/spotlightPriority';
+import { useAuth } from '../../../../contexts/AuthContext';
 
 function formatNPR(amount) {
   return `NPR ${Number(amount || 0).toLocaleString('en-IN')}`;
@@ -22,6 +28,10 @@ function formatDateOnly(d) {
 const UNASSIGNED_LABEL = 'Unassigned';
 
 const OutstandingReportPanel = ({ branchId }) => {
+  const { profile } = useAuth();
+  const moneyNotice = useSpotlight('money-model-v1');
+  const canWrite = profile?.role !== 'admin_viewer'; // admin_viewer can look, not pay or assign
+  const [payFailure, setPayFailure] = useState(null);
   const [view, setView] = useState('outstanding'); // 'outstanding' | 'settled'
   const today = getTodayISO();
   const [groups, setGroups] = useState([]);
@@ -146,7 +156,7 @@ const OutstandingReportPanel = ({ branchId }) => {
   }, [rows, searchQuery, personFilter, sortKey, sortDir]);
 
   const totalOutstanding = useMemo(
-    () => filtered.reduce((s, r) => s + Number(r.amountDue || 0), 0),
+    () => roundMoney(filtered.reduce((s, r) => s + Math.round(Number(r.amountDue || 0) * 100), 0) / 100), // summed in paisa: no float drift
     [filtered]
   );
   const totalBookings = filtered.length;
@@ -212,9 +222,13 @@ const OutstandingReportPanel = ({ branchId }) => {
       setPaymentSubmitting(false);
       return { error: result.error };
     }
+    // Every bundled booking is its own payment: check each one so a failure is never swallowed.
+    const failures = [];
     for (const alloc of (additionalAllocations || [])) {
-      await recordPayment({ bookingId: alloc.bookingId, tenders: alloc.tenders, notes });
+      const res = await recordPayment({ bookingId: alloc.bookingId, tenders: alloc.tenders, notes });
+      if (res.error) failures.push(`${otherDueBookings.find((o) => o.bookingId === alloc.bookingId)?.bookingNumber || alloc.bookingId}${res.error.message ? ` (${res.error.message})` : ''}`);
     }
+    setPayFailure(failures.length ? `Payment recorded for ${payingRow.bookingNumber}, but NOT recorded for: ${failures.join('; ')}. Those bookings still show as owed.` : null);
     setPaymentSubmitting(false);
     setPayingRow(null);
     setOtherDueBookings([]);
@@ -264,6 +278,12 @@ const OutstandingReportPanel = ({ branchId }) => {
 
   return (
     <div className="space-y-4">
+      {canSeeMoneyNotice(profile?.role) && moneyNotice.visible && (
+        <MoneyNoticeSpotlight
+          onSee={() => document.getElementById('needs-closing')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          onDismiss={moneyNotice.dismiss}
+        />
+      )}
       {/* Tabs */}
       <div className="border-b border-border">
         <nav className="flex gap-6">
@@ -290,6 +310,7 @@ const OutstandingReportPanel = ({ branchId }) => {
         <SettledDueHistoryPanel branchId={branchId} />
       ) : (
       <>
+      {payFailure && <div role="alert" className="p-3 bg-error/5 border border-error/20 rounded-spa text-sm text-error">{payFailure}</div>}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -459,13 +480,13 @@ const OutstandingReportPanel = ({ branchId }) => {
                               <Icon name="HelpCircle" size={15} />
                               {UNASSIGNED_LABEL}
                             </span>
-                            <button
+                            {canWrite && <button
                               onClick={() => startAssign(r.bookingId, '')}
                               className="inline-flex items-center gap-1 px-2 py-1 rounded-spa border border-border bg-surface text-xs font-body-medium text-primary hover:bg-background spa-transition-fast"
                             >
                               <Icon name="UserPlus" size={13} />
                               Assign
-                            </button>
+                            </button>}
                           </div>
                         )
                       ) : (
@@ -476,6 +497,9 @@ const OutstandingReportPanel = ({ branchId }) => {
                       {formatNPR(r.amountDue)}
                     </td>
                     <td className="px-4 py-3 text-right">
+                      {canWrite && (r.isLocked ? (
+                        <span title="This booking is on a closed day and can't be paid from here" className="text-xs text-text-tertiary">Closed day</span>
+                      ) : (
                       <button
                         onClick={() => openPay(r)}
                         className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-spa bg-success text-white text-xs font-body-medium hover:bg-success/90 spa-transition-fast"
@@ -483,6 +507,7 @@ const OutstandingReportPanel = ({ branchId }) => {
                         <Icon name="CreditCard" size={13} />
                         Pay
                       </button>
+                      ))}
                     </td>
                   </tr>
                 ))}
@@ -501,6 +526,7 @@ const OutstandingReportPanel = ({ branchId }) => {
           </div>
         )}
       </div>
+      <NeedsClosingSection branchId={branchId} from={range.from} to={range.to} />
       </>
       )}
 

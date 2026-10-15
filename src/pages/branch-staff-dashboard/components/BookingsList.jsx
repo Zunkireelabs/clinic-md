@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import BookingActionModal from '../../../components/ui/BookingActionModal';
 import StatusLegend from '../../../components/ui/StatusLegend';
 import { fetchBookingById } from '../../../services/api';
 import { transformBooking } from '../../../services/bookingTransformers';
+import { CONSULTATION_ENABLED } from '../../../lib/featureFlags';
 
 const DATE_RANGE_LABELS = {
   today: "Today's Appointments",
@@ -30,6 +32,8 @@ const STATUS_STYLES = {
 };
 
 const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist, onRecordPayment, onApplyDiscount, userRole = 'staff', onRefresh, dateRange = 'today' }) => {
+  const navigate = useNavigate();
+  const { orgSlug } = useParams();
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [showActionModal, setShowActionModal] = useState(false);
 
@@ -107,14 +111,28 @@ const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist
           </Button>
         )}
         {booking.status === 'in-progress' && (
-          <Button
-            variant="outline"
-            size={buttonSize}
-            className={buttonClass}
-            onClick={() => handleQuickStatusUpdate(booking, 'completed')}
-          >
-            Complete
-          </Button>
+          <>
+            {CONSULTATION_ENABLED && userRole !== 'admin_viewer' && orgSlug && (
+              <Button
+                variant="default"
+                size={buttonSize}
+                iconName="Mic"
+                iconPosition="left"
+                className={buttonClass}
+                onClick={() => navigate(`/${orgSlug}/bookings/${booking.bookingId}/consultation`)}
+              >
+                Start Consultation
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size={buttonSize}
+              className={buttonClass}
+              onClick={() => handleQuickStatusUpdate(booking, 'completed')}
+            >
+              Complete
+            </Button>
+          </>
         )}
       </>
     );

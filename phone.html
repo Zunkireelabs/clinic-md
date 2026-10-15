@@ -1,0 +1,28 @@
+<!doctype html>
+<!--
+  Entry page for the Doctor phone (/phone, /phone/pair, /:orgSlug/phone). Same app
+  as index.html, but the Home Screen settings must be in the HTML the phone
+  first receives: iPhone reads the manifest, name and icon when the page loads,
+  not after the app starts. So these addresses are served this file instead.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Doctor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0F6E8C" />
+    <meta name="description" content="ClinicMD Doctor phone: record consultations and take X-ray and clinical photos." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Doctor" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="icon" href="/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/phone-manifest.json" />
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+    <script type="module" src="/src/index.jsx"></script>
+  </body>
+</html>
