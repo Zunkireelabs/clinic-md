@@ -46,7 +46,11 @@ import {
   updateBookingStatus,
 } from '../../services/api';
 import { generateConsultationPdf, exportConsultationJson } from '../../utils/consultationReport';
-import { EMPTY_FORM, formFromRow, columnsForChanges, allColumns, mergeRemote, changedKeys } from '../../utils/consultationSync';
+import { EMPTY_FORM, formFromRow, columnsForChanges, allColumns, mergeRemote, changedKeys, mergeAfterSave } from '../../utils/consultationSync';
+import {
+  newQueueItem, enqueue, update as updateQueue, hasUnuploaded, failedItems, hasUploadFailure, isBusy as queueBusy,
+  seedTranscribed, untranscribedPaths, readTranscribed, writeTranscribed,
+} from '../../utils/recordingQueue';
 
 const todayIso = () => new Date().toLocaleDateString('en-CA');
 
@@ -120,7 +124,18 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   const [sessionDate, setSessionDate] = useState(todayIso());
   const [phase, setPhase] = useState('active'); // 'active' | 'review'
   const [processing, setProcessing] = useState(null); // 'transcribing' | 'summarizing' | 'final'
-  const [failedRecording, setFailedRecording] = useState(null);
+  const [failedRecording, setFailedRecording] = useState(null); // phone view only; the desktop uses `queue`
+  const [queue, setQueue] = useState([]); // desktop: recordings not yet safely uploaded AND transcribed
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
+  const [transcribed, setTranscribed] = useState([]); // audio paths already transcribed (per path, persisted per consultation)
+  const transcribedRef = useRef(transcribed);
+  transcribedRef.current = transcribed;
+  const savingRef = useRef(false);
+  const [autoStopMsg, setAutoStopMsg] = useState(null);
+  const stageRef = useRef('ready'); // the current stage, readable from async callbacks
+  const [syncRetry, setSyncRetry] = useState(0);
+  const syncFailsRef = useRef(0);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
   const lastVisit = useLastVisit(booking?.customer_id, booking?.id);
@@ -134,7 +149,11 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   const [savedAt, setSavedAt] = useState(null); // when the note was last saved to the chart (this session, or the row's updated_at)
   const [lastSyncAt, setLastSyncAt] = useState(null);
 
-  const recorder = useAudioRecorder();
+  const acceptRecordingRef = useRef(null);
+  const recorder = useAudioRecorder({
+    onSegment: (r) => acceptRecordingRef.current?.(r), // a long recording hit the size cap and was split: each part is its own queued recording
+    onAutoStop: (r) => acceptRecordingRef.current?.(r, { auto: true }), // microphone unplugged / call interruption: keep what was captured
+  });
   const formRef = useRef(form);
   formRef.current = form;
   // The form as of the last time it matched the database row. Anything that
@@ -184,6 +203,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     setAttendedBy(row.attended_by_names || []);
     setLastSavedJson(row.status === 'completed' ? JSON.stringify(allColumns(next)) : null);
     setSavedAt(row.status === 'completed' && row.updated_at ? new Date(row.updated_at) : null);
+    setTranscribed(readTranscribed(row.id) ?? seedTranscribed(next.audioPaths, next.transcript));
   }, []);
 
   // Load the booking and open (or create) its consultation draft. Phone and
@@ -259,6 +279,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       if ((row.xray_image_paths || []).length > before.xrayPaths.length) setReceived('X-ray photo received from the phone');
       else if ((row.photo_image_paths || []).length > before.photoPaths.length) setReceived('Clinical photo received from the phone');
       else if ((row.audio_paths || []).length > before.audioPaths.length) setReceived('Recording received from the phone');
+      // Recordings that arrive from the other device are transcribed by that device: don't transcribe them again here.
+      const arrived = (row.audio_paths || []).filter((p) => !before.audioPaths.includes(p) && !queueRef.current.some((q) => q.audioPath === p));
+      if (arrived.length) { const next = [...transcribedRef.current, ...arrived]; setTranscribed(next); writeTranscribed(row.id, next); }
     });
   }, [consultationId]);
 
@@ -286,8 +309,13 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       const { error: pushError } = await updateConsultationColumns(consultationId, columns);
       if (pushError) {
         setSyncState('error');
+        // "Not saved — will retry" is a real retry: back off 2s, 4s, 8s … up to 30s, then run this effect again.
+        syncFailsRef.current += 1;
+        const wait = Math.min(30000, 1000 * 2 ** syncFailsRef.current);
+        setTimeout(() => setSyncRetry((n) => n + 1), wait);
         return;
       }
+      syncFailsRef.current = 0;
       const next = { ...syncedRef.current };
       keys.forEach((k) => { next[k] = pushed[k]; });
       syncedRef.current = next;
@@ -295,7 +323,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       setSyncState(changedKeys(formRef.current, next).length === 0 ? 'synced' : 'saving');
     }, 600);
     return () => clearTimeout(t);
-  }, [form, loaded, consultationId]);
+  }, [form, loaded, consultationId, syncRetry]);
 
   // Back returns to wherever the doctor came from (dashboard, booking list or
   // booking page). Only when the page was opened directly (e.g. from the phone
@@ -384,25 +412,22 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     if (recorder.isRecording) setPendingRemoteStart(false);
   }, [recorder.isRecording]);
 
+  // The phone's "final summary" uses the same structured pipeline as the desktop (mode 'note'): one note format everywhere.
+  // Private notes (additional_notes) are never sent.
   const generateFinal = async () => {
     setError(null);
     setProcessing('final');
     const f = formRef.current;
-    const { summary, error: aiError } = await summarizeConsultation({
-      mode: 'final',
-      transcript: f.transcript,
-      preliminarySummary: f.preliminarySummary,
-      xrayAnalysis: f.xrayAnalysis,
-      photoAnalysis: f.photoAnalysis,
-      additionalNotes: f.additionalNotes,
-      doctorNotes: f.doctorNotes,
+    const { note: aiNote, error: aiError } = await summarizeConsultation({
+      mode: 'note', transcript: f.transcript, xrayAnalysis: f.xrayAnalysis, photoAnalysis: f.photoAnalysis,
     });
     setProcessing(null);
-    if (aiError) {
-      setError(aiError.message);
+    const drafted = aiNote ? normalizeNote(aiNote) : null;
+    if (aiError || !drafted || isNoteEmpty(drafted)) {
+      setError(aiError?.message || "The AI didn't return a note. Try again, or write it yourself.");
       return;
     }
-    patchForm({ finalSummary: summary });
+    patchForm({ finalSummary: noteToMarkdown(drafted) });
   };
 
   const reportData = {
@@ -424,6 +449,8 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   };
 
   const handleSave = async () => {
+    const sentForm = formRef.current; // what is being saved; anything typed after this is kept (see mergeAfterSave)
+    savingRef.current = true;
     setSaving(true);
     setError(null);
     setNotice(null);
@@ -432,16 +459,17 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       consultationId,
       fields: { ...allColumns(form), session_date: sessionDate },
       status: 'completed',
-      previousStatus: dbStatus,
     });
+    savingRef.current = false;
     setSaving(false);
     if (saveError) {
       setError(`Could not save the consultation: ${saveError.message}`);
       return false;
     }
-    syncedRef.current = formFromRow(data);
-    setForm(formFromRow(data));
-    setLastSavedJson(JSON.stringify(allColumns(formFromRow(data))));
+    const savedForm = formFromRow(data);
+    syncedRef.current = savedForm;
+    setForm(mergeAfterSave(sentForm, formRef.current, savedForm)); // never wipe edits typed while the request was in flight
+    setLastSavedJson(JSON.stringify(allColumns(savedForm)));
     setConsultationId(data.id);
     setDbStatus(data.status);
     setAttendedBy(data.attended_by_names || []);
@@ -503,6 +531,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   };
 
   // Draft the six-section note from the transcript + X-ray/photo analyses (+ the previous plan as context). Private notes are never sent.
+  // A draft that arrives after the note was saved (or while Save is in flight) is DISCARDED: it must never overwrite a saved note.
   const runDraft = useCallback(async () => {
     dispatchFlow({ type: 'DRAFT_START' });
     const f = formRef.current;
@@ -514,6 +543,11 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       dispatchFlow({ type: 'FAILED', at: 'drafting', error: aiError || { code: 'AI_FAILED', message: "The AI didn't return a note. Your recording is saved; try again." } });
       return false;
     }
+    if (savingRef.current || stageRef.current === 'saved') {
+      dispatchFlow({ type: 'DRAFT_DISCARDED' });
+      setToast({ msg: 'A new AI draft arrived after you saved, so it was not applied. Press Edit note, then Redraft, to use it.' });
+      return false;
+    }
     const md = noteToMarkdown(drafted);
     draftMdRef.current = md;
     setNote(drafted);
@@ -522,53 +556,86 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     return true;
   }, [lastPlan, patchForm]);
 
-  // Upload → transcribe → draft. The recording is kept even if a later step fails; `failedRecording` lets "try again" resume without re-recording.
-  const processRecordingDesk = useCallback(async ({ blob, mimeType, durationSeconds, audioPath: existingPath }) => {
+  const markTranscribed = useCallback((path) => {
+    const next = [...new Set([...transcribedRef.current, path])];
+    setTranscribed(next);
+    transcribedRef.current = next;
+    if (consultationId) writeTranscribed(consultationId, next);
+  }, [consultationId]);
+
+  // Recordings go through a QUEUE, one at a time and in order: upload → transcribe. Each stays queued until it is both uploaded and
+  // transcribed, so a failure never overwrites another failure and nothing is lost. When the queue drains, the note is drafted
+  // (or, if a draft already exists, "Update the draft" is offered by the staleness check).
+  const chainRef = useRef(Promise.resolve());
+  const runQueueItem = useCallback(async (itemId) => {
+    const item = queueRef.current.find((q) => q.id === itemId);
+    if (!item) return;
     setError(null);
-    const hadNote = !isNoteEmpty(noteRef.current);
-    let audioPath = existingPath;
+    const patchItem = (patch) => { queueRef.current = updateQueue(queueRef.current, itemId, patch); setQueue(queueRef.current); };
+    let audioPath = item.audioPath;
     if (!audioPath) {
       dispatchFlow({ type: 'UPLOAD_START' });
-      const { path, error: upError } = await uploadConsultationFile(bookingId, blob, 'audio');
+      patchItem({ status: 'uploading', error: null });
+      const { path, error: upError } = await uploadConsultationFile(bookingId, item.blob, 'audio');
       if (upError) {
-        setFailedRecording({ blob, mimeType, durationSeconds });
-        dispatchFlow({ type: 'UPLOAD_FAILED', error: { code: 'UPLOAD_FAILED', message: `Could not save the recording: ${upError.message}` } });
+        patchItem({ status: 'failed-upload', error: upError.message });
+        dispatchFlow({ type: 'UPLOAD_FAILED', error: { code: 'UPLOAD_FAILED', message: `Recording not uploaded yet: ${upError.message}` } });
         return;
       }
       audioPath = path;
-      setForm((f) => ({ ...f, audioPaths: [...f.audioPaths, path], durationSeconds: f.durationSeconds + durationSeconds }));
-      dispatchFlow({ type: 'UPLOADED', seconds: durationSeconds });
+      patchItem({ audioPath: path, status: 'transcribing' });
+      setForm((f) => ({ ...f, audioPaths: f.audioPaths.includes(path) ? f.audioPaths : [...f.audioPaths, path], durationSeconds: f.durationSeconds + (item.durationSeconds || 0) }));
+      dispatchFlow({ type: 'UPLOADED', seconds: item.durationSeconds });
     } else {
+      patchItem({ status: 'transcribing', error: null });
       dispatchFlow({ type: 'TRANSCRIBE_START' });
-      dispatchFlow({ type: 'UPLOADED', seconds: durationSeconds ?? formRef.current.durationSeconds });
+      dispatchFlow({ type: 'UPLOADED', seconds: item.durationSeconds ?? formRef.current.durationSeconds });
     }
     const { text, language, error: tError } = await transcribeConsultationAudio(audioPath);
     if (tError) {
-      setFailedRecording({ blob, mimeType, durationSeconds, audioPath });
+      patchItem({ status: 'failed-transcribe', error: tError.message });
       dispatchFlow({ type: 'FAILED', at: 'transcribing', error: tError });
       return;
     }
-    setFailedRecording(null);
+    markTranscribed(audioPath);
     dispatchFlow({ type: 'TRANSCRIBED', language });
     const transcript = [formRef.current.transcript, text].filter(Boolean).join('\n\n');
-    patchForm({ transcript, language: language || formRef.current.language });
-    if (hadNote) { dispatchFlow({ type: 'TRANSCRIPT_ONLY', language }); return; }
     formRef.current = { ...formRef.current, transcript, language: language || formRef.current.language };
+    patchForm({ transcript, language: language || formRef.current.language });
+    queueRef.current = queueRef.current.filter((q) => q.id !== itemId); // done: uploaded AND transcribed
+    setQueue(queueRef.current);
+    if (queueBusy(queueRef.current)) return; // more recordings are still queued behind this one
+    if (!isNoteEmpty(noteRef.current)) { dispatchFlow({ type: 'TRANSCRIPT_ONLY', language }); return; }
     await runDraft();
-  }, [bookingId, patchForm, runDraft]);
+  }, [bookingId, patchForm, runDraft, markTranscribed]);
+
+  const submitToQueue = useCallback((item) => {
+    queueRef.current = enqueue(queueRef.current, item);
+    setQueue(queueRef.current);
+    chainRef.current = chainRef.current.then(() => runQueueItem(item.id)).catch(() => {});
+  }, [runQueueItem]);
+
+  // A finished recording (stopped, a size-cap segment, or an auto-stop): into the queue.
+  acceptRecordingRef.current = (result, { auto = false } = {}) => {
+    if (!result?.blob || result.blob.size === 0) return;
+    if (auto) setAutoStopMsg('The recording stopped by itself (microphone unplugged or interrupted). What was captured has been kept and is being saved.');
+    submitToQueue(newQueueItem(result));
+  };
 
   const handleStopDesk = async () => {
     const result = await recorder.stop();
-    if (result) processRecordingDesk(result);
+    if (result) acceptRecordingRef.current(result);
   };
 
-  // "Try drafting again" / "Draft the note now": resume from whichever step is missing.
+  // "Try again": retry EVERY failed recording (including ones left from before a reload: any uploaded path never transcribed), else redraft.
   const retryDraft = useCallback(async () => {
-    if (failedRecording) { await processRecordingDesk(failedRecording); return; }
-    const f = formRef.current;
-    if (!f.transcript.trim() && f.audioPaths.length) { await processRecordingDesk({ audioPath: f.audioPaths[f.audioPaths.length - 1] }); return; }
-    await runDraft();
-  }, [failedRecording, processRecordingDesk, runDraft]);
+    const failed = failedItems(queueRef.current);
+    const orphans = untranscribedPaths(formRef.current.audioPaths, transcribedRef.current)
+      .filter((pth) => !queueRef.current.some((q) => q.audioPath === pth));
+    if (failed.length === 0 && orphans.length === 0) { await runDraft(); return; }
+    orphans.forEach((pth) => submitToQueue(newQueueItem({ blob: null, mimeType: 'audio/webm', durationSeconds: null, audioPath: pth })));
+    failed.forEach((q) => { chainRef.current = chainRef.current.then(() => runQueueItem(q.id)).catch(() => {}); });
+  }, [runDraft, runQueueItem, submitToQueue]);
 
   const redraft = () => {
     const edited = draftMdRef.current && noteToMarkdown(noteRef.current) !== draftMdRef.current;
@@ -612,6 +679,16 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     if (ok) { setSavedAt(new Date()); dispatchFlow({ type: 'SAVED' }); }
   };
 
+  // Edit note: the row goes back to 'draft' so edits are drafts until Save (an abandoned edit never silently changes a saved note's status).
+  const editSavedNote = async () => {
+    if (consultationId) {
+      const { error: draftError } = await updateConsultationColumns(consultationId, { status: 'draft' });
+      if (draftError) { setError('Could not reopen the note for editing. Try again.'); return; }
+      setDbStatus('draft');
+    }
+    dispatchFlow({ type: 'EDIT_NOTE' });
+  };
+
   const completeVisit = async () => {
     setCompleting(true);
     const { error: stError } = await updateBookingStatus({ bookingId, newStatus: 'Completed' });
@@ -623,8 +700,10 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   };
 
   const stage = deriveStage(flow, { recording: recorder.isRecording || (!!remote && remote.state !== 'idle' && remote.state !== 'processing'), hasNote, saved: dbStatus === 'completed' });
+  stageRef.current = stage;
   const bookingInProgress = booking?.status === 'In-Progress';
-  useLeaveGuard(!phoneView && (recorder.isRecording || flow.step === 'uploading'), 'A recording is in progress. If you leave now, it will be lost. Stop and save it first.');
+  // Leaving would lose audio while recording, or while any recording has not been uploaded yet.
+  useLeaveGuard(!phoneView && (recorder.isRecording || hasUnuploaded(queue)), 'A recording has not been saved yet. If you leave now, it will be lost. Stop and let it upload first.');
   useEffect(() => { if (!toast) return undefined; const t = setTimeout(() => setToast(null), 8000); return () => clearTimeout(t); }, [toast]);
 
   const userName = profile?.full_name || 'you';
@@ -834,9 +913,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
                   <TextArea value={form.doctorNotes} onChange={(v) => patchForm({ doctorNotes: v })} rows={6}
                             placeholder="Assessment, diagnosis and treatment plan." />
                 </Card>
-                <Card title="Additional Notes" icon="StickyNote">
+                <Card title="Private notes (staff only)" icon="StickyNote">
                   <TextArea value={form.additionalNotes} onChange={(v) => patchForm({ additionalNotes: v })} rows={4}
-                            placeholder="Anything else to record." />
+                            placeholder="Staff only. Not part of the clinical note or the AI draft." />
                 </Card>
                 <Card
                   title="Final Summary"
@@ -936,7 +1015,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     ? `Drafted ${hhmm(flow.draftedAt)} from ${src.recordings} recording${src.recordings === 1 ? '' : 's'}${src.language ? ` (${src.language}, auto-detected)` : ''}${src.xrays ? `, ${src.xrays} X-ray${src.xrays === 1 ? '' : 's'}` : ''}${src.photos ? ` and ${src.photos} photo${src.photos === 1 ? '' : 's'}` : ''}`
     : null;
   const findingsTags = [form.xrayAnalysis.trim() && form.xrayPaths.length && `${form.xrayPaths.length} X-ray${form.xrayPaths.length === 1 ? '' : 's'}`, form.photoAnalysis.trim() && form.photoPaths.length && `${form.photoPaths.length} photo${form.photoPaths.length === 1 ? '' : 's'}`].filter(Boolean);
-  const recorderError = recorder.error || (flow.aiError && flow.failedAt === 'uploading' ? flow.aiError.message : null);
+  const recorderError = recorder.error;
+  // Uploaded recordings that were never transcribed (a failed transcription, then a reload): offered for retry, per path.
+  const orphanCount = untranscribedPaths(form.audioPaths, transcribed).filter((pth) => !queue.some((q) => q.audioPath === pth)).length;
   const showDraftNow = stage === 'ready' && (form.audioPaths.length > 0 || form.transcript.trim());
   const pdf = () => generateConsultationPdf({ ...reportData, additionalNotes: undefined }, profile?.organizations?.name);
 
@@ -979,8 +1060,8 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
           <DeskHeader
             patientName={booking.customer_name} inClinic={inClinic} meta={metaLine} onBack={goBack}
             syncText={syncText} syncKind={syncState} onContinuePhone={() => setShowPhone(true)}
-            stage={stage} canSave={hasNote && !busy} saving={saving} onSave={saveToChart}
-            onEdit={() => dispatchFlow({ type: 'EDIT_NOTE' })} canComplete={bookingInProgress} completing={completing} onComplete={completeVisit}
+            stage={stage} canSave={hasNote && !busy && flow.step === 'idle' && !queueBusy(queue) && !hasUnuploaded(queue)} saving={saving} onSave={saveToChart}
+            onEdit={editSavedNote} canComplete={bookingInProgress} completing={completing} onComplete={completeVisit}
             readOnly={readOnlyRole}
             menuItems={[{ label: 'Download PDF report', onClick: pdf, disabled: !canReport }]}
           />
@@ -1005,6 +1086,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
               <div className="flex-1 text-text-secondary">{error}</div>
               <button onClick={() => setError(null)} aria-label="Dismiss"><Icon name="X" size={14} className="text-text-tertiary" /></button>
             </div>
+          )}
+          {autoStopMsg && (
+            <div role="alert" className="mt-4 p-3 bg-[#FFFAF0] border border-[#F5D9A8] rounded-lg text-[13px] flex items-center gap-2"><Icon name="AlertTriangle" size={15} className="text-[#B45309] shrink-0" /><span className="flex-1">{autoStopMsg}</span><button type="button" onClick={() => setAutoStopMsg(null)} aria-label="Dismiss"><Icon name="X" size={14} className="text-[#8A8A90]" /></button></div>
           )}
           {received && <div className="mt-4 p-3 bg-[#F1FBF6] border border-[#BFE6D3] rounded-lg text-[13px] flex items-center gap-2"><Icon name="Download" size={15} className="text-[#1F9D6C]" />{received}</div>}
 
@@ -1035,10 +1119,17 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
               {recorder.isRecording && (
                 <p className="text-[12.5px] text-[#8A8A90] -mt-2 flex items-center gap-1.5"><Icon name="Lock" size={12} />Keep this page open while recording. If you try to leave, you’ll be asked to stop first so nothing is lost.</p>
               )}
+              {(flow.aiError || (orphanCount > 0 && flow.step === 'idle' && !queueBusy(queue))) && stage !== 'noai' && stage !== 'drafting' && !(stage === 'ready' && !flow.aiError) && (
+                <div role="alert" className="rounded-lg border border-[#F5D9A8] bg-[#FFFAF0] px-4 py-2.5 text-[13px] flex items-center gap-2 flex-wrap">
+                  <Icon name="AlertTriangle" size={15} className="text-[#B45309]" />
+                  <span className="text-[#7A4A06]">{hasUploadFailure(queue) ? 'Recording not uploaded yet.' : flow.aiError ? (flow.aiError.message || 'The AI step failed.') : `${orphanCount} recording${orphanCount === 1 ? '' : 's'} not transcribed yet.`}</span>
+                  <button type="button" onClick={retryDraft} disabled={flow.step !== 'idle'} className="underline font-medium text-[#7A4A06] disabled:opacity-60">{hasUploadFailure(queue) ? 'Retry' : flow.aiError ? 'Try again' : 'Transcribe'}</button>
+                </div>
+              )}
               <NoteCard
                 stage={stage} note={note} onNoteChange={editNote} view={noteView} onView={setNoteView}
                 transcript={form.transcript} onTranscript={(v) => patchForm({ transcript: v })} hasTranscript={!!form.transcript.trim()}
-                badge={badge} drafting={drafting} noAiBanner={noAiBanner} onTryAgain={retryDraft} tryAgainBusy={flow.step !== 'idle'}
+                badge={badge} drafting={drafting} noAiBanner={noAiBanner} noAiKind={hasUploadFailure(queue) ? 'upload' : 'ai'} onTryAgain={retryDraft} tryAgainBusy={flow.step !== 'idle'}
                 readOnly={stage === 'saved' || readOnlyRole} findingsTags={findingsTags} footer={footer} onRedraft={flow.aiDrafted && stage === 'review' && !readOnlyRole ? redraft : null}
                 updateDraftOffer={stage === 'review' && hasNote && draftIsStale(flow, draftInputsKey(form), { readOnly: readOnlyRole })} onUpdateDraft={redraft}
                 onWriteMyself={() => dispatchFlow({ type: 'WRITE_MYSELF' })} earlierDoctorNotes={form.doctorNotes.trim() ? form.doctorNotes : ''}

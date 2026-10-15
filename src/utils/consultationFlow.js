@@ -32,6 +32,8 @@ export function flowReducer(state, event) {
     case 'TRANSCRIPT_ONLY': return { ...state, step: 'idle', transcribed: event.language || state.transcribed || '' };
     case 'FAILED': return { ...state, step: 'idle', aiError: event.error || { code: 'AI_FAILED' }, failedAt: event.at || state.step };
     case 'UPLOAD_FAILED': return { ...state, step: 'idle', aiError: event.error || { code: 'UPLOAD_FAILED' }, failedAt: 'uploading' };
+    // A draft that finished after the note was saved: thrown away, the flow just returns to idle (the saved note is untouched).
+    case 'DRAFT_DISCARDED': return { ...state, step: 'idle' };
     case 'WRITE_MYSELF': return { ...state, manual: true, aiError: null, failedAt: null };
     case 'SAVED': return { ...state, editing: false, aiError: null };
     case 'EDIT_NOTE': return { ...state, editing: true };

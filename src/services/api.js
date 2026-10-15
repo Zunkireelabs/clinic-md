@@ -11993,7 +11993,7 @@ export async function fetchConsultationForBooking(bookingId) {
  * booking's treatment notes (only the first time, not on re-saves) so it
  * shows with the patient's other notes.
  */
-export async function saveConsultation({ booking, consultationId, fields, status, previousStatus }) {
+export async function saveConsultation({ booking, consultationId, fields, status }) {
   try {
     const { user, profile, error: authError } = await getAuthenticatedUser();
     if (authError) return { data: null, error: authError };
@@ -12031,17 +12031,28 @@ export async function saveConsultation({ booking, consultationId, fields, status
       saved = data;
     }
 
+    // The treatment-note summary follows the consultation: created on the first completion and UPDATED on every later save
+    // (e.g. after Edit note), so the chart never keeps a stale copy and never gets a duplicate.
     let noteError = null;
-    if (status === 'completed' && previousStatus !== 'completed') {
+    if (status === 'completed') {
       const noteText = (fields.final_summary || fields.preliminary_summary || fields.doctor_notes || '').trim();
       if (noteText) {
-        const note = await createTreatmentNote({
-          bookingId: booking.id,
-          customerId: booking.customer_id,
-          dentistId: booking.dentist_id,
-          note: `Consultation ${fields.session_date || ''}\n\n${noteText}`.trim(),
-        });
-        noteError = note.error;
+        const body = `Consultation ${fields.session_date || ''}\n\n${noteText}`.trim();
+        const { data: existing } = await supabase
+          .from('treatment_notes')
+          .select('id')
+          .eq('booking_id', booking.id)
+          .ilike('note', 'Consultation %')
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (existing) {
+          const { error: updateError } = await supabase.from('treatment_notes').update({ note: body }).eq('id', existing.id);
+          noteError = updateError;
+        } else {
+          const note = await createTreatmentNote({ bookingId: booking.id, customerId: booking.customer_id, dentistId: booking.dentist_id, note: body });
+          noteError = note.error;
+        }
       }
     }
     capture('consultation_saved', { status, has_transcript: !!fields.transcript });

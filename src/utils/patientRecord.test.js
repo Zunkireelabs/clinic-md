@@ -6,7 +6,7 @@ const cons = (id, extra = {}) => ({ id, booking_id: `b-${id}`, created_at: '2026
 
 describe('latestClinicalSummary', () => {
   it('parses sections from the final summary', () => {
-    const s = latestClinicalSummary([cons('1', { final_summary: '## Chief Complaint\nSensitivity.\n## Findings\nEarly caries #36.\n## Treatment Plan\nComposite filling.' })]);
+    const s = latestClinicalSummary([cons('1', { final_summary: '## Chief Complaint\nSensitivity.\n## Findings\nEarly caries #36.\n## Plan\nComposite filling.' })]);
     expect(s.rows).toEqual([['Chief complaint', 'Sensitivity.'], ['Findings', 'Early caries #36.'], ['Plan', 'Composite filling.']]);
     expect(s.raw).toBe('');
     expect(s.doctor).toBe('Dr. Sarita Gurung');

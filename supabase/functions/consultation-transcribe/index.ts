@@ -17,6 +17,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const { data: blob, error } = await auth.supabase.storage.from('consultation-audio').download(audioPath);
   if (error || !blob) return json({ error: 'Could not read the recording' }, 404);
 
+  // OpenAI accepts at most 25 MB; refuse early with a friendly code instead of a provider error.
+  if (blob.size > 25 * 1024 * 1024) return json({ error: 'FILE_TOO_LARGE', message: 'This recording is too large to transcribe. Record in shorter parts.' }, 413);
+
   const form = new FormData();
   form.append('file', blob, audioPath.split('/').pop() || 'recording.webm');
   form.append('model', 'whisper-1');

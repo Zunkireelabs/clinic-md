@@ -526,38 +526,3 @@ CREATE POLICY "customer reads own treatment notes" ON public.treatment_notes FOR
   WHERE ((customer_accounts.auth_user_id = auth.uid()) AND (customer_accounts.customer_id IS NOT NULL)))));
 
 ALTER TABLE public.treatment_notes ENABLE ROW LEVEL SECURITY;
-
--- Storage: treatment-images bucket. The bucket itself (public=true) is
--- provisioned via the Storage API, not SQL — these policies just cover
--- storage.objects, which still enforces RLS for writes even on a public bucket.
-CREATE POLICY "Public read treatment images" ON storage.objects FOR SELECT
-  USING (bucket_id = 'treatment-images');
-
-CREATE POLICY "Authenticated upload treatment images" ON storage.objects FOR INSERT TO authenticated
-  WITH CHECK (bucket_id = 'treatment-images');
-
-CREATE POLICY "Authenticated update treatment images" ON storage.objects FOR UPDATE TO authenticated
-  USING (bucket_id = 'treatment-images');
-
-CREATE POLICY "Authenticated delete treatment images" ON storage.objects FOR DELETE TO authenticated
-  USING (bucket_id = 'treatment-images');
-
--- Consultations and their storage buckets: RLS is enabled here, but the POLICIES live in migration-006-consultations.sql
--- (branch-scoped like bookings, with created_by / reference integrity checks). They are deliberately not repeated here: an older
--- org-wide policy kept in this file would be OR-ed with the branch rule and silently defeat it.
-ALTER TABLE public.consultations ENABLE ROW LEVEL SECURITY;
-
--- Push subscriptions: each user manages only their own.
-ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users read own push subscriptions" ON public.push_subscriptions FOR SELECT TO authenticated
-  USING (user_id = auth.uid());
-
-CREATE POLICY "Users add own push subscriptions" ON public.push_subscriptions FOR INSERT TO authenticated
-  WITH CHECK (user_id = auth.uid() AND org_id = public.get_user_org_id());
-
-CREATE POLICY "Users update own push subscriptions" ON public.push_subscriptions FOR UPDATE TO authenticated
-  USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid() AND org_id = public.get_user_org_id());
-
-CREATE POLICY "Users delete own push subscriptions" ON public.push_subscriptions FOR DELETE TO authenticated
-  USING (user_id = auth.uid());

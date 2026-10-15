@@ -20,7 +20,7 @@ export default function useConsultationRemote(consultationId, { onCommand, onSta
     if (!consultationId) return undefined;
     const deviceId = deviceIdRef.current;
     const channel = supabase.channel(`consultation-remote-${consultationId}`, {
-      config: { presence: { key: deviceId }, broadcast: { self: false } },
+      config: { private: true, presence: { key: deviceId }, broadcast: { self: false } },
     });
 
     channel

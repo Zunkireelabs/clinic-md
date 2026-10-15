@@ -31,7 +31,8 @@ const NOTE_SCHEMA = {
 const part = (label: string, value?: string) => (value?.trim() ? `### ${label}\n${value.trim()}\n` : '');
 
 // Body: { mode: 'preliminary' | 'final' | 'note', transcript?, preliminarySummary?,
-//         xrayAnalysis?, photoAnalysis?, additionalNotes?, doctorNotes?, previousPlan? }
+//         xrayAnalysis?, photoAnalysis?, doctorNotes?, previousPlan? }
+// `additionalNotes` (the private staff notes) is never read in ANY mode: it must not reach the model or any report.
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -87,7 +88,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
         part('Transcript', b.transcript),
         part('X-ray analysis', b.xrayAnalysis),
         part('Clinical photo analysis', b.photoAnalysis),
-        part('Additional notes', b.additionalNotes),
         part("Doctor's notes", b.doctorNotes),
       ].join('\n');
 

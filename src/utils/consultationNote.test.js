@@ -49,6 +49,15 @@ describe('note ↔ markdown', () => {
     const s = parseSummarySections(noteToMarkdown({ ...emptyNote(), findings: '#36 distal caries' }));
     expect(s.findings).toBe('#36 distal caries');
   });
+  it('bold-only lines, ### lines, #36 lines and nested bullets inside a section survive and are never headings', () => {
+    const n = { ...emptyNote(), plan: '**Phase 1**\n- Extract #38\n  - sedation first\n  - antibiotics\n**Phase 2**\n- Implant #38\n### Notes\n#36 recheck', findings: '**Radiograph**\nCaries #36' };
+    const md = noteToMarkdown(n);
+    expect(markdownToNote(md)).toEqual(n);
+    const s = parseSummarySections(md);
+    expect(s.plan).toBe(n.plan);          // the chart parser agrees: nothing split off into other sections
+    expect(s.findings).toBe(n.findings);
+    expect(s.other).toBe('');
+  });
   it('maps older free-form headings and keeps unheaded text', () => {
     const n = markdownToNote('### Chief Complaint\nPain\n### Clinical Findings\nCaries\n### Treatment Plan\nFilling\nstray line');
     expect(n.chief_complaint).toBe('Pain');

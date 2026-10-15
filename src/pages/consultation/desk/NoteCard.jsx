@@ -63,7 +63,7 @@ const Skeleton = () => (
 // The clinical note: six editable sections (or skeletons while drafting, or read-only once saved), plus the Transcript view.
 const NoteCard = ({
   stage, note, onNoteChange, view, onView, transcript, onTranscript, badge, drafting,
-  noAiBanner, onTryAgain, tryAgainBusy, readOnly, findingsTags, footer, onRedraft,
+  noAiBanner, noAiKind, onTryAgain, tryAgainBusy, readOnly, findingsTags, footer, onRedraft,
   updateDraftOffer, onUpdateDraft, onWriteMyself, hasTranscript, earlierDoctorNotes, onDraftNow,
 }) => {
   const noteEmpty = NOTE_SECTIONS.every((x) => !String(note[x.key] || '').trim());
@@ -96,8 +96,13 @@ const NoteCard = ({
           {noAiBanner && (
             <div role="alert" className="px-5 py-3 bg-[#FAFAFB] border-b border-[#F1F1F3] text-[13px] flex items-center gap-2 flex-wrap">
               <Icon name="Info" size={15} className="text-[#515152]" />
-              <span><b className="font-medium">AI drafting isn’t available right now.</b> <span className="text-[#515152]">Your recording is saved. Write the note below, or{' '}
-                <button type="button" onClick={onTryAgain} disabled={tryAgainBusy} className="underline text-text-primary disabled:opacity-60">try drafting again</button>.</span></span>
+              {noAiKind === 'upload' ? (
+                <span><b className="font-medium">Recording not uploaded yet.</b> <span className="text-[#515152]">It is still on this computer — keep this page open.{' '}
+                  <button type="button" onClick={onTryAgain} disabled={tryAgainBusy} className="underline text-text-primary disabled:opacity-60">Retry</button>.</span></span>
+              ) : (
+                <span><b className="font-medium">AI drafting isn’t available right now.</b> <span className="text-[#515152]">Your recording is saved. Write the note below, or{' '}
+                  <button type="button" onClick={onTryAgain} disabled={tryAgainBusy} className="underline text-text-primary disabled:opacity-60">try drafting again</button>.</span></span>
+              )}
             </div>
           )}
           {updateDraftOffer && (

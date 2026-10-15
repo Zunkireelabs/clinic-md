@@ -341,6 +341,22 @@ CREATE POLICY "Branch staff delete consultation files" ON storage.objects FOR DE
          AND public.get_user_role() IN ('staff', 'manager', 'admin')
          AND public.can_access_consultation_booking(public.consultation_object_booking(name)));
 
+-- Topic "consultation-remote-<consultation id>": only people who can access that consultation's booking (same branch rule) may join
+-- or broadcast, so nobody can spoof phone→desk activity. Malformed topics match nothing.
+CREATE OR REPLACE FUNCTION public.consultation_remote_topic_ok(p_topic text) RETURNS boolean
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
+DECLARE v_id uuid; v_booking uuid;
+BEGIN
+  IF p_topic IS NULL OR p_topic NOT LIKE 'consultation-remote-%' THEN RETURN false; END IF;
+  BEGIN
+    v_id := substring(p_topic from 21)::uuid;
+  EXCEPTION WHEN others THEN
+    RETURN false;
+  END;
+  SELECT booking_id INTO v_booking FROM public.consultations WHERE id = v_id;
+  RETURN v_booking IS NOT NULL AND public.can_access_consultation_booking(v_booking);
+END $$;
+
 -- ── Realtime: the phone-link channels are PRIVATE and scoped to the owner. A user may only join / broadcast on the topics
 -- "doctor-phone-<own uid>" and "phone-unlock-<own uid>" (clients pass `private: true`). ─────────────────────────────────
 DO $$
@@ -348,10 +364,12 @@ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'realtime' AND table_name = 'messages') THEN
     DROP POLICY IF EXISTS "Own phone-link topics: read" ON realtime.messages;
     CREATE POLICY "Own phone-link topics: read" ON realtime.messages FOR SELECT TO authenticated
-      USING (realtime.topic() IN ('doctor-phone-' || auth.uid()::text, 'phone-unlock-' || auth.uid()::text));
+      USING (realtime.topic() IN ('doctor-phone-' || auth.uid()::text, 'phone-unlock-' || auth.uid()::text)
+             OR public.consultation_remote_topic_ok(realtime.topic()));
     DROP POLICY IF EXISTS "Own phone-link topics: write" ON realtime.messages;
     CREATE POLICY "Own phone-link topics: write" ON realtime.messages FOR INSERT TO authenticated
-      WITH CHECK (realtime.topic() IN ('doctor-phone-' || auth.uid()::text, 'phone-unlock-' || auth.uid()::text));
+      WITH CHECK (realtime.topic() IN ('doctor-phone-' || auth.uid()::text, 'phone-unlock-' || auth.uid()::text)
+                  OR public.consultation_remote_topic_ok(realtime.topic()));
   END IF;
 END $$;
 

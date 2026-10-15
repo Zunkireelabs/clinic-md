@@ -102,3 +102,14 @@ describe('draft staleness ("Update the draft")', () => {
     expect(draftInputsKey({ ...inputs, additionalNotes: 'private' })).toBe(draftInputsKey(inputs));
   });
 });
+
+describe('a draft arriving after Save', () => {
+  it('DRAFT_DISCARDED returns to idle without marking the note as AI-drafted or changing the inputs snapshot', () => {
+    const saved = flowReducer(flowReducer(initialFlow, { type: 'DRAFTED', inputs: 'k1' }), { type: 'SAVED' });
+    const inFlight = flowReducer(saved, { type: 'DRAFT_START' });
+    const after = flowReducer(inFlight, { type: 'DRAFT_DISCARDED' });
+    expect(after.step).toBe('idle');
+    expect(after.draftInputs).toBe('k1');
+    expect(deriveStage(after, { recording: false, hasNote: true, saved: true })).toBe('saved');
+  });
+});
