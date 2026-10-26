@@ -16,4 +16,7 @@ supabase/.temp/
 .agents/
 .claude/skills/higgsfield-*
 skills-lock.json
-.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/project-pm/
