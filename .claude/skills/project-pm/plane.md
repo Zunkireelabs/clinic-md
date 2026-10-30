@@ -9,8 +9,7 @@ stale.
 In Progress `30f729c5-3a17-48c6-9fb2-a93881565dda` · In Review `45ce8d93-15bf-4c89-a404-f5ed6a6a3376` ·
 On Stage `a42b1f8f-6444-4d3a-8792-550d6c9ae2fd` (unused until a `stage` branch exists, CMD-18) ·
 Done `be3a6aaf-1207-4d0d-bd15-c230f2e7160f` · Cancelled `29a7ac13-2a47-40c1-8fe7-f1016017286d`
-**Types:** Task `0a5f1a2c-1732-40b6-9dbb-fbd46691911e` · Epic `3613c284-8045-45e9-8de5-ce308997e0e6`
-**Epics (parent ids):** Data & Schema `5ca3413b-fd20-4e3f-aa14-2d554f728370` · AI Consultation
+**Epics (parent work items; Plane Free has no Epic type):** Data & Schema `5ca3413b-fd20-4e3f-aa14-2d554f728370` · AI Consultation
 `e6acc8e5-b002-472b-b697-2033dccb2c2d` · Calendar & Scheduling `3106422c-fd69-4909-b933-89a1be4440cc` ·
 Patients & Money `be82b99b-bfd5-40ff-a48d-9831d6fba882` · Security & Tenant Isolation
 `619046a1-af67-4512-a42b-033c549fbe3f` · Deployment & Infra `c982dc4d-fb8d-4296-86bf-26165fde8da7` ·
@@ -37,13 +36,13 @@ in their onboarding PR.
 ## Commands
 
 ### "status" / "what's pending / urgent / critical?"
-1. `workitem count` · pql `stateGroup IN openStates() AND NOT isEpic()` · `group_by=state_id`.
-2. `workitem list` · pql `stateGroup IN activeStates() AND priority IN ("urgent","high") AND NOT isEpic()`.
+1. `workitem count` · pql `stateGroup IN openStates() AND NOT hasChildren()` · `group_by=state_id`.
+2. `workitem list` · pql `stateGroup IN activeStates() AND priority IN ("urgent","high") AND NOT hasChildren()`.
 3. Reply in ≤ 15 lines: counts by state → urgent/high with owner → urgent with no owner (flag) → In Review items
    waiting on someone. Map assignee ids to names via **People**.
 
 ### "what's mine?"
-1. `workitem list` · pql `assignee = currentUser() AND stateGroup IN openStates() AND NOT isEpic()`.
+1. `workitem list` · pql `assignee = currentUser() AND stateGroup IN openStates() AND NOT hasChildren()`.
 2. `workitem list` · pql `mention = currentUser() AND updatedAt >= daysAgo(7)`.
 3. For mentioned or In Progress tickets only: `workitem_comment list` (`per_page` 10); show comments newer than
    the developer's own last comment.
@@ -63,7 +62,7 @@ Stage, and set Done only after the Deploy workflow run for that merge has succee
 
 ### "sync" (regenerate the tracker)
 Rebuild `tasks/TRACKER.md` from Plane, never the other way round:
-1. `workitem list` · pql `stateGroup IN openStates() AND NOT isEpic()` · fields above · `per_page` 100.
+1. `workitem list` · pql `stateGroup IN openStates() AND NOT hasChildren()` · fields above · `per_page` 100.
 2. Write the layout from the SOP's TRACKER template. Sort each table by priority (urgent→low), then id.
    Owner = assignee names, or `unassigned`.
 3. Flag: urgent/high with no owner; likely duplicates; open PRs without `CMD-` in the title
