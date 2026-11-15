@@ -25,6 +25,10 @@ If the `plane` tools are missing, run `/mcp` → plane → authenticate.
   workflow run for the merge to `main` has succeeded.
 - Done means live in production, not merged.
 - Anything you can't verify gets the `needs-verification` label; never state it as fact.
+- **Which path:** one quick question or one write → Plane MCP. A known, repeated job (tracker sync) →
+  `~/Projects/zunkireelabs-org/tools/plane/plane-tracker.py` (one shell call, ~90% fewer tokens). A big job needing
+  judgement → a separate fresh session, summary back. Ids come from `plane.md`, never re-list. One-time machine
+  setup: `INSTALL.md`.
 
 **HARD RULE — every developer, every session (human or Claude), no exceptions:**
 1. **Your work is in Plane before you start it.** Every fix, feature, migration, data fix, hotfix, investigation
