@@ -6,7 +6,8 @@ stale.
 
 ## Ids
 **States:** Backlog `549167ba-1163-40ff-bc7f-96b4bf5dc723` · Todo `1b4640d9-ab44-4623-b8de-060e2f646814` ·
-In Progress `30f729c5-3a17-48c6-9fb2-a93881565dda` · In Review `45ce8d93-15bf-4c89-a404-f5ed6a6a3376` ·
+In Progress `30f729c5-3a17-48c6-9fb2-a93881565dda` · QC Accepted `37f2e5a8-cb05-4aac-9abd-bdc6b27ec510` (lead only) ·
+In Review `45ce8d93-15bf-4c89-a404-f5ed6a6a3376` ·
 On Stage `a42b1f8f-6444-4d3a-8792-550d6c9ae2fd` (unused until a `stage` branch exists, CMD-18) ·
 Done `be3a6aaf-1207-4d0d-bd15-c230f2e7160f` · Cancelled `29a7ac13-2a47-40c1-8fe7-f1016017286d`
 **Epics (parent work items; Plane Free has no Epic type):** Data & Schema `5ca3413b-fd20-4e3f-aa14-2d554f728370` · AI Consultation
@@ -21,7 +22,9 @@ db-migration `3f44da04-3a13-4715-af91-2448192d7fae` · frontend `eeb51f27-d0e0-4
 api-service `d699425e-82b8-4df2-853c-4b6cc6394a6e` · security `fabd656b-a9f3-48ae-90fb-177644a86764` ·
 infra-cicd `ef11d3fe-95b5-468f-9c13-070b1b3228ab` · design-ux `cdeff627-a493-44de-a5c7-777719462841` ·
 tech-debt `bae17bbe-7e5e-4554-b5b5-f322a601f419` · prod-data-fix `1adac750-6dc9-4acd-b37d-619d621f8705` ·
-needs-verification `1cf3a7c7-64e1-4630-af35-21e47c7cb1be`
+needs-verification `1cf3a7c7-64e1-4630-af35-21e47c7cb1be` · found-by-qc `13e06793-3a20-445d-bcc0-da2ec43e9c30` ·
+found-by-qe `9a2d869b-c812-4896-978b-7aa669406f0b` · found-by-dev `4fface2a-5b92-414b-b45a-4329787701ac` ·
+found-by-client `cb4994d0-e77c-45d1-aa8a-0ae7069d3d74` · client-issue `f5d77fed-84b9-482c-8fdd-15340a79fbd4`
 **People:** Sadin Shrestha (lead / owner) `9efc11f7-7c66-4054-a5e8-bff429652f3e`. New developer? Add them here
 in their onboarding PR.
 

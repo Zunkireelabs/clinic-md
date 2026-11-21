@@ -9,6 +9,30 @@ service → treatment. Repo: `Zunkireelabs/clinic-md`. Production: `app.clinicmd
 > Branch `feat/calendar-zennly-parity` and local `main` are far behind `origin/main`; read the
 > code from `origin/main` (e.g. `git show origin/main:path`) or branch from it before working.
 
+## How work runs here: lead and builder
+
+ClinicMD follows the Zunkireelabs development approach
+(`~/Projects/zunkireelabs-org/SOPs/development-approach/README.md`, pilot v1.0). How it applies to this
+repo, and what is still missing, is in `docs/DEV-APPROACH.md`. Two separate Claude sessions work here, never one:
+
+- **Lead / QC session:** design direction, boards, one brief per ticket (with acceptance checks), and
+  checking the builder's work. It does not build. It re-runs every gate itself (`npm test`, `npm run build`,
+  `npm run test:rls` on local when SQL changed, comparison with the brief/board) and writes an acceptance comment
+  on the ticket before it moves to **QC Accepted**.
+- **Builder session:** builds one ticket per branch from the lead's brief. It does not check its own work.
+  **Every handoff ends with a "Not verified" list**: what was not run, not opened in the browser, not tested
+  against prod-shaped data, not measured.
+- **The approver is never the pusher.** A developer's push is approved by Anish; Anish's push is approved by
+  Sadin. Because `main` deploys to production, a PR to `main` also needs Sadin's go-ahead (rule 5 below).
+- **Spec follows size:** small change → ticket with acceptance criteria; feature → one-page brief + one to three
+  boards or sketches; new module → scope, phases, sitemap, full boards, role matrix.
+- **Every phase has an exit test and a date.** No phase starts without both, written in its Plane epic.
+- **Design direction is written down** in `docs/DESIGN-DIRECTION.md` by the lead session when Sadin gives it,
+  so it survives the session. Until that file exists, ask Sadin; do not invent a direction.
+
+Only the lead session moves a ticket to `QC Accepted`, and only after its acceptance comment is on the ticket.
+Bugs carry one of `found-by-qc`, `found-by-qe`, `found-by-dev`, `found-by-client` (scoreboard).
+
 ## Work tracking — Plane is the single source of truth
 
 All development work is tracked in **Plane**: project **ClinicMD**, key `CMD`, workspace
@@ -20,7 +44,8 @@ If the `plane` tools are missing, run `/mcp` → plane → authenticate.
 - No work without a ticket. Search Plane first; create one (with a parent epic) if none exists.
 - Ticket id goes in the branch name and PR title: `feature/CMD-123-short-name`, `CMD-123: ...`.
 - Move the ticket as the work moves:
-  `Backlog → Todo → In Progress → In Review (PR open) → On Stage (merged to stage) → Done (live on main)`.
+  `Backlog → Todo → In Progress → QC Accepted (lead accepted) → In Review (PR open) → On Stage (merged to stage) →
+  Done (live on main)`.
   There is no `stage` branch yet (CMD-18): until it exists, skip On Stage and set Done only once the Deploy
   workflow run for the merge to `main` has succeeded.
 - Done means live in production, not merged.
@@ -143,6 +168,7 @@ comments in `featureFlags.js` ("ON in staging", `docker-compose.dev.yml`) are st
 1. Plane first (see above). Move the ticket's state as the work moves.
 2. Read before writing; keep changes minimal and tenant-safe. Match surrounding code style.
 3. Run `npm test` and `npm run build` before opening a PR. Do not claim "done" without them.
+   The builder's run is not the gate: the lead session re-runs them before QC Accepted.
 4. PRs target `main` for now (`stage` once it exists); title `CMD-123: ...`; body links the ticket.
 5. Never force-push `main`, never merge your own PR to `main` without Sadin's go-ahead (it
    deploys to production), never run commands against the production database or VPS from
