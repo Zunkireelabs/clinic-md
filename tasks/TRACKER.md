@@ -4,7 +4,7 @@
 > `CMD`) is the source of truth; this file is a read-only snapshot for everyone in the repo. Never copy
 > anything from this file back into Plane. Stale or conflicted? Run `/project-pm sync`.
 
-Last synced: **2026-10-26** by Sadin · 22 open tickets (epics excluded)
+Last synced: **2026-11-15** by Project Manager · 22 open tickets (epics excluded: CMD-1, CMD-2, CMD-3, CMD-4, CMD-5, CMD-6, CMD-7, CMD-8, CMD-9, CMD-10)
 
 ---
 
@@ -28,14 +28,14 @@ Last synced: **2026-10-26** by Sadin · 22 open tickets (epics excluded)
 ---
 
 ## Flags from the last sync
-- **Open PRs without `CMD-` in the title:** none (no open PRs).
-- **Urgent/high with no owner:** CMD-11, CMD-12, CMD-13, CMD-15, CMD-18, CMD-21, CMD-41, CMD-42.
+- **Open PRs without `CMD-` in the title:** #10 (1 open PRs).
+- **Urgent/high with no owner:** CMD-42, CMD-41, CMD-21, CMD-18, CMD-15, CMD-13, CMD-12, CMD-11.
 
 ## In progress
 | Ticket | Owner | Priority | What |
 |---|---|---|---|
-| CMD-16 | unassigned | medium | CLAUDE.md, project-pm skill and architecture/deploy/migration docs |
-| CMD-46 | Sadin | medium | Plane workflow setup: project-pm skill, plane.md, tracker, CLAUDE.md rules |
+| CMD-16 | — | medium | CLAUDE.md, project-pm skill and architecture/deploy/migration docs |
+| CMD-49 | Sadin | medium | project-pm: use scripted Plane access (plane-tracker.py) for tracker sync; add path rule + INSTALL.md setup |
 
 ## In review / on stage
 | Ticket | Owner | Priority | State | What |
@@ -44,31 +44,31 @@ Last synced: **2026-10-26** by Sadin · 22 open tickets (epics excluded)
 ## Todo
 | Ticket | Owner | Priority | What |
 |---|---|---|---|
-| CMD-11 | unassigned | urgent | Verify migrations 006-010 are applied to the prod database |
-| CMD-12 | unassigned | high | Confirm prod VITE_ENABLE_CONSULTATION and AI edge-function secrets |
-| CMD-13 | unassigned | high | Memberships/vouchers ON in prod build but flags file says migrations not applied in prod |
+| CMD-11 | — | urgent | Verify migrations 006-010 are applied to the prod database |
+| CMD-12 | — | high | Confirm prod VITE_ENABLE_CONSULTATION and AI edge-function secrets |
+| CMD-13 | — | high | Memberships/vouchers ON in prod build but flags file says migrations not applied in prod |
 
 ## Waiting on owner
 | Ticket | Owner | Priority | What |
 |---|---|---|---|
+| CMD-14 | — | medium | Decide ship-or-remove for gated modules (Outreach, Platform admin, Referrals, Memberships, Vouchers) |
 
 ## Backlog
 | Ticket | Owner | Priority | What |
 |---|---|---|---|
-| CMD-15 | unassigned | high | Define a migration process / runner (replace hand-applied SQL) |
-| CMD-18 | unassigned | high | Add a staging environment + stage branch (feature → stage → main) |
-| CMD-21 | unassigned | high | Cross-check Zennly/bookX against ClinicMD security fixes (migrations 008/009) |
-| CMD-41 | unassigned | high | .env.example says one Supabase project serves both local dev and production |
-| CMD-42 | unassigned | high | Verify GitHub branch protection on main (PR + CI required before auto-deploy) |
-| CMD-14 | unassigned | medium | Decide ship-or-remove for gated modules (Outreach, Platform admin, Referrals, Memberships, Vouchers) |
-| CMD-17 | unassigned | medium | Rewrite README to match reality |
-| CMD-19 | unassigned | medium | Verify prod is actually serving (app.clinicmd.pro) and which clinics use it |
-| CMD-20 | unassigned | medium | Run supabase/tests/tenant-isolation.sql in CI |
-| CMD-22 | unassigned | medium | Check git history for a committed .env.local; rotate anything exposed |
-| CMD-23 | unassigned | medium | Test coverage gaps: no component/e2e tests, no lint/typecheck in CI |
-| CMD-43 | unassigned | medium | Deploy workflow pre-deploy check runs only the build, not npm test |
-| CMD-44 | unassigned | medium | public_search_booking / public_get_booking_by_id still anon-callable and return full booking rows |
-| CMD-24 | unassigned | low | Remove unused parts of customer-booking-flow v1 (v2 still imports 6 of its components) |
-| CMD-25 | unassigned | low | Delete 7 stale merged remote branches; ignore build/ and temp_ss/ |
-| CMD-26 | unassigned | low | Rename leftover book-dental image/container/package names to clinicmd |
-| CMD-45 | unassigned | low | Add rollback files for migrations 001-006 (only 007-010 have one) |
+| CMD-15 | — | high | Define a migration process / runner (replace hand-applied SQL) |
+| CMD-18 | — | high | Add a staging environment + stage branch (feature → stage → main) |
+| CMD-21 | — | high | Cross-check Zennly/bookX against ClinicMD security fixes (migrations 008/009) |
+| CMD-41 | — | high | .env.example says one Supabase project serves both local dev and production |
+| CMD-42 | — | high | Verify GitHub branch protection on main (PR + CI required before auto-deploy) |
+| CMD-17 | — | medium | Rewrite README to match reality |
+| CMD-19 | — | medium | Verify prod is actually serving (app.clinicmd.pro) and which clinics use it |
+| CMD-20 | — | medium | Run supabase/tests/tenant-isolation.sql in CI |
+| CMD-22 | — | medium | Check git history for a committed .env.local; rotate anything exposed |
+| CMD-23 | — | medium | Test coverage gaps: no component/e2e tests, no lint/typecheck in CI |
+| CMD-43 | — | medium | Deploy workflow pre-deploy check runs only the build, not npm test |
+| CMD-44 | — | medium | public_search_booking / public_get_booking_by_id still anon-callable and return full booking rows |
+| CMD-24 | — | low | Remove unused parts of customer-booking-flow v1 (v2 still imports 6 of its components) |
+| CMD-25 | — | low | Delete 7 stale merged remote branches; ignore build/ and temp_ss/ |
+| CMD-26 | — | low | Rename leftover book-dental image/container/package names to clinicmd |
+| CMD-45 | — | low | Add rollback files for migrations 001-006 (only 007-010 have one) |
