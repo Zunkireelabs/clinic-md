@@ -28,18 +28,18 @@ Last synced: **2026-11-21** by Project Manager · 23 open tickets (epics exclude
 ---
 
 ## Flags from the last sync
-- **Open PRs without `CMD-` in the title:** #10 (1 open PRs).
+- **Open PRs without `CMD-` in the title:** #10 (2 open PRs).
 - **Urgent/high with no owner:** CMD-42, CMD-41, CMD-21, CMD-18, CMD-15, CMD-13, CMD-12, CMD-11.
 
 ## In progress
 | Ticket | Owner | Priority | What |
 |---|---|---|---|
 | CMD-16 | — | medium | CLAUDE.md, project-pm skill and architecture/deploy/migration docs |
-| CMD-50 | — | medium | Adopt the Zunkireelabs development approach in ClinicMD (CLAUDE.md section + docs/DEV-APPROACH.md) |
 
 ## In review / on stage
 | Ticket | Owner | Priority | State | What |
 |---|---|---|---|---|
+| CMD-50 | Sadin | medium | In Review | Adopt the Zunkireelabs development approach in ClinicMD (CLAUDE.md section + docs/DEV-APPROACH.md) |
 
 ## Todo
 | Ticket | Owner | Priority | What |
