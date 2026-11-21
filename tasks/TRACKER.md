@@ -4,7 +4,7 @@
 > `CMD`) is the source of truth; this file is a read-only snapshot for everyone in the repo. Never copy
 > anything from this file back into Plane. Stale or conflicted? Run `/project-pm sync`.
 
-Last synced: **2026-11-15** by Project Manager · 22 open tickets (epics excluded: CMD-1, CMD-2, CMD-3, CMD-4, CMD-5, CMD-6, CMD-7, CMD-8, CMD-9, CMD-10)
+Last synced: **2026-11-21** by Project Manager · 23 open tickets (epics excluded: CMD-1, CMD-2, CMD-3, CMD-4, CMD-5, CMD-6, CMD-7, CMD-8, CMD-9, CMD-10)
 
 ---
 
@@ -35,7 +35,7 @@ Last synced: **2026-11-15** by Project Manager · 22 open tickets (epics exclude
 | Ticket | Owner | Priority | What |
 |---|---|---|---|
 | CMD-16 | — | medium | CLAUDE.md, project-pm skill and architecture/deploy/migration docs |
-| CMD-49 | Sadin | medium | project-pm: use scripted Plane access (plane-tracker.py) for tracker sync; add path rule + INSTALL.md setup |
+| CMD-50 | — | medium | Adopt the Zunkireelabs development approach in ClinicMD (CLAUDE.md section + docs/DEV-APPROACH.md) |
 
 ## In review / on stage
 | Ticket | Owner | Priority | State | What |
@@ -72,3 +72,4 @@ Last synced: **2026-11-15** by Project Manager · 22 open tickets (epics exclude
 | CMD-25 | — | low | Delete 7 stale merged remote branches; ignore build/ and temp_ss/ |
 | CMD-26 | — | low | Rename leftover book-dental image/container/package names to clinicmd |
 | CMD-45 | — | low | Add rollback files for migrations 001-006 (only 007-010 have one) |
+| CMD-51 | — | low | project-pm plane.md: MCP fallback for sync breaks token rules and doesn't say what happens to the tracker (CodeRabbit on PR #11) |

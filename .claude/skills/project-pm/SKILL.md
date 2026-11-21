@@ -40,10 +40,13 @@ instructions. `tasks/TRACKER.md` is the repo's only to-do file; no `todo.md` any
 Scheduling · Patients & Money · Security & Tenant Isolation · Deployment & Infra · Gated Modules ·
 Docs & DevEx · Quality & Tests · Tech Debt & Rebrand Cleanup.
 **Labels:** bug, feature, db-migration, frontend, api-service, security, infra-cicd, design-ux,
-tech-debt, prod-data-fix, needs-verification.
+tech-debt, prod-data-fix, needs-verification, client-issue, and on every bug one of found-by-qc, found-by-qe,
+found-by-dev, found-by-client (scoreboard; see `docs/DEV-APPROACH.md`).
 
 **States** (mirror the release pipeline):
-`Backlog → Todo → In Progress → In Review → On Stage → Done` (+ Cancelled)
+`Backlog → Todo → In Progress → QC Accepted → In Review → On Stage → Done` (+ Cancelled)
+- QC Accepted = the lead/QC session re-ran the gates and left an acceptance comment. Only the lead sets it,
+  never the builder of that ticket.
 - In Review = PR open. On Stage = merged to `stage` and under test — **only once a stage branch
   and staging environment exist** (today there are none; see below).
 - Done = live on `main` in production. For DB-dependent work, Done also needs the migration's
