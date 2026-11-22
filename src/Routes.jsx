@@ -31,6 +31,9 @@ import PlatformOrgDetail from 'pages/platform/PlatformOrgDetail';
 import { PLATFORM_ADMIN_ENABLED, CONSULTATION_ENABLED } from 'lib/featureFlags';
 import BrandWordmark from 'components/ui/BrandWordmark';
 
+// CMD-77 spike: dev builds only. import.meta.env.DEV is false in production, so the page and Astryx CSS are dropped.
+const AstryxSpike = import.meta.env.DEV ? React.lazy(() => import("pages/astryx-spike")) : null;
+
 // Wrapper component that provides tenant context
 const TenantWrapper = ({ children }) => (
   <TenantProvider>
@@ -115,6 +118,12 @@ const AppRoutes = () => {
             <StaffLoginAuthentication />
           </TenantWrapper>
         } />
+
+        {AstryxSpike && (
+          <Route path="/:orgSlug/__astryx" element={
+            <React.Suspense fallback={null}><AstryxSpike /></React.Suspense>
+          } />
+        )}
 
         {/* Org-scoped unified dashboard (role determines view) */}
         <Route path="/:orgSlug/dashboard" element={

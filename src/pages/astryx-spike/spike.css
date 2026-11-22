@@ -1,0 +1,9 @@
+/* Spike only. Colours come from theme tokens, never hex. */
+.agent-chip {
+  display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-agent-muted); color: var(--color-on-agent-muted);
+  font-size: 12px; font-weight: 500;
+}
+.agent-chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--color-agent); }
+.ne, .ne * { font-family: "Noto Sans Devanagari", var(--font-family-body); line-height: 1.6; }
