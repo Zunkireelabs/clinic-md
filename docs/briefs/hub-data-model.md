@@ -59,9 +59,14 @@ The proposal below is the starting point. Change what the code tells you to, and
   (extend the interface: `sms`, `whatsapp`; delivery status callback), sends, and writes the status and cost.
   It is triggered by a DB webhook or by pg_cron: say which.
 - **`hub-inbound`:** one endpoint per provider; **verifies the provider's signature**; calls `message.receive`.
-- **Providers:** implement a **`test` provider** (writes to a local log table, can simulate delivery, failure and a
-  reply) so everything runs locally. **No real SMS or WhatsApp provider in this ticket.** Which Nepali SMS gateway to
-  use, and the WhatsApp Business account, are Sadin's decisions (separate tickets). Keep the interface ready for them.
+- **Providers:**
+  - A **`test` provider** (writes to a local log table, can simulate delivery, failure and a reply), so everything
+    runs locally.
+  - An **Aakash SMS** adapter: Sadin chose Aakash SMS on 2026-11-22. Bird is the alternative and may be added or
+    swapped later, so keep the gateway behind the interface and selected per `channel_accounts` row. Build it from
+    Aakash's public API docs and test it with mocked HTTP only. The API key goes in edge-function env and is never
+    committed. No real send happens from this ticket; Sadin connects the real account.
+  - WhatsApp comes in its own ticket.
 
 ## 6. Out of scope
 
@@ -93,17 +98,14 @@ Plus Deno or Vitest tests for the provider interface and the `test` provider.
 4. Take over, hand back (and undo it), and assign each write one `action_log` row and one event line.
 5. No provider secret in any table, file or log.
 
-## 9. Open question for Sadin (the builder does not decide)
+## 9. Consent for existing patients (decided by Sadin, 2026-11-22)
 
-**Consent for service messages to existing patients.**
-- **Recommended:** the phone a patient gave when booking counts as `agreed` for **service** messages on SMS
-  (confirmations and reminders), with `source = booking`; marketing always needs an explicit `agreed`. The
-  migration backfills this from bookings.
-- **Alternative:** nobody gets any message until consent is recorded. That blocks the Phase 2 exit test until
-  front desk has asked every patient.
-
-The legal check (CMD-59) should confirm either way. **Build the backfill behind a flag, off by default, until Sadin
-decides.**
+- The phone a patient gave when booking counts as `agreed` for **service** messages (confirmations, reminders) on SMS,
+  with `source = booking`. The migration backfills this from bookings.
+- Marketing always needs an explicit `agreed`.
+- STOP works at any time.
+- The legal check (CMD-59) confirms this before go-live, so keep the backfill switchable (a flag, **on** by default
+  now) so it can be turned off if legal says so.
 
 ## 10. Handoff
 
