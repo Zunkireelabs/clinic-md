@@ -138,7 +138,7 @@ const CollectPaymentPanel = ({ onSuccess }) => {
                   onChange={(e) => setCustomerPhone(e.target.value.replace(/\D/g, '').slice(0, 15))}
                   placeholder="9800000000"
                   autoFocus
-                  className="flex-1 h-10 px-3 rounded-r-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                  className="flex-1 h-10 px-3 rounded-r-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary"
                 />
               </div>
             </div>
@@ -151,7 +151,7 @@ const CollectPaymentPanel = ({ onSuccess }) => {
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
                 placeholder="For your reference only"
-                className="w-full h-10 px-3 rounded-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                className="w-full h-10 px-3 rounded-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary"
               />
             </div>
           </div>
@@ -162,7 +162,7 @@ const CollectPaymentPanel = ({ onSuccess }) => {
 
         {error && (
           <div className="mt-3 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-            <Icon name="AlertTriangle" size={14} className="text-red-600 flex-shrink-0" />
+            <Icon name="AlertTriangle" size={14} className="text-red-600 shrink-0" />
             <span className="text-sm text-red-600">{error}</span>
           </div>
         )}
@@ -215,7 +215,7 @@ const CollectPaymentPanel = ({ onSuccess }) => {
                       type="checkbox"
                       checked={isChecked}
                       onChange={() => toggleSelected(b.bookingId)}
-                      className="text-primary focus:ring-primary w-4 h-4 rounded"
+                      className="text-primary focus:ring-primary w-4 h-4 rounded-sm"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="font-body text-sm text-text-primary">{b.treatmentName}</div>
@@ -223,7 +223,7 @@ const CollectPaymentPanel = ({ onSuccess }) => {
                         #{b.bookingNumber} · {b.date}
                       </div>
                     </div>
-                    <span className="font-data text-sm text-warning flex-shrink-0">{formatNPR(b.amountDue)}</span>
+                    <span className="font-data text-sm text-warning shrink-0">{formatNPR(b.amountDue)}</span>
                   </label>
                 );
               })}

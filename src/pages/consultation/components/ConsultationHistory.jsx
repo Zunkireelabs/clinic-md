@@ -52,7 +52,7 @@ const ConsultationHistory = ({ onOpen }) => {
       <div className="grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-xl">
         {[['mine', 'My patients', 'User'], ['all', 'All doctors', 'Users']].map(([id, label, icon]) => (
           <button key={id} type="button" onClick={() => setScope(id)}
-                  className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition ${scope === id ? 'bg-white text-primary shadow-sm' : 'text-text-secondary'}`}>
+                  className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition ${scope === id ? 'bg-white text-primary shadow-xs' : 'text-text-secondary'}`}>
             <Icon name={icon} size={14} /> {label}
           </button>
         ))}
@@ -64,7 +64,7 @@ const ConsultationHistory = ({ onOpen }) => {
           {doctors.length === 0 && <p className="text-sm text-text-tertiary text-center py-6">No doctors found.</p>}
           {doctors.map((d) => (
             <button key={d.name} type="button" onClick={() => setDoctor(d.name)}
-                    className="w-full text-left bg-white rounded-2xl border border-gray-200 shadow-sm active:scale-[0.99] transition hover:border-primary p-4 flex items-center gap-3">
+                    className="w-full text-left bg-white rounded-2xl border border-gray-200 shadow-xs active:scale-[0.99] transition hover:border-primary p-4 flex items-center gap-3">
               <span className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center text-lg font-semibold shrink-0">
                 {d.name.replace(/^Dr\.?\s*/i, '').charAt(0).toUpperCase()}
               </span>
@@ -115,7 +115,7 @@ const ConsultationHistory = ({ onOpen }) => {
                 key={row.id}
                 type="button"
                 onClick={() => onOpen(row)}
-                className="w-full text-left bg-white rounded-2xl border border-gray-200 shadow-sm active:scale-[0.99] transition hover:border-primary p-4 flex items-center gap-3"
+                className="w-full text-left bg-white rounded-2xl border border-gray-200 shadow-xs active:scale-[0.99] transition hover:border-primary p-4 flex items-center gap-3"
               >
                 <span className="w-11 h-11 rounded-full bg-primary/10 text-primary flex items-center justify-center text-base font-semibold shrink-0">
                   {(row.patient_name || '?').trim().charAt(0).toUpperCase()}

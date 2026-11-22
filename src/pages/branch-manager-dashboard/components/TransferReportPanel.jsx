@@ -201,7 +201,7 @@ const TransferReportPanel = () => {
         {filtered.length > 0 && (
           <button
             onClick={handleExportCSV}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-spa border border-border bg-surface font-body font-body-medium text-sm text-text-secondary hover:bg-background spa-transition-fast flex-shrink-0"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-spa border border-border bg-surface font-body font-body-medium text-sm text-text-secondary hover:bg-background spa-transition-fast shrink-0"
           >
             <Icon name="Download" size={16} />
             <span>Export CSV</span>
@@ -292,7 +292,7 @@ const TransferReportPanel = () => {
                         const status = transferStatus(t);
                         const style = STATUS_STYLES[status];
                         return (
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-caption font-caption-medium ${style.className}`}>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-xs font-caption font-caption-medium ${style.className}`}>
                             <Icon name={style.icon} size={12} />
                             {status}
                           </span>
@@ -317,14 +317,14 @@ const TransferReportPanel = () => {
                                 : 'on time';
                           return t.reverted ? (
                             <span
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-caption font-caption-medium bg-success/10 text-success"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-xs font-caption font-caption-medium bg-success/10 text-success"
                               title={`Scheduled ${formatDateTime(t.revertAt)} — Reverted ${formatDateTime(t.revertedAt)} (${earlyLabel})`}
                             >
                               <Icon name="CheckCircle" size={12} />
                               {formatDateTime(t.revertedAt)}{earlyLabel ? ` · ${earlyLabel}` : ''}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-caption font-caption-medium bg-accent/10 text-accent">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-xs font-caption font-caption-medium bg-accent/10 text-accent">
                               <Icon name="Clock" size={12} />
                               Not yet
                             </span>
@@ -332,7 +332,7 @@ const TransferReportPanel = () => {
                         })()
                       ) : isReturnLeg(t) ? (
                         <span
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-caption font-caption-medium bg-success/10 text-success"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm text-xs font-caption font-caption-medium bg-success/10 text-success"
                           title={`Returned ${formatDateTime(t.transferredAt)}`}
                         >
                           <Icon name="CheckCircle" size={12} />

@@ -99,7 +99,7 @@ const AuthenticationModal = ({ isOpen = true, onClose }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-text-primary/50 backdrop-blur-sm z-modal flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-text-primary/50 backdrop-blur-xs z-modal flex items-center justify-center p-4">
       <div className="bg-surface rounded-spa-lg spa-shadow-modal w-full max-w-md animate-fade-in">
         {/* Header */}
         <div className="p-6 border-b border-border">

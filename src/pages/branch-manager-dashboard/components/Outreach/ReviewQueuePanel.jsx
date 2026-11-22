@@ -98,9 +98,9 @@ const ReviewQueuePanel = () => {
   if (loading) {
     return (
       <div className="bg-surface rounded-spa-lg border border-border p-8 animate-pulse">
-        <div className="h-4 bg-background rounded w-48 mb-4" />
+        <div className="h-4 bg-background rounded-sm w-48 mb-4" />
         <div className="space-y-3">
-          {[0, 1, 2].map((i) => <div key={i} className="h-16 bg-background rounded" />)}
+          {[0, 1, 2].map((i) => <div key={i} className="h-16 bg-background rounded-sm" />)}
         </div>
       </div>
     );
@@ -109,7 +109,7 @@ const ReviewQueuePanel = () => {
   if (error) {
     return (
       <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
         <p className="font-body text-sm text-error">{error}</p>
         <button onClick={loadData} className="ml-auto font-body font-body-medium text-sm text-error underline">
           Retry
@@ -151,7 +151,7 @@ const ReviewQueuePanel = () => {
 
       {actionError && (
         <div className="bg-error/5 border border-error/20 rounded-spa p-3 flex items-center space-x-2">
-          <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0" />
+          <Icon name="AlertCircle" size={14} className="text-error shrink-0" />
           <p className="font-body text-xs text-error">{actionError}</p>
         </div>
       )}
@@ -174,7 +174,7 @@ const ReviewQueuePanel = () => {
                     type="checkbox"
                     checked={selectedIds.includes(m.id)}
                     onChange={() => toggleSelect(m.id)}
-                    className="mt-1 rounded border-border text-primary focus:ring-primary/30"
+                    className="mt-1 rounded-sm border-border text-primary focus:ring-primary/30"
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -198,14 +198,14 @@ const ReviewQueuePanel = () => {
                             type="text"
                             value={editDraft.subject}
                             onChange={(e) => setEditDraft((prev) => ({ ...prev, subject: e.target.value }))}
-                            className="w-full h-9 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                            className="w-full h-9 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                           />
                         )}
                         <textarea
                           value={editDraft.body}
                           onChange={(e) => setEditDraft((prev) => ({ ...prev, body: e.target.value }))}
                           rows={4}
-                          className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-y"
+                          className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary resize-y"
                         />
                         <button
                           type="button"

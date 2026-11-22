@@ -245,14 +245,14 @@ const CategoryManagementPanel = () => {
                     <div className="flex items-center justify-end gap-2">
                       <button
                         onClick={() => handleOpenEdit(c)}
-                        className="p-1.5 rounded hover:bg-background spa-transition-fast text-text-secondary hover:text-text-primary"
+                        className="p-1.5 rounded-sm hover:bg-background spa-transition-fast text-text-secondary hover:text-text-primary"
                         title="Edit"
                       >
                         <Icon name="Pencil" size={16} />
                       </button>
                       <button
                         onClick={() => setConfirmDelete(c)}
-                        className="p-1.5 rounded hover:bg-error/10 spa-transition-fast text-text-secondary hover:text-error"
+                        className="p-1.5 rounded-sm hover:bg-error/10 spa-transition-fast text-text-secondary hover:text-error"
                         title="Delete"
                         disabled={c.treatment_count > 0}
                       >
@@ -286,7 +286,7 @@ const CategoryManagementPanel = () => {
               <h3 className="font-heading font-heading-semibold text-lg text-text-primary">
                 {editingCategory ? 'Edit Category' : 'Add Category'}
               </h3>
-              <button onClick={() => setShowModal(false)} className="p-1 rounded hover:bg-background">
+              <button onClick={() => setShowModal(false)} className="p-1 rounded-sm hover:bg-background">
                 <Icon name="X" size={20} className="text-text-secondary" />
               </button>
             </div>
@@ -315,7 +315,7 @@ const CategoryManagementPanel = () => {
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   placeholder="Optional description..."
                   rows={3}
-                  className="w-full rounded-spa border border-border bg-background px-3 py-2 font-body text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary spa-transition-fast resize-none"
+                  className="w-full rounded-spa border border-border bg-background px-3 py-2 font-body text-sm text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/50 focus:border-primary spa-transition-fast resize-none"
                 />
               </div>
 

@@ -125,7 +125,7 @@ const MembershipDetailModal = ({ membershipId, isAdmin = false, branchId, onClos
 
           {error && (
             <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-              <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+              <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
               <p className="font-body text-sm text-error">{error}</p>
               <button onClick={reload} className="ml-auto font-body font-body-medium text-sm text-error underline">Retry</button>
             </div>
@@ -195,7 +195,7 @@ const MembershipDetailModal = ({ membershipId, isAdmin = false, branchId, onClos
 
               {isDepleted && (
                 <div className="bg-amber-50 border border-amber-200 rounded-spa px-3 py-2 flex items-start space-x-2">
-                  <Icon name="RefreshCw" size={14} className="text-amber-700 flex-shrink-0 mt-0.5" />
+                  <Icon name="RefreshCw" size={14} className="text-amber-700 shrink-0 mt-0.5" />
                   <p className="font-body text-xs text-amber-900">
                     This wallet is empty. Renewing starts a fresh validity cycle from today (and can switch tier) on this
                     same card.
@@ -205,7 +205,7 @@ const MembershipDetailModal = ({ membershipId, isAdmin = false, branchId, onClos
 
               {isLapsed && (
                 <div className="bg-amber-50 border border-amber-200 rounded-spa px-3 py-2 flex items-start space-x-2">
-                  <Icon name="AlertTriangle" size={14} className="text-amber-700 flex-shrink-0 mt-0.5" />
+                  <Icon name="AlertTriangle" size={14} className="text-amber-700 shrink-0 mt-0.5" />
                   <p className="font-body text-xs text-amber-900">
                     This membership has lapsed, but the {formatNPR(m.balance)} balance is still available. Extend the
                     validity to keep using it — no new payment needed.

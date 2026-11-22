@@ -138,8 +138,8 @@ const CommandPalette = ({ onClose, assistantEnabled }) => {
         aria-label="Search or ask"
         className="relative mx-auto mt-[15vh] w-[640px] max-w-[calc(100vw-24px)] max-h-[70vh] flex flex-col bg-surface rounded-spa-lg shadow-spa-elevated border border-border overflow-hidden max-sm:mt-3"
       >
-        <div className="flex items-center gap-3 px-4 h-12 border-b border-border flex-shrink-0">
-          <Icon name="Search" size={16} className="text-text-tertiary flex-shrink-0" />
+        <div className="flex items-center gap-3 px-4 h-12 border-b border-border shrink-0">
+          <Icon name="Search" size={16} className="text-text-tertiary shrink-0" />
           <input
             ref={inputRef}
             role="combobox"
@@ -150,9 +150,9 @@ const CommandPalette = ({ onClose, assistantEnabled }) => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search pages, patients, bookings… or ask the Assistant"
-            className="flex-1 min-w-0 bg-transparent border-0 p-0 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-0 focus:border-0"
+            className="flex-1 min-w-0 bg-transparent border-0 p-0 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-hidden focus:ring-0 focus:border-0"
           />
-          <kbd className="hidden sm:inline text-[11px] text-text-tertiary border border-border rounded px-1.5 py-0.5">esc</kbd>
+          <kbd className="hidden sm:inline text-[11px] text-text-tertiary border border-border rounded-sm px-1.5 py-0.5">esc</kbd>
         </div>
 
         <div ref={listRef} id="cmdk-list" role="listbox" className="flex-1 min-h-0 overflow-y-auto sidebar-scroll py-2">
@@ -178,12 +178,12 @@ const CommandPalette = ({ onClose, assistantEnabled }) => {
                     aria-selected={on}
                     onMouseMove={() => { if (!on) setActive(i); }}
                     onClick={() => choose(item)}
-                    className={`mx-2 px-2.5 h-9 rounded-spa flex items-center gap-3 cursor-pointer ${on ? 'bg-black/[0.05]' : ''}`}
+                    className={`mx-2 px-2.5 h-9 rounded-spa flex items-center gap-3 cursor-pointer ${on ? 'bg-black/5' : ''}`}
                   >
-                    <Icon name={item.icon || 'ArrowRight'} size={16} className={`flex-shrink-0 ${item.kind === 'ask' ? 'text-primary' : 'text-text-tertiary'}`} />
+                    <Icon name={item.icon || 'ArrowRight'} size={16} className={`shrink-0 ${item.kind === 'ask' ? 'text-primary' : 'text-text-tertiary'}`} />
                     <span className="flex-1 min-w-0 truncate text-sm text-text-primary">{item.label}</span>
                     {item.secondary && <span className="max-w-[55%] truncate text-xs text-text-tertiary">{item.secondary}</span>}
-                    {on && <Icon name="CornerDownLeft" size={13} className="text-text-tertiary flex-shrink-0" />}
+                    {on && <Icon name="CornerDownLeft" size={13} className="text-text-tertiary shrink-0" />}
                   </div>
                 );
               })}
@@ -191,7 +191,7 @@ const CommandPalette = ({ onClose, assistantEnabled }) => {
           ))}
         </div>
 
-        <div className="flex items-center gap-4 px-4 h-9 border-t border-border text-[11px] text-text-tertiary flex-shrink-0">
+        <div className="flex items-center gap-4 px-4 h-9 border-t border-border text-[11px] text-text-tertiary shrink-0">
           <span>↑↓ Select</span><span>↵ Open</span><span>esc Close</span>
         </div>
       </div>

@@ -121,10 +121,10 @@ const DentistAvailability = ({ dentists, pendingBookings = [], onAssignDentist }
             <button
               type="button"
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="flex items-center gap-1.5 h-7 px-2.5 text-xs border border-gray-200 rounded-md bg-white text-gray-700 hover:border-gray-300 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary cursor-pointer whitespace-nowrap"
+              className="flex items-center gap-1.5 h-7 px-2.5 text-xs border border-gray-200 rounded-md bg-white text-gray-700 hover:border-gray-300 focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary cursor-pointer whitespace-nowrap"
             >
               <span>{selectedLabel}</span>
-              <Icon name="ChevronDown" size={12} className={`text-gray-400 flex-shrink-0 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
+              <Icon name="ChevronDown" size={12} className={`text-gray-400 shrink-0 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
             </button>
             {isDropdownOpen && (
               <div className="absolute right-0 top-full mt-1 w-32 bg-white border border-gray-200 rounded-md shadow-lg z-dropdown py-1">
@@ -189,7 +189,7 @@ const DentistAvailability = ({ dentists, pendingBookings = [], onAssignDentist }
                     {dentist.specialties.slice(0, 3).map((specialty) => (
                       <span
                         key={specialty}
-                        className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs"
+                        className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded-sm text-xs"
                       >
                         {specialty}
                       </span>

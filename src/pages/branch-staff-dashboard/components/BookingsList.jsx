@@ -87,7 +87,7 @@ const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist
     }
 
     const buttonSize = isMobile ? 'sm' : 'xs';
-    const buttonClass = isMobile ? 'flex-1 min-h-[44px]' : '';
+    const buttonClass = isMobile ? 'flex-1 min-h-touch' : '';
 
     return (
       <>
@@ -152,7 +152,7 @@ const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist
               <StatusLegend compact />
             </span>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             <span className="text-xs sm:text-sm text-gray-500 whitespace-nowrap">
               {bookings.length} bookings
             </span>
@@ -198,7 +198,7 @@ const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       {/* Time Badge */}
-                      <div className="flex-shrink-0 bg-gray-100 rounded-md px-2 py-1">
+                      <div className="shrink-0 bg-gray-100 rounded-md px-2 py-1">
                         <div className="text-sm font-semibold text-gray-900">
                           {formatTime(booking.time)}
                         </div>
@@ -211,7 +211,7 @@ const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist
                     {/* More Actions Button */}
                     <button
                       onClick={() => handleBookingAction(booking)}
-                      className="flex-shrink-0 p-2 -mr-1 rounded-lg hover:bg-gray-100 min-h-[40px] min-w-[40px] flex items-center justify-center"
+                      className="shrink-0 p-2 -mr-1 rounded-lg hover:bg-gray-100 min-h-[40px] min-w-[40px] flex items-center justify-center"
                     >
                       <Icon name="MoreVertical" size={18} className="text-gray-500" />
                     </button>
@@ -219,22 +219,22 @@ const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist
 
                   {/* Status Badges Row */}
                   <div className="flex flex-wrap items-center gap-1.5 mb-2">
-                    <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${STATUS_STYLES[booking.status] || 'bg-gray-100 text-gray-500'}`}>
+                    <span className={`inline-flex items-center px-2 py-1 rounded-sm text-xs font-medium ${STATUS_STYLES[booking.status] || 'bg-gray-100 text-gray-500'}`}>
                       <Icon name={getStatusIcon(booking.status)} size={12} className="mr-1" />
                       {booking.status.replace('-', ' ')}
                     </span>
                     {booking.paymentStatus === 'paid' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-emerald-100 text-emerald-700">
+                      <span className="inline-flex items-center px-2 py-1 rounded-sm text-xs font-medium bg-emerald-100 text-emerald-700">
                         Paid
                       </span>
                     )}
                     {booking.paymentStatus === 'partial' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-amber-100 text-amber-700">
+                      <span className="inline-flex items-center px-2 py-1 rounded-sm text-xs font-medium bg-amber-100 text-amber-700">
                         Due {formatNPR(booking.amountDue)}
                       </span>
                     )}
                     {booking.isLocked && (
-                      <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-amber-100 text-amber-700">
+                      <span className="inline-flex items-center px-2 py-1 rounded-sm text-xs font-medium bg-amber-100 text-amber-700">
                         <Icon name="Lock" size={10} className="mr-1" />
                         Locked
                       </span>
@@ -279,7 +279,7 @@ const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist
                   {booking.specialRequests && (
                     <div className="mt-3 p-2.5 bg-amber-50 rounded-lg border-l-2 border-amber-400">
                       <div className="flex items-start gap-2">
-                        <Icon name="MessageSquare" size={14} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                        <Icon name="MessageSquare" size={14} className="text-amber-600 mt-0.5 shrink-0" />
                         <p className="text-xs text-gray-600 leading-relaxed">
                           {booking.specialRequests}
                         </p>
@@ -294,7 +294,7 @@ const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist
                     {/* Booking Info */}
                     <div className="flex items-center gap-4 flex-1 min-w-0">
                       {/* Time */}
-                      <div className="text-left min-w-[70px] flex-shrink-0">
+                      <div className="text-left min-w-[70px] shrink-0">
                         <div className="text-sm font-medium text-gray-900">
                           {formatTime(booking.time)}
                         </div>
@@ -309,22 +309,22 @@ const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist
                           <h3 className="text-sm font-medium text-gray-900 truncate max-w-[200px]">
                             {booking.customerName}
                           </h3>
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${STATUS_STYLES[booking.status] || 'bg-gray-100 text-gray-500'}`}>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium ${STATUS_STYLES[booking.status] || 'bg-gray-100 text-gray-500'}`}>
                             <Icon name={getStatusIcon(booking.status)} size={12} className="mr-1" />
                             {booking.status.replace('-', ' ')}
                           </span>
                           {booking.paymentStatus === 'paid' && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-emerald-100 text-emerald-700">
                               Paid
                             </span>
                           )}
                           {booking.paymentStatus === 'partial' && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-amber-100 text-amber-700">
                               Due {formatNPR(booking.amountDue)}
                             </span>
                           )}
                           {booking.isLocked && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700" title="Day Closed — Locked">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-amber-100 text-amber-700" title="Day Closed — Locked">
                               <Icon name="Lock" size={10} className="mr-1" />
                               Locked
                             </span>
@@ -345,7 +345,7 @@ const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist
                       </div>
 
                       {/* Dentist Assignment */}
-                      <div className="text-right min-w-[120px] flex-shrink-0">
+                      <div className="text-right min-w-[120px] shrink-0">
                         {(booking.dentists?.length > 0 || booking.dentist) ? (
                           <div>
                             <div className="text-sm font-medium text-gray-900">
@@ -369,7 +369,7 @@ const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist
                     </div>
 
                     {/* Desktop Actions */}
-                    <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+                    <div className="flex items-center gap-2 ml-4 shrink-0">
                       {renderActionButtons(booking, false)}
                       <Button
                         variant="ghost"
@@ -382,7 +382,7 @@ const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist
 
                   {/* Special Requests - Desktop */}
                   {booking.specialRequests && (
-                    <div className="mt-3 p-2 bg-amber-50 rounded border-l-2 border-amber-400">
+                    <div className="mt-3 p-2 bg-amber-50 rounded-sm border-l-2 border-amber-400">
                       <div className="flex items-start gap-2">
                         <Icon name="MessageSquare" size={14} className="text-amber-600 mt-0.5" />
                         <p className="text-xs text-gray-600">

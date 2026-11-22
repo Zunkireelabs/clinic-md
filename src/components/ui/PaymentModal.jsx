@@ -480,7 +480,7 @@ const PaymentModal = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-text-primary/50 backdrop-blur-sm z-modal-overlay flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-text-primary/50 backdrop-blur-xs z-modal-overlay flex items-center justify-center p-4">
       <div className="bg-surface rounded-spa-lg shadow-spa-modal border border-border w-full max-w-md animate-fade-in max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-border">
@@ -518,7 +518,7 @@ const PaymentModal = ({
                 <dt className="font-body text-text-secondary truncate">
                   {booking.treatment?.name || booking.treatment || 'This booking'}
                 </dt>
-                <dd className="font-body font-body-medium text-text-primary tabular-nums text-right flex-shrink-0">
+                <dd className="font-body font-body-medium text-text-primary tabular-nums text-right shrink-0">
                   {formatNPR(remaining)}
                 </dd>
               </div>
@@ -533,7 +533,7 @@ const PaymentModal = ({
                   <dt className="font-body" style={{ color: AMBER }}>
                     Previous due ({additionalBookings.length})
                   </dt>
-                  <dd className="font-body font-body-medium tabular-nums text-right flex-shrink-0" style={{ color: AMBER }}>
+                  <dd className="font-body font-body-medium tabular-nums text-right shrink-0" style={{ color: AMBER }}>
                     {formatNPR(additionalRemaining)}
                   </dd>
                 </div>
@@ -554,7 +554,7 @@ const PaymentModal = ({
           {activePendingReward && (
             <div className="rounded-spa border border-border bg-background p-3 space-y-2.5">
               <div className="flex items-center gap-2">
-                <Icon name="Gift" size={14} className="text-text-secondary flex-shrink-0" />
+                <Icon name="Gift" size={14} className="text-text-secondary shrink-0" />
                 <p className="font-body font-body-medium text-sm text-text-primary">
                   {activePendingReward.referredName} they referred has completed a visit — this customer has earned a referral reward.
                 </p>
@@ -569,7 +569,7 @@ const PaymentModal = ({
                     value={rewardAmount}
                     onChange={(e) => setRewardAmount(e.target.value)}
                     placeholder="e.g. 500 (leave blank for the org default)"
-                    className="w-full h-10 px-3 rounded-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    className="w-full h-10 px-3 rounded-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                   <Button
                     type="button"
@@ -655,7 +655,7 @@ const PaymentModal = ({
                   return (
                     <div key={i} className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <div className="w-36 flex-shrink-0">
+                        <div className="w-36 shrink-0">
                           <PaymentMethodSelector
                             paymentMethods={paymentMethods}
                             extraLeaf={[membershipLeaf, referralWalletLeaf, voucherLeaf]}
@@ -673,7 +673,7 @@ const PaymentModal = ({
                             value={t.amount}
                             onChange={(e) => updateTender(i, { amount: e.target.value })}
                             placeholder="0"
-                            className={`w-full rounded-spa border bg-surface pl-11 pr-3 py-2 font-data text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 spa-transition-fast ${overVoucherPool ? 'border-error focus:border-error' : 'border-border focus:border-primary'}`}
+                            className={`w-full rounded-spa border bg-surface pl-11 pr-3 py-2 font-data text-sm text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/50 spa-transition-fast ${overVoucherPool ? 'border-error focus:border-error' : 'border-border focus:border-primary'}`}
                           />
                         </div>
                         {tenders.length > 1 && (
@@ -696,7 +696,7 @@ const PaymentModal = ({
                         <button
                           type="button"
                           onClick={() => updateTender(i, { manualSearch: true })}
-                          className="text-[11px] font-caption text-primary hover:underline flex-shrink-0"
+                          className="text-[11px] font-caption text-primary hover:underline shrink-0"
                         >
                           Use a specific voucher code
                         </button>
@@ -709,7 +709,7 @@ const PaymentModal = ({
                   return (
                     <div key={i} className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <div className="w-36 flex-shrink-0">
+                        <div className="w-36 shrink-0">
                           <PaymentMethodSelector
                             paymentMethods={paymentMethods}
                             extraLeaf={[membershipLeaf, referralWalletLeaf, voucherLeaf]}
@@ -749,7 +749,7 @@ const PaymentModal = ({
                   return (
                     <div key={i} className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1.5 px-3 py-2 rounded-spa border border-primary/30 bg-primary/5 flex-shrink-0">
+                        <div className="flex items-center gap-1.5 px-3 py-2 rounded-spa border border-primary/30 bg-primary/5 shrink-0">
                           <Icon name="Ticket" size={14} className="text-primary" />
                           <span className="font-data font-data-medium text-xs text-text-primary">{t.voucherLabel}</span>
                         </div>
@@ -762,7 +762,7 @@ const PaymentModal = ({
                             value={t.amount}
                             onChange={(e) => updateTender(i, { amount: e.target.value })}
                             placeholder="0"
-                            className={`w-full rounded-spa border bg-surface pl-11 pr-3 py-2 font-data text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 spa-transition-fast ${overVoucherWallet ? 'border-error focus:border-error' : 'border-border focus:border-primary'}`}
+                            className={`w-full rounded-spa border bg-surface pl-11 pr-3 py-2 font-data text-sm text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/50 spa-transition-fast ${overVoucherWallet ? 'border-error focus:border-error' : 'border-border focus:border-primary'}`}
                           />
                         </div>
                         <button
@@ -787,7 +787,7 @@ const PaymentModal = ({
                   return (
                     <div key={i} className="flex items-center gap-2">
                       <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-spa border border-accent/30 bg-accent/5">
-                        <Icon name="Gift" size={14} className="text-accent flex-shrink-0" />
+                        <Icon name="Gift" size={14} className="text-accent shrink-0" />
                         <span className="font-body font-body-medium text-sm text-text-primary truncate">{t.voucherLabel}</span>
                         <span className="font-data font-data-medium text-sm text-accent ml-auto">{formatNPR(t.amount)}</span>
                       </div>
@@ -814,7 +814,7 @@ const PaymentModal = ({
                   return (
                     <div key={i} className="flex items-center gap-2">
                       <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-spa border border-primary/30 bg-primary/5">
-                        <Icon name="PackageCheck" size={14} className="text-primary flex-shrink-0" />
+                        <Icon name="PackageCheck" size={14} className="text-primary shrink-0" />
                         <span className="font-body font-body-medium text-sm text-text-primary truncate">{t.packageLabel || 'Package'}</span>
                         <span className="font-data font-data-medium text-sm text-primary ml-auto">{formatNPR(t.amount)}</span>
                       </div>
@@ -833,7 +833,7 @@ const PaymentModal = ({
                 return (
                   <div key={i} className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <div className="w-36 flex-shrink-0">
+                      <div className="w-36 shrink-0">
                         <PaymentMethodSelector
                           paymentMethods={paymentMethods}
                           extraLeaf={[membershipLeaf, referralWalletLeaf, voucherLeaf]}
@@ -851,7 +851,7 @@ const PaymentModal = ({
                           value={t.amount}
                           onChange={(e) => updateTender(i, { amount: e.target.value })}
                           placeholder="0"
-                          className={`w-full rounded-spa border bg-surface pl-11 pr-3 py-2 font-data text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 spa-transition-fast ${overWallet || overReferralWallet ? 'border-error focus:border-error' : 'border-border focus:border-primary'}`}
+                          className={`w-full rounded-spa border bg-surface pl-11 pr-3 py-2 font-data text-sm text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/50 spa-transition-fast ${overWallet || overReferralWallet ? 'border-error focus:border-error' : 'border-border focus:border-primary'}`}
                         />
                       </div>
                       {tenders.length > 1 && (
@@ -866,14 +866,14 @@ const PaymentModal = ({
                       )}
                     </div>
                     {isMembership && (
-                      <p className={`text-[11px] font-caption ml-[8.5rem] ${overWallet ? 'text-error' : 'text-text-tertiary'}`}>
+                      <p className={`text-[11px] font-caption ml-34 ${overWallet ? 'text-error' : 'text-text-tertiary'}`}>
                         {overWallet
                           ? `Exceeds wallet balance (${formatNPR(membership?.balance || 0)}).`
                           : `Wallet available: ${formatNPR(walletRemaining)}`}
                       </p>
                     )}
                     {isReferralWallet && (
-                      <p className={`text-[11px] font-caption ml-[8.5rem] ${overReferralWallet ? 'text-error' : 'text-text-tertiary'}`}>
+                      <p className={`text-[11px] font-caption ml-34 ${overReferralWallet ? 'text-error' : 'text-text-tertiary'}`}>
                         {overReferralWallet
                           ? `Exceeds referral wallet balance (${formatNPR(referralReward?.walletBalance || 0)}).`
                           : `Referral wallet available: ${formatNPR(referralWalletRemaining)}`}
@@ -908,7 +908,7 @@ const PaymentModal = ({
                     onFocus={() => setShowSuggestions(true)}
                     onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
                     placeholder="Type the responsible person's name..."
-                    className="w-full rounded-spa border border-border bg-surface px-3 py-2 font-body text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary spa-transition-fast"
+                    className="w-full rounded-spa border border-border bg-surface px-3 py-2 font-body text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/50 focus:border-primary spa-transition-fast"
                   />
                   {showSuggestions && filteredSuggestions.length > 0 && (
                     <div className="absolute z-dropdown left-0 right-0 mt-1 bg-surface border border-border rounded-spa shadow-spa-elevated max-h-44 overflow-y-auto">
@@ -938,7 +938,7 @@ const PaymentModal = ({
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Any notes about this payment..."
               rows={2}
-              className="w-full rounded-spa border border-border bg-surface px-3 py-2 font-body font-body-normal text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary spa-transition-fast resize-none"
+              className="w-full rounded-spa border border-border bg-surface px-3 py-2 font-body font-body-normal text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/50 focus:border-primary spa-transition-fast resize-none"
             />
           </div>
 
@@ -1008,7 +1008,7 @@ const VoucherSearchInline = ({ onSelect }) => {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search by voucher code, guest name, or phone..."
-          className="w-full h-10 pl-9 pr-3 rounded-spa border border-border bg-surface text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+          className="w-full h-10 pl-9 pr-3 rounded-spa border border-border bg-surface text-sm text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
         />
       </div>
       {searching && (
@@ -1027,7 +1027,7 @@ const VoucherSearchInline = ({ onSelect }) => {
                 <span className="block font-data font-data-medium text-xs text-text-primary truncate">{v.voucher_code}</span>
                 <span className="block font-caption text-[11px] text-text-tertiary truncate">{v.guest_name}</span>
               </span>
-              <span className="font-data font-data-medium text-sm text-primary flex-shrink-0 ml-2">
+              <span className="font-data font-data-medium text-sm text-primary shrink-0 ml-2">
                 {formatNPR(v.remaining_balance)}
               </span>
             </button>

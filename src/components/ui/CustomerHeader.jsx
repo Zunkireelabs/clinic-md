@@ -52,7 +52,7 @@ const CustomerHeader = () => {
         <div className="flex items-center justify-between gap-3 h-auto min-h-16 py-3 sm:h-16 sm:py-0">
           {/* Logo */}
           <Link to={bookingPath} className="flex items-center space-x-2 group min-w-0 flex-1">
-            <BrandWordmark size="sm" className="flex-shrink-0" />
+            <BrandWordmark size="sm" className="shrink-0" />
             {orgName && (
               <div className="flex flex-col min-w-0">
                 <span className="font-heading font-heading-semibold text-base sm:text-lg text-text-primary truncate">
@@ -66,7 +66,7 @@ const CustomerHeader = () => {
           </Link>
 
           {/* Navigation Links */}
-          <nav className="hidden md:flex items-center flex-shrink-0">
+          <nav className="hidden md:flex items-center shrink-0">
             <Link
               to={bookingPath}
               className={`font-body font-body-normal text-sm spa-transition-fast hover:text-primary ${
@@ -78,12 +78,12 @@ const CustomerHeader = () => {
           </nav>
 
           {/* Contact & Support */}
-          <div className="flex items-center space-x-2 sm:space-x-4 flex-shrink-0">
+          <div className="flex items-center space-x-2 sm:space-x-4 shrink-0">
             {/* Phone Contact */}
             <a
               href="tel:+977-1-4441234"
               aria-label="Call +977-1-4441234"
-              className="flex items-center justify-center sm:justify-start space-x-0 sm:space-x-2 px-0 sm:px-3 py-0 sm:py-2 rounded-spa bg-background hover:bg-border/50 spa-transition-fast group flex-shrink-0 spa-touch-target"
+              className="flex items-center justify-center sm:justify-start space-x-0 sm:space-x-2 px-0 sm:px-3 py-0 sm:py-2 rounded-spa bg-background hover:bg-border/50 spa-transition-fast group shrink-0 spa-touch-target"
             >
               <Icon
                 name="Phone"
@@ -98,16 +98,16 @@ const CustomerHeader = () => {
             {/* Login / Account */}
             <Link
               to={customer && customerProfile ? accountPath : loginPath}
-              className="flex items-center space-x-2 px-3 sm:px-4 py-2 rounded-spa border border-border hover:bg-background spa-transition-fast spa-touch-target flex-shrink-0"
+              className="flex items-center space-x-2 px-3 sm:px-4 py-2 rounded-spa border border-border hover:bg-background spa-transition-fast spa-touch-target shrink-0"
             >
-              <Icon name="User" size={16} className="text-text-primary flex-shrink-0" />
+              <Icon name="User" size={16} className="text-text-primary shrink-0" />
               <span className="font-body font-body-medium text-sm text-text-primary whitespace-nowrap">
                 {customer && customerProfile ? customerProfile.full_name.split(' ')[0] : 'Login'}
               </span>
             </Link>
 
             {/* Support Button */}
-            <button className="flex items-center justify-center space-x-2 sm:w-auto sm:h-auto px-0 py-0 sm:px-4 sm:py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-spa spa-transition-fast spa-touch-target flex-shrink-0">
+            <button className="flex items-center justify-center space-x-2 sm:w-auto sm:h-auto px-0 py-0 sm:px-4 sm:py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-spa spa-transition-fast spa-touch-target shrink-0">
               <Icon name="MessageCircle" size={14} className="sm:hidden" />
               <Icon name="MessageCircle" size={16} className="hidden sm:block" />
               <span className="hidden sm:inline font-body font-body-medium text-sm">Support</span>

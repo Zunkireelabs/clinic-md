@@ -319,7 +319,7 @@ const CustomerCommunicationPanel = ({ booking, onSendMessage, isLoading }) => {
                       <p className="font-body font-body-medium text-sm text-text-primary">
                         {item.message}
                       </p>
-                      <span className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-caption font-caption-normal bg-${statusColor}/10 text-${statusColor}`}>
+                      <span className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-sm text-xs font-caption font-caption-normal bg-${statusColor}/10 text-${statusColor}`}>
                         <Icon name={statusIcon} size={12} />
                         <span className="capitalize">{item.status}</span>
                       </span>

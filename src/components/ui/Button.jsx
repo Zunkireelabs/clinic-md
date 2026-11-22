@@ -5,7 +5,7 @@ const Button = React.forwardRef(({
     children,
     variant = 'primary',
     size = 'md',
-    shape = 'rounded',
+    shape = 'rounded-sm',
     fullWidth = false,
     disabled = false,
     loading = false,
@@ -20,7 +20,7 @@ const Button = React.forwardRef(({
     ...rest
 }, ref) => {
     // Base classes
-    const baseClasses = 'inline-flex items-center justify-center transition-all duration-200 font-medium focus:ring-2 focus:outline-none';
+    const baseClasses = 'inline-flex items-center justify-center transition-all duration-200 font-medium focus:ring-2 focus:outline-hidden';
 
     // Size classes
     const sizeClasses = {
@@ -35,7 +35,7 @@ const Button = React.forwardRef(({
 
     // Shape classes
     const shapeClasses = {
-        rounded: 'rounded',
+        rounded: 'rounded-sm',
         square: 'rounded-none',
         pill: 'rounded-full',
         circle: 'rounded-full aspect-square',

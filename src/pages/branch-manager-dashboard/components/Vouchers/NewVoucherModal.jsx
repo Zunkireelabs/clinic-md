@@ -316,7 +316,7 @@ const NewVoucherModal = ({ userRole, onClose, onIssued }) => {
             <div className="px-5 py-4 space-y-4">
               {isOverall && (
                 <div className="bg-amber-50 border border-amber-200 rounded-spa px-3 py-2 flex items-start space-x-2">
-                  <Icon name="AlertTriangle" size={14} className="text-amber-700 flex-shrink-0 mt-0.5" />
+                  <Icon name="AlertTriangle" size={14} className="text-amber-700 shrink-0 mt-0.5" />
                   <p className="font-body text-xs text-amber-900">
                     Switch to a specific branch (not "Overall") before issuing a voucher — it needs one branch to issue against.
                   </p>
@@ -335,7 +335,7 @@ const NewVoucherModal = ({ userRole, onClose, onIssued }) => {
 
               {loadError && (
                 <div className="bg-error/5 border border-error/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-                  <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0 mt-0.5" />
+                  <Icon name="AlertCircle" size={14} className="text-error shrink-0 mt-0.5" />
                   <p className="font-body text-xs text-error">{loadError}</p>
                 </div>
               )}
@@ -377,7 +377,7 @@ const NewVoucherModal = ({ userRole, onClose, onIssued }) => {
                     branchId={branchId}
                     searchBy="name"
                     placeholder="Full name"
-                    inputClassName="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    inputClassName="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                   />
                 </div>
                 <div className="min-w-0">
@@ -389,7 +389,7 @@ const NewVoucherModal = ({ userRole, onClose, onIssued }) => {
                       value={guestPhone}
                       onChange={(e) => setGuestPhone(e.target.value)}
                       placeholder="9841234567"
-                      className="flex-1 min-w-0 h-10 px-3 text-sm border border-border rounded-r-spa rounded-l-none bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      className="flex-1 min-w-0 h-10 px-3 text-sm border border-border rounded-r-spa rounded-l-none bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                     />
                   </div>
                 </div>
@@ -402,7 +402,7 @@ const NewVoucherModal = ({ userRole, onClose, onIssued }) => {
                   value={guestOtherInfo}
                   onChange={(e) => setGuestOtherInfo(e.target.value)}
                   placeholder="Company or club name..."
-                  className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 />
               </div>
 
@@ -452,14 +452,14 @@ const NewVoucherModal = ({ userRole, onClose, onIssued }) => {
                             value={newType.name}
                             onChange={(e) => setNewType((p) => ({ ...p, name: e.target.value }))}
                             placeholder="Type name"
-                            className="w-full h-9 px-2.5 text-xs border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                            className="w-full h-9 px-2.5 text-xs border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                           />
                           <input
                             type="text"
                             value={newType.codePrefix}
                             onChange={(e) => setNewType((p) => ({ ...p, codePrefix: e.target.value.toUpperCase() }))}
                             placeholder="Code prefix, e.g. NT 4326"
-                            className="w-full h-9 px-2.5 text-xs font-data tracking-wide border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                            className="w-full h-9 px-2.5 text-xs font-data tracking-wide border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                           />
                         </div>
                         <div className="grid grid-cols-2 gap-2">
@@ -470,7 +470,7 @@ const NewVoucherModal = ({ userRole, onClose, onIssued }) => {
                             value={newType.standardPrice}
                             onChange={(e) => setNewType((p) => ({ ...p, standardPrice: e.target.value }))}
                             placeholder="Standard price (NPR)"
-                            className="w-full h-9 px-2.5 text-xs border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                            className="w-full h-9 px-2.5 text-xs border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                           />
                           <CustomSelect
                             value={newType.category}
@@ -506,7 +506,7 @@ const NewVoucherModal = ({ userRole, onClose, onIssued }) => {
                   value={voucherCode}
                   onChange={(e) => setVoucherCode(e.target.value)}
                   placeholder="e.g., NT 4326-0001"
-                  className="w-full h-10 px-3 text-sm font-data tracking-wide border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  className="w-full h-10 px-3 text-sm font-data tracking-wide border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 />
                 <p className="mt-1.5 font-caption text-xs text-text-tertiary">
                   Type the code from the physical voucher booklet — it must match exactly.
@@ -522,7 +522,7 @@ const NewVoucherModal = ({ userRole, onClose, onIssued }) => {
                     step="any"
                     value={actualPrice}
                     onChange={(e) => setActualPrice(e.target.value)}
-                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                   />
                 </div>
                 <div>
@@ -534,7 +534,7 @@ const NewVoucherModal = ({ userRole, onClose, onIssued }) => {
                     step="any"
                     value={discountPercent}
                     onChange={(e) => { setDiscountPercent(e.target.value); setDiscountTouched(true); }}
-                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                   />
                 </div>
               </div>
@@ -557,7 +557,7 @@ const NewVoucherModal = ({ userRole, onClose, onIssued }) => {
                     type="date"
                     value={issuedDate}
                     onChange={(e) => setIssuedDate(e.target.value)}
-                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                   />
                 </div>
                 <div>
@@ -566,7 +566,7 @@ const NewVoucherModal = ({ userRole, onClose, onIssued }) => {
                     type="date"
                     value={expiryDate}
                     onChange={(e) => setExpiryDate(e.target.value)}
-                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                   />
                 </div>
               </div>
@@ -591,7 +591,7 @@ const NewVoucherModal = ({ userRole, onClose, onIssued }) => {
                   return (
                   <div key={i}>
                     <div className="flex items-center gap-2">
-                      <div className="w-36 flex-shrink-0">
+                      <div className="w-36 shrink-0">
                         <PaymentMethodSelector
                           paymentMethods={paymentMethods}
                           value={t.paymentMode}
@@ -609,7 +609,7 @@ const NewVoucherModal = ({ userRole, onClose, onIssued }) => {
                           value={t.amount}
                           onChange={(e) => updateTender(i, { amount: e.target.value })}
                           placeholder="0"
-                          className="w-full h-10 pl-11 pr-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                          className="w-full h-10 pl-11 pr-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                         />
                       </div>
                       {tenders.length > 1 && (
@@ -624,7 +624,7 @@ const NewVoucherModal = ({ userRole, onClose, onIssued }) => {
                       )}
                     </div>
                     {isMembership && (
-                      <p className={`mt-1 font-caption text-[11px] ml-[9.5rem] ${overWallet ? 'text-error' : 'text-text-tertiary'}`}>
+                      <p className={`mt-1 font-caption text-[11px] ml-38 ${overWallet ? 'text-error' : 'text-text-tertiary'}`}>
                         {overWallet
                           ? `Exceeds wallet balance (${formatNPR(membership?.balance || 0)}).`
                           : `Wallet available: ${formatNPR(walletRemaining)}`}
@@ -645,13 +645,13 @@ const NewVoucherModal = ({ userRole, onClose, onIssued }) => {
                   onChange={(e) => setRemarks(e.target.value)}
                   rows={2}
                   placeholder="Anything to remember for this voucher..."
-                  className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
+                  className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
                 />
               </div>
 
               {error && (
                 <div className="bg-error/5 border border-error/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-                  <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0 mt-0.5" />
+                  <Icon name="AlertCircle" size={14} className="text-error shrink-0 mt-0.5" />
                   <p className="font-body text-xs text-error">{error}</p>
                 </div>
               )}

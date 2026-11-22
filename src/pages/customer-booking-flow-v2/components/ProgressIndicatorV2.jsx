@@ -25,7 +25,7 @@ const ProgressIndicatorV2 = ({ currentStep, totalSteps }) => {
         <div className="flex items-center">
           {steps.map((step, index) => (
             <React.Fragment key={step.id}>
-              <div className="flex flex-col items-center flex-shrink-0">
+              <div className="flex flex-col items-center shrink-0">
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center spa-transition-fast ${
                   currentStep >= step.id
                     ? 'bg-primary text-primary-foreground'

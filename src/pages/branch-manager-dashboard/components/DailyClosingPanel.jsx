@@ -308,7 +308,7 @@ const DailyClosingPanel = ({ branchId }) => {
 
       {/* Unpaid Warning Confirmation Modal */}
       {showConfirmModal && (
-        <div className="fixed inset-0 bg-text-primary/50 backdrop-blur-sm z-modal-overlay flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-text-primary/50 backdrop-blur-xs z-modal-overlay flex items-center justify-center p-4">
           <div className="bg-surface rounded-spa-lg spa-shadow-modal w-full max-w-md animate-fade-in">
             <div className="p-6 space-y-4">
               <div className="flex items-center space-x-3">

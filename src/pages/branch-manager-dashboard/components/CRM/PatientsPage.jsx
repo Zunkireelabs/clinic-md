@@ -61,11 +61,11 @@ const Popover = ({ label, value, options, onChange, selectedLabel }) => {
         <button type="button" onClick={() => setOpen((o) => !o)} className="h-full pl-2.5 pr-2.5 inline-flex items-center gap-[5px]" aria-haspopup="listbox" aria-expanded={open}>
           {!set && <Icon name="Plus" size={13} />}{set ? `${label}: ${selectedLabel}` : label}
         </button>
-        {set && <button type="button" onClick={() => onChange('')} aria-label={`Clear ${label}`} className="h-full pr-2 -ml-1 text-[#8A8A90] hover:text-text-primary"><Icon name="X" size={12} /></button>}
+        {set && <button type="button" onClick={() => onChange('')} aria-label={`Clear ${label}`} className="h-full pr-2 -ml-1 text-text-tertiary hover:text-text-primary"><Icon name="X" size={12} /></button>}
       </span>
       {open && (
         <div role="listbox" className="absolute left-0 top-9 z-30 min-w-[200px] max-h-64 overflow-y-auto bg-white border border-border rounded-lg shadow-[0_8px_24px_rgba(14,13,12,.1)] py-1">
-          {options.length === 0 && <p className="px-3 py-2 text-[12.5px] text-[#8A8A90]">Nothing to filter by yet</p>}
+          {options.length === 0 && <p className="px-3 py-2 text-[12.5px] text-text-tertiary">Nothing to filter by yet</p>}
           {options.map((o) => (
             <button key={o.id} type="button" role="option" aria-selected={value === o.id} onClick={() => { onChange(o.id); setOpen(false); }}
               className={`w-full text-left px-3 py-1.5 text-[13px] hover:bg-[#FAFAFB] flex items-center justify-between gap-3 ${value === o.id ? 'font-medium' : ''}`}>
@@ -99,7 +99,7 @@ const Menu = ({ trigger, children, align = 'right' }) => {
 
 const WIDTHS = { name: 'sm:w-[34%]', next: 'w-[24%] hidden sm:table-cell', last: 'w-[22%] hidden md:table-cell', visits: 'w-[84px] hidden md:table-cell', balance: 'w-[150px] hidden sm:table-cell' };
 const SortHeader = ({ id, label, sort, dir, onSort, right }) => (
-  <th scope="col" aria-sort={sort === id ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'} className={`h-[34px] text-[12px] ${WIDTHS[id] || ''} ${id === 'visits' ? 'pr-6' : id === 'balance' ? '' : 'pr-3'} font-medium whitespace-nowrap border-b border-border bg-white sticky top-0 z-10 ${right ? 'text-right' : 'text-left'} ${sort === id ? 'text-text-primary' : 'text-[#8A8A90]'}`}>
+  <th scope="col" aria-sort={sort === id ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'} className={`h-[34px] text-[12px] ${WIDTHS[id] || ''} ${id === 'visits' ? 'pr-6' : id === 'balance' ? '' : 'pr-3'} font-medium whitespace-nowrap border-b border-border bg-white sticky top-0 z-10 ${right ? 'text-right' : 'text-left'} ${sort === id ? 'text-text-primary' : 'text-text-tertiary'}`}>
     <button type="button" onClick={() => onSort(id)} className={`inline-flex items-center gap-1 hover:text-text-primary ${right ? 'flex-row-reverse' : ''}`}>
       {label}{sort === id && <Icon name={dir === 'asc' ? 'ArrowUp' : 'ArrowDown'} size={12} />}
     </button>
@@ -298,7 +298,7 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
   const header = (
     <div className="flex items-center justify-between gap-3 flex-wrap">
       <h1 className="text-[22px] font-semibold tracking-[-0.45px] flex items-baseline gap-2.5 text-text-primary">
-        Patients{total != null && <span className="text-[15px] text-[#8A8A90] font-medium tracking-normal tabular-nums">{total}</span>}
+        Patients{total != null && <span className="text-[15px] text-text-tertiary font-medium tracking-normal tabular-nums">{total}</span>}
       </h1>
       <div className="flex gap-2">
         {canExport && (
@@ -322,15 +322,15 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
         return (
           <button key={v.id} type="button" role="tab" aria-selected={on} onClick={() => patchParams({ segment: v.id, page: 1 }, { push: true })}
             className={`h-[38px] flex items-center gap-[7px] text-[13px] font-medium relative whitespace-nowrap ${on ? 'text-text-primary' : 'text-[#515152] hover:text-text-primary'}`}>
-            {v.dot && <span className="w-1.5 h-1.5 rounded-full bg-[#1F9D6C]" />}
-            {v.label}{counts && <span className="text-[#8A8A90] tabular-nums">{counts[v.id]}</span>}
-            {on && <span className="absolute left-0 right-0 -bottom-px h-0.5 bg-text-primary rounded" />}
+            {v.dot && <span className="w-1.5 h-1.5 rounded-full bg-success" />}
+            {v.label}{counts && <span className="text-text-tertiary tabular-nums">{counts[v.id]}</span>}
+            {on && <span className="absolute left-0 right-0 -bottom-px h-0.5 bg-text-primary rounded-sm" />}
           </button>
         );
       })}
       {isMgrUp && dupCount > 0 && (
         <button type="button" onClick={() => patchParams({ segment: 'duplicates', page: 1, patient: '' }, { push: true })}
-          className={`ml-auto h-[38px] flex items-center gap-1.5 text-[12.5px] whitespace-nowrap hover:text-text-primary ${showDuplicates ? 'text-text-primary font-medium' : 'text-[#8A8A90]'}`}>
+          className={`ml-auto h-[38px] flex items-center gap-1.5 text-[12.5px] whitespace-nowrap hover:text-text-primary ${showDuplicates ? 'text-text-primary font-medium' : 'text-text-tertiary'}`}>
           <Icon name="GitMerge" size={14} />{dupCount} possible duplicate{dupCount === 1 ? '' : 's'}
         </button>
       )}
@@ -380,10 +380,10 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
   const toolbar = (
     <div className="flex items-center gap-2 py-3.5 flex-wrap">
       <div className="relative w-full sm:w-[340px]">
-        <Icon name="Search" size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#8A8A90]" />
+        <Icon name="Search" size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary" />
         <input ref={searchRef} value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="Search name, phone or email"
-          aria-label="Search patients" className="w-full h-[34px] pl-8 pr-8 border border-border rounded-[7px] text-[13px] bg-white placeholder:text-[#8A8A90] focus:outline-none focus:border-[#cfcfd4] focus:shadow-[0_0_0_3px_rgba(14,13,12,.05)]" />
-        <kbd className="absolute right-2 top-1/2 -translate-y-1/2 text-[10.5px] font-medium text-[#8A8A90] border border-border rounded px-[5px] py-px bg-white">/</kbd>
+          aria-label="Search patients" className="w-full h-[34px] pl-8 pr-8 border border-border rounded-[7px] text-[13px] bg-white placeholder:text-text-tertiary focus:outline-hidden focus:border-[#cfcfd4] focus:shadow-[0_0_0_3px_rgba(14,13,12,.05)]" />
+        <kbd className="absolute right-2 top-1/2 -translate-y-1/2 text-[10.5px] font-medium text-text-tertiary border border-border rounded-sm px-[5px] py-px bg-white">/</kbd>
       </div>
       <Popover label="Dentist" value={filters.dentist} options={dentistOptions} onChange={setFilter('dentist')} selectedLabel={labelOf(dentistOptions, filters.dentist)} />
       <Popover label="Treatment" value={filters.treatment} options={treatmentOptions} onChange={setFilter('treatment')} selectedLabel={filters.treatment} />
@@ -416,7 +416,7 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
   let body;
   if (loading) {
     body = Array.from({ length: 8 }).map((_, i) => (
-      <tr key={i}><td colSpan={6} className="h-14 border-b border-[#F1F1F3]"><div className="h-8 rounded bg-[#F1F1F3] animate-pulse" /></td></tr>
+      <tr key={i}><td colSpan={6} className="h-14 border-b border-[#F1F1F3]"><div className="h-8 rounded-sm bg-[#F1F1F3] animate-pulse" /></td></tr>
     ));
   } else if (error) {
     body = null;
@@ -430,13 +430,13 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
           className={`group cursor-pointer ${selected ? 'bg-[#F6F2FF]' : 'hover:bg-[#FAFAFB]'}`}>
           <td className="h-14 border-b border-[#F1F1F3] pr-3">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-[#F1F1F3] text-[#4A4A4F] text-[11.5px] font-semibold grid place-items-center flex-shrink-0">{initials(p.fullName)}</div>
+              <div className="w-8 h-8 rounded-full bg-[#F1F1F3] text-[#4A4A4F] text-[11.5px] font-semibold grid place-items-center shrink-0">{initials(p.fullName)}</div>
               <div className="min-w-0">
                 <div className="font-medium text-[13.5px] tracking-[-0.1px] flex items-center gap-2 text-text-primary">
                   <span className="truncate">{p.fullName}</span>
                   {p.inClinic ? <InClinicTag /> : p.isFirstTime && <span className="h-5 rounded-full px-[7px] text-[11.5px] font-medium inline-flex items-center bg-[#F3EEFF] text-[#5B21B6]">New</span>}
                 </div>
-                <div className="text-[12.5px] text-[#8A8A90] mt-0.5 truncate">{formatPhoneDisplay(p.phone)}</div>
+                <div className="text-[12.5px] text-text-tertiary mt-0.5 truncate">{formatPhoneDisplay(p.phone)}</div>
                 <div className="sm:hidden text-[12.5px] text-[#515152] truncate">{appt ? `${relativeDayLabel(appt.date, today)} · ${appt.time}` : 'No appointment'}</div>
               </div>
             </div>
@@ -456,7 +456,7 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
                   <span className={p.lapsed ? 'text-[#B45309]' : ''}>{relativeDayLabel(p.lastVisit.date, today)}</span>
                   {p.lapsed && <span className="text-[#515152] font-normal"> · {lapsedMonths(p)} months</span>}
                 </div>
-                <div className="text-[12.5px] text-[#8A8A90] truncate max-w-[220px]">{p.lastVisit.treatment}</div>
+                <div className="text-[12.5px] text-text-tertiary truncate max-w-[220px]">{p.lastVisit.treatment}</div>
               </>
             ) : <span className="text-[13px] text-[#B4B4BA]">No visits yet</span>}
           </td>
@@ -469,7 +469,7 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
             </td>
           )}
           <td className="h-14 border-b border-[#F1F1F3] w-[88px] pl-3">
-            <div className="flex gap-1.5 justify-end items-center text-[#8A8A90] opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">
+            <div className="flex gap-1.5 justify-end items-center text-text-tertiary opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">
               {!readOnly && <button type="button" onClick={(e) => { e.stopPropagation(); bookFor(p); }} className="h-[26px] px-[9px] border border-border rounded-md bg-white text-[12px] font-medium text-text-primary hover:bg-[#FAFAFB]">Book</button>}
               <Icon name="ChevronRight" size={15} />
             </div>
@@ -513,11 +513,11 @@ const PatientsPage = ({ branchId, readOnly: overallReadOnly = false }) => {
           <div className="text-center py-16">
             <Icon name="Users" size={28} className="text-[#B4B4BA] mx-auto mb-3" />
             <p className="text-[14px] font-medium text-text-primary">{emptyTitle}</p>
-            <p className="text-[13px] text-[#8A8A90] mt-1">{emptyHint}</p>
+            <p className="text-[13px] text-text-tertiary mt-1">{emptyHint}</p>
           </div>
         )}
       </div>
-      <div className="flex items-center justify-between h-[52px] flex-shrink-0 text-[12.5px] text-[#8A8A90] border-t border-border">
+      <div className="flex items-center justify-between h-[52px] shrink-0 text-[12.5px] text-text-tertiary border-t border-border">
         <span className="tabular-nums">{filtered.length === 0 ? '0 patients' : `${(safePage - 1) * PAGE_SIZE + 1}–${Math.min(safePage * PAGE_SIZE, filtered.length)} of ${filtered.length}`}</span>
         <div className="flex gap-1.5">
           <button type="button" aria-label="Previous page" disabled={safePage <= 1} onClick={() => patchParams({ page: safePage - 1 })} className="w-7 h-7 border border-border rounded-md grid place-items-center disabled:opacity-40 hover:bg-[#FAFAFB]"><Icon name="ChevronLeft" size={14} /></button>

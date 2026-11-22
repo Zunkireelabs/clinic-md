@@ -129,7 +129,7 @@ const CompensationPanel = ({ branchId }) => {
                   <tr key={s.dentistId} className="border-b border-border last:border-b-0 hover:bg-background/50">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                           <Icon name="User" size={14} className="text-primary" />
                         </div>
                         <span className="font-body font-body-medium text-sm text-text-primary">{s.name}</span>
@@ -152,7 +152,7 @@ const CompensationPanel = ({ branchId }) => {
                             onChange={(e) => setEditSalary(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(s.dentistId); if (e.key === 'Escape') cancelEdit(); }}
                             placeholder="0"
-                            className="w-32 rounded-spa border border-primary bg-surface px-2 py-1.5 font-data text-sm text-text-primary text-right focus:outline-none focus:ring-2 focus:ring-primary/50"
+                            className="w-32 rounded-spa border border-primary bg-surface px-2 py-1.5 font-data text-sm text-text-primary text-right focus:outline-hidden focus:ring-2 focus:ring-primary/50"
                           />
                         </td>
                         <td className="px-4 py-2 text-right">
@@ -165,7 +165,7 @@ const CompensationPanel = ({ branchId }) => {
                             onChange={(e) => setEditRate(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(s.dentistId); if (e.key === 'Escape') cancelEdit(); }}
                             placeholder="0"
-                            className="w-24 rounded-spa border border-primary bg-surface px-2 py-1.5 font-data text-sm text-text-primary text-right focus:outline-none focus:ring-2 focus:ring-primary/50"
+                            className="w-24 rounded-spa border border-primary bg-surface px-2 py-1.5 font-data text-sm text-text-primary text-right focus:outline-hidden focus:ring-2 focus:ring-primary/50"
                           />
                         </td>
                         <td className="px-3 py-2">
@@ -364,7 +364,7 @@ const RunPayrollPanel = ({ branchId }) => {
       {/* Finalize confirmation */}
       {showFinalizeConfirm && (
         <div className="flex items-start gap-3 p-4 bg-warning/10 border border-warning/30 rounded-spa">
-          <Icon name="AlertTriangle" size={18} className="text-warning flex-shrink-0 mt-0.5" />
+          <Icon name="AlertTriangle" size={18} className="text-warning shrink-0 mt-0.5" />
           <div className="flex-1">
             <p className="font-body font-body-medium text-sm text-text-primary">
               Finalize payroll for {formatMonth(selectedMonth)}?
@@ -432,7 +432,7 @@ const RunPayrollPanel = ({ branchId }) => {
                   <tr key={item.dentistId} className="border-b border-border last:border-b-0 hover:bg-background/50">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                           <Icon name="User" size={12} className="text-primary" />
                         </div>
                         <span className="font-body font-body-medium text-text-primary">{item.dentistName}</span>
@@ -539,7 +539,7 @@ const PayrollPanel = ({ branchId, isOverall }) => {
             onClick={() => setActiveTab(tab.id)}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-body-medium transition-colors ${
               activeTab === tab.id
-                ? 'bg-surface text-primary shadow-sm'
+                ? 'bg-surface text-primary shadow-xs'
                 : 'text-text-secondary hover:text-text-primary'
             }`}
           >

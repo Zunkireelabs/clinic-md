@@ -44,7 +44,7 @@ const STAFF_TYPE_OPTIONS = [
 function SummaryCard({ icon, iconBg, iconColor, label, value, highlight }) {
   return (
     <div className="bg-surface rounded-spa-lg border border-border p-4 flex items-center space-x-3">
-      <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center flex-shrink-0`}>
+      <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center shrink-0`}>
         <Icon name={icon} size={18} className={iconColor} />
       </div>
       <div>
@@ -388,16 +388,16 @@ const AttendancePanel = ({ branchId }) => {
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {[0, 1, 2, 3, 4].map(i => (
             <div key={i} className="bg-surface rounded-spa-lg border border-border p-4 animate-pulse">
-              <div className="h-5 bg-background rounded w-12 mb-2" />
-              <div className="h-3 bg-background rounded w-16" />
+              <div className="h-5 bg-background rounded-sm w-12 mb-2" />
+              <div className="h-3 bg-background rounded-sm w-16" />
             </div>
           ))}
         </div>
         <div className="bg-surface rounded-spa-lg border border-border p-6 animate-pulse">
-          <div className="h-4 bg-background rounded w-48 mb-4" />
+          <div className="h-4 bg-background rounded-sm w-48 mb-4" />
           <div className="space-y-3">
             {[0, 1, 2].map(i => (
-              <div key={i} className="h-10 bg-background rounded" />
+              <div key={i} className="h-10 bg-background rounded-sm" />
             ))}
           </div>
         </div>
@@ -409,7 +409,7 @@ const AttendancePanel = ({ branchId }) => {
   if (error) {
     return (
       <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
         <p className="font-body text-sm text-error">{error}</p>
         <button onClick={loadData} className="ml-auto font-body font-body-medium text-sm text-error underline">
           Retry
@@ -430,7 +430,7 @@ const AttendancePanel = ({ branchId }) => {
             type="date"
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
-            className="px-3 py-2 rounded-spa border border-border bg-surface font-body text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+            className="px-3 py-2 rounded-spa border border-border bg-surface font-body text-sm text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30"
           />
           {dirtyCount > 0 && !dayLocked && (
             <button
@@ -447,7 +447,7 @@ const AttendancePanel = ({ branchId }) => {
       {/* Day Locked Banner */}
       {dayLocked && (
         <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-          <Icon name="Lock" size={18} className="text-error flex-shrink-0" />
+          <Icon name="Lock" size={18} className="text-error shrink-0" />
           <p className="font-body font-body-medium text-sm text-error">
             Day is closed. Attendance cannot be modified.
           </p>
@@ -557,7 +557,7 @@ const AttendancePanel = ({ branchId }) => {
               checked={allFilteredSelected}
               onChange={toggleSelectAll}
               disabled={dayLocked || filteredDentists.length === 0}
-              className="w-4 h-4 rounded border-border text-primary focus:ring-primary/30 cursor-pointer disabled:cursor-not-allowed"
+              className="w-4 h-4 rounded-sm border-border text-primary focus:ring-primary/30 cursor-pointer disabled:cursor-not-allowed"
               title="Select all"
             />
             Staff
@@ -601,21 +601,21 @@ const AttendancePanel = ({ branchId }) => {
                       checked={selectedIds.includes(t.dentistId)}
                       onChange={() => toggleSelect(t.dentistId)}
                       disabled={dayLocked}
-                      className="w-4 h-4 rounded border-border text-primary focus:ring-primary/30 cursor-pointer disabled:cursor-not-allowed flex-shrink-0"
+                      className="w-4 h-4 rounded-sm border-border text-primary focus:ring-primary/30 cursor-pointer disabled:cursor-not-allowed shrink-0"
                     />
-                    <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 bg-primary/10">
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 bg-primary/10">
                       <Icon name="User" size={14} className="text-primary" />
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-body font-body-medium text-sm text-text-primary truncate">{t.dentistName}</span>
                         {transfersAvailable && visitorStatus(t.dentistId) && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-caption bg-primary/10 text-primary">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-[10px] font-caption bg-primary/10 text-primary">
                             Visiting from {visitorStatus(t.dentistId).fromBranch} · until {fmtWhen(visitorStatus(t.dentistId).revertAt)}
                           </span>
                         )}
                         {transfersAvailable && pendingByDentist[t.dentistId] && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-caption bg-background text-text-secondary border border-border">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-[10px] font-caption bg-background text-text-secondary border border-border">
                             Transfer scheduled → {pendingByDentist[t.dentistId].toBranch}
                           </span>
                         )}
@@ -655,7 +655,7 @@ const AttendancePanel = ({ branchId }) => {
                     value={edit.checkInTime || ''}
                     onChange={(e) => handleFieldChange(t.dentistId, 'checkInTime', e.target.value)}
                     disabled={isDisabled}
-                    className="px-2 py-1.5 rounded-spa border border-border bg-surface font-data font-data-normal text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-2 py-1.5 rounded-spa border border-border bg-surface font-data font-data-normal text-sm text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed"
                   />
 
                   {/* Check-out */}
@@ -664,7 +664,7 @@ const AttendancePanel = ({ branchId }) => {
                     value={edit.checkOutTime || ''}
                     onChange={(e) => handleFieldChange(t.dentistId, 'checkOutTime', e.target.value)}
                     disabled={isDisabled}
-                    className="px-2 py-1.5 rounded-spa border border-border bg-surface font-data font-data-normal text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-2 py-1.5 rounded-spa border border-border bg-surface font-data font-data-normal text-sm text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed"
                   />
 
                   {/* Notes */}
@@ -674,7 +674,7 @@ const AttendancePanel = ({ branchId }) => {
                     value={edit.notes || ''}
                     onChange={(e) => handleFieldChange(t.dentistId, 'notes', e.target.value)}
                     disabled={isDisabled}
-                    className="px-2 py-1.5 rounded-spa border border-border bg-surface font-body text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-2 py-1.5 rounded-spa border border-border bg-surface font-body text-sm text-text-primary placeholder:text-text-tertiary focus:outline-hidden focus:ring-2 focus:ring-primary/30 disabled:opacity-50 disabled:cursor-not-allowed"
                   />
 
                   {/* Actions */}
@@ -741,7 +741,7 @@ const AttendancePanel = ({ branchId }) => {
                   <button
                     type="button"
                     onClick={() => setTransferCancel({ kind: s.isPending ? 'scheduled' : 'active', item: s })}
-                    className="px-3 py-1.5 text-[13px] font-body font-body-medium border border-border rounded-spa hover:bg-background spa-transition-fast flex-shrink-0"
+                    className="px-3 py-1.5 text-[13px] font-body font-body-medium border border-border rounded-spa hover:bg-background spa-transition-fast shrink-0"
                   >
                     {s.isPending ? 'Cancel transfer' : 'Bring back now'}
                   </button>

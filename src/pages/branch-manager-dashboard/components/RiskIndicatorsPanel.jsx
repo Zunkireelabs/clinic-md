@@ -10,7 +10,7 @@ function RiskBadge({ level }) {
   };
 
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${styles[level] || styles.Low}`}>
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-sm text-[11px] font-medium ${styles[level] || styles.Low}`}>
       {level}
     </span>
   );
@@ -81,10 +81,10 @@ const RiskIndicatorsPanel = ({ branchId }) => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {[0, 1, 2, 3].map(i => (
           <div key={i} className="bg-white rounded-lg border border-gray-200 p-5 animate-pulse">
-            <div className="h-4 bg-gray-100 rounded w-28 mb-3" />
-            <div className="h-6 bg-gray-100 rounded w-20 mb-2" />
-            <div className="h-3 bg-gray-100 rounded w-full mb-2" />
-            <div className="h-3 bg-gray-100 rounded w-2/3" />
+            <div className="h-4 bg-gray-100 rounded-sm w-28 mb-3" />
+            <div className="h-6 bg-gray-100 rounded-sm w-20 mb-2" />
+            <div className="h-3 bg-gray-100 rounded-sm w-full mb-2" />
+            <div className="h-3 bg-gray-100 rounded-sm w-2/3" />
           </div>
         ))}
       </div>
@@ -94,7 +94,7 @@ const RiskIndicatorsPanel = ({ branchId }) => {
   if (error) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-red-600 flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-red-600 shrink-0" />
         <p className="text-sm text-red-600">{error}</p>
         <button onClick={loadData} className="ml-auto text-sm font-medium text-red-600 underline">
           Retry
