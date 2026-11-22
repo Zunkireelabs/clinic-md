@@ -5,6 +5,9 @@
 --   * any login can be linked to ONE dentists row via users.dentist_id (owner+profile, manager+profile, ...).
 --
 -- NOT applied to production. Apply to prod by hand BEFORE the code reaches main (CLAUDE.md, Database).
+-- Prod: rehearse on a prod-schema copy first (CMD-11). Policies on tables that may not exist in prod (memberships, vouchers,
+-- reward_catalog, outreach_*, customer_referral*, daily_reports, payment_refunds: CMD-13) are created only when the table exists;
+-- payments, bookings, customers, booking_dentists, consultations, treatment_notes are unconditional.
 -- Rollback: migration-011-rollback.sql.
 --
 -- ENUM NOTE: a value added with ALTER TYPE ... ADD VALUE cannot be USED in the same transaction. Everything below
@@ -93,6 +96,11 @@ BEGIN
     RAISE EXCEPTION 'set_user_access: admin role required';
   END IF;
 
+  -- An admin must not change their own role or link (nobody can lock an organization out by demoting the last admin).
+  IF p_user_id = auth.uid() THEN
+    RAISE EXCEPTION 'set_user_access: you cannot change your own access';
+  END IF;
+
   SELECT org_id INTO v_org FROM public.users WHERE id = p_user_id;
   IF v_org IS NULL OR v_org IS DISTINCT FROM public.get_user_org_id() THEN
     RAISE EXCEPTION 'set_user_access: user not found in your organization';
@@ -115,44 +123,37 @@ GRANT EXECUTE ON FUNCTION public.set_user_access(uuid, public.user_role, uuid) T
 
 -- 4. RLS (policy table approved by the lead 2026-11-22) ----------------------------------------------------------------
 
--- 4a. Money tables: practitioner gets nothing (read or write).
+-- 4a. payments: practitioner gets nothing (read or write). Core table, unconditional.
 CREATE POLICY practitioner_no_payments ON public.payments AS RESTRICTIVE FOR ALL TO authenticated
   USING (public.get_user_role()::text IS DISTINCT FROM 'practitioner')
   WITH CHECK (public.get_user_role()::text IS DISTINCT FROM 'practitioner');
-CREATE POLICY practitioner_no_payment_refunds ON public.payment_refunds AS RESTRICTIVE FOR ALL TO authenticated
-  USING (public.get_user_role()::text IS DISTINCT FROM 'practitioner')
-  WITH CHECK (public.get_user_role()::text IS DISTINCT FROM 'practitioner');
 
--- 4b. Role-free org reads of money / marketing config: practitioner cannot read them.
-CREATE POLICY practitioner_no_memberships ON public.memberships AS RESTRICTIVE FOR SELECT TO authenticated
-  USING (public.get_user_role()::text IS DISTINCT FROM 'practitioner');
-CREATE POLICY practitioner_no_membership_transactions ON public.membership_transactions AS RESTRICTIVE FOR SELECT TO authenticated
-  USING (public.get_user_role()::text IS DISTINCT FROM 'practitioner');
-CREATE POLICY practitioner_no_vouchers ON public.vouchers AS RESTRICTIVE FOR SELECT TO authenticated
-  USING (public.get_user_role()::text IS DISTINCT FROM 'practitioner');
-CREATE POLICY practitioner_no_voucher_claims ON public.voucher_claims AS RESTRICTIVE FOR SELECT TO authenticated
-  USING (public.get_user_role()::text IS DISTINCT FROM 'practitioner');
-CREATE POLICY practitioner_no_voucher_types ON public.voucher_types AS RESTRICTIVE FOR SELECT TO authenticated
-  USING (public.get_user_role()::text IS DISTINCT FROM 'practitioner');
-CREATE POLICY practitioner_no_membership_tiers ON public.membership_tiers AS RESTRICTIVE FOR SELECT TO authenticated
-  USING (public.get_user_role()::text IS DISTINCT FROM 'practitioner');
-CREATE POLICY practitioner_no_reward_catalog ON public.reward_catalog AS RESTRICTIVE FOR SELECT TO authenticated
-  USING (public.get_user_role()::text IS DISTINCT FROM 'practitioner');
-CREATE POLICY practitioner_no_outreach_rules ON public.outreach_rules AS RESTRICTIVE FOR SELECT TO authenticated
-  USING (public.get_user_role()::text IS DISTINCT FROM 'practitioner');
-CREATE POLICY practitioner_no_outreach_templates ON public.outreach_templates AS RESTRICTIVE FOR SELECT TO authenticated
-  USING (public.get_user_role()::text IS DISTINCT FROM 'practitioner');
+-- 4b. Tables that may be absent in prod: each policy is created only if its table exists (to_regclass).
+--   payment_refunds ......... ALL (money)
+--   the rest ................ SELECT: role-free org/branch reads of money or marketing config. daily_reports and the three
+--                             customer_referral* tables were found while testing (the two "Manager can read ... daily reports"
+--                             policies check branch/org only, so staff reads them today too).
+DO $guarded$
+DECLARE
+  t text;
+BEGIN
+  IF to_regclass('public.payment_refunds') IS NOT NULL THEN
+    CREATE POLICY practitioner_no_payment_refunds ON public.payment_refunds AS RESTRICTIVE FOR ALL TO authenticated
+      USING (public.get_user_role()::text IS DISTINCT FROM 'practitioner')
+      WITH CHECK (public.get_user_role()::text IS DISTINCT FROM 'practitioner');
+  END IF;
 
--- Found while testing (not in the first policy table): these also have role-free reads of money data.
--- daily_reports: the two "Manager can read ... daily reports" SELECT policies check branch/org only (admin OR branch).
-CREATE POLICY practitioner_no_daily_reports ON public.daily_reports AS RESTRICTIVE FOR SELECT TO authenticated
-  USING (public.get_user_role()::text IS DISTINCT FROM 'practitioner');
-CREATE POLICY practitioner_no_customer_referrals ON public.customer_referrals AS RESTRICTIVE FOR SELECT TO authenticated
-  USING (public.get_user_role()::text IS DISTINCT FROM 'practitioner');
-CREATE POLICY practitioner_no_customer_referral_credits ON public.customer_referral_credits AS RESTRICTIVE FOR SELECT TO authenticated
-  USING (public.get_user_role()::text IS DISTINCT FROM 'practitioner');
-CREATE POLICY practitioner_no_customer_referral_debits ON public.customer_referral_debits AS RESTRICTIVE FOR SELECT TO authenticated
-  USING (public.get_user_role()::text IS DISTINCT FROM 'practitioner');
+  FOREACH t IN ARRAY ARRAY['memberships', 'membership_transactions', 'vouchers', 'voucher_claims', 'voucher_types',
+                           'membership_tiers', 'reward_catalog', 'outreach_rules', 'outreach_templates',
+                           'daily_reports', 'customer_referrals', 'customer_referral_credits', 'customer_referral_debits']
+  LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format(
+        'CREATE POLICY %I ON public.%I AS RESTRICTIVE FOR SELECT TO authenticated USING (public.get_user_role()::text IS DISTINCT FROM %L)',
+        'practitioner_no_' || t, t, 'practitioner');
+    END IF;
+  END LOOP;
+END $guarded$;
 
 -- 4c. Bookings: read inherits. Practitioner cannot create or delete; may UPDATE only their own bookings and must
 -- keep them theirs (WITH CHECK reads the NEW row's columns, so they cannot hand a booking to another dentist).
@@ -225,8 +226,12 @@ CREATE POLICY "Practitioner delete own consultation files" ON storage.objects FO
          AND public.is_my_booking(public.consultation_object_booking(name))
          AND public.can_access_consultation_booking(public.consultation_object_booking(name)));
 
--- 5. outreach_enqueue_for_completed: a practitioner completing THEIR OWN visit triggers the same follow-up as front
+-- 5. outreach_enqueue_for_completed (only replaced if it exists in this database): a practitioner completing THEIR OWN visit triggers the same follow-up as front
 -- desk. Body is migration 009's, with only the role check changed (practitioner allowed, own booking only).
+DO $outreach$
+BEGIN
+  IF to_regprocedure('public.outreach_enqueue_for_completed(uuid)') IS NOT NULL THEN
+    EXECUTE $q$
 CREATE OR REPLACE FUNCTION public.outreach_enqueue_for_completed(p_booking_id uuid)
  RETURNS void
  LANGUAGE plpgsql
@@ -302,5 +307,8 @@ BEGIN
   ON CONFLICT (org_id, dedupe_key) DO NOTHING;
 END;
 $function$;
+    $q$;
+  END IF;
+END $outreach$;
 
 COMMIT;

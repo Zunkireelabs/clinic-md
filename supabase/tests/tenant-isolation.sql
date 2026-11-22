@@ -548,8 +548,12 @@ BEGIN
   -- (7) linking: set_user_access is admin-only, same org, and a dentist links to one login
   r := pg_temp.fn_try('admin', format('SELECT set_user_access(%L, ''practitioner'', %L)', u_staff, d2));
   INSERT INTO t_res VALUES ('PRACT', 'admin', 'set_user_access links a same-org user to a same-org dentist', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('admin', format('SELECT set_user_access(%L, ''manager'', %L)', (SELECT uid FROM t_actor WHERE name = 'manager_2_branches'), d2));
+  INSERT INTO t_res VALUES ('PRACT', 'admin', 'an admin can link another login (a manager) to a profile and keep the manager role', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('admin', format('SELECT set_user_access(%L, ''staff'', NULL)', (SELECT uid FROM t_actor WHERE name = 'admin')));
+  INSERT INTO t_res VALUES ('PRACT', 'admin', 'an admin cannot change their OWN role (no demoting the last admin)', CASE WHEN r LIKE 'raised:%' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
   r := pg_temp.fn_try('admin', format('SELECT set_user_access(%L, ''admin'', %L)', (SELECT uid FROM t_actor WHERE name = 'admin'), d2));
-  INSERT INTO t_res VALUES ('PRACT', 'admin', 'an admin can link their own login to a profile (keeps admin)', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  INSERT INTO t_res VALUES ('PRACT', 'admin', 'an admin cannot link their OWN login to a profile either', CASE WHEN r LIKE 'raised:%' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
   r := pg_temp.fn_try('admin', format('SELECT set_user_access(%L, ''practitioner'', %L)', u_staff, db));
   INSERT INTO t_res VALUES ('PRACT', 'admin', 'cannot link a user to ANOTHER org''s dentist', CASE WHEN r LIKE 'raised:%' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
   r := pg_temp.fn_try('admin', format('SELECT set_user_access(%L, ''practitioner'', %L)', (SELECT uid FROM t_actor WHERE name = 'admin_of_OTHER_org'), d1));

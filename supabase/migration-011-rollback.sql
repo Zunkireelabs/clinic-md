@@ -5,6 +5,10 @@
 BEGIN;
 
 -- outreach_enqueue_for_completed back to migration 009's body
+DO $outreach$
+BEGIN
+  IF to_regprocedure('public.outreach_enqueue_for_completed(uuid)') IS NOT NULL THEN
+    EXECUTE $q$
 CREATE OR REPLACE FUNCTION public.outreach_enqueue_for_completed(p_booking_id uuid)
  RETURNS void
  LANGUAGE plpgsql
@@ -79,6 +83,9 @@ BEGIN
   ON CONFLICT (org_id, dedupe_key) DO NOTHING;
 END;
 $function$;
+    $q$;
+  END IF;
+END $outreach$;
 
 -- who loses the role: back to staff (this is the only data change)
 UPDATE public.users SET role = 'staff' WHERE role::text = 'practitioner';
@@ -87,10 +94,6 @@ DROP POLICY IF EXISTS "Practitioner delete own consultation files" ON storage.ob
 DROP POLICY IF EXISTS "Practitioner upload own consultation files" ON storage.objects;
 DROP POLICY IF EXISTS "Practitioner can update own consultations" ON public.consultations;
 DROP POLICY IF EXISTS "Practitioner can create own consultations" ON public.consultations;
-DROP POLICY IF EXISTS practitioner_no_customer_referral_debits ON public.customer_referral_debits;
-DROP POLICY IF EXISTS practitioner_no_customer_referral_credits ON public.customer_referral_credits;
-DROP POLICY IF EXISTS practitioner_no_customer_referrals ON public.customer_referrals;
-DROP POLICY IF EXISTS practitioner_no_daily_reports ON public.daily_reports;
 DROP POLICY IF EXISTS practitioner_own_treatment_note_update ON public.treatment_notes;
 DROP POLICY IF EXISTS practitioner_own_treatment_note_insert ON public.treatment_notes;
 DROP POLICY IF EXISTS practitioner_no_customer_delete ON public.customers;
@@ -101,16 +104,21 @@ DROP POLICY IF EXISTS practitioner_no_booking_dentists_write ON public.booking_d
 DROP POLICY IF EXISTS practitioner_own_booking_update ON public.bookings;
 DROP POLICY IF EXISTS practitioner_no_booking_delete ON public.bookings;
 DROP POLICY IF EXISTS practitioner_no_booking_insert ON public.bookings;
-DROP POLICY IF EXISTS practitioner_no_outreach_templates ON public.outreach_templates;
-DROP POLICY IF EXISTS practitioner_no_outreach_rules ON public.outreach_rules;
-DROP POLICY IF EXISTS practitioner_no_reward_catalog ON public.reward_catalog;
-DROP POLICY IF EXISTS practitioner_no_membership_tiers ON public.membership_tiers;
-DROP POLICY IF EXISTS practitioner_no_voucher_types ON public.voucher_types;
-DROP POLICY IF EXISTS practitioner_no_voucher_claims ON public.voucher_claims;
-DROP POLICY IF EXISTS practitioner_no_vouchers ON public.vouchers;
-DROP POLICY IF EXISTS practitioner_no_membership_transactions ON public.membership_transactions;
-DROP POLICY IF EXISTS practitioner_no_memberships ON public.memberships;
-DROP POLICY IF EXISTS practitioner_no_payment_refunds ON public.payment_refunds;
+-- policies on tables that may not exist in this database (see migration-011 section 4b)
+DO $guarded$
+DECLARE
+  t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['payment_refunds', 'memberships', 'membership_transactions', 'vouchers', 'voucher_claims', 'voucher_types',
+                           'membership_tiers', 'reward_catalog', 'outreach_rules', 'outreach_templates',
+                           'daily_reports', 'customer_referrals', 'customer_referral_credits', 'customer_referral_debits']
+  LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', 'practitioner_no_' || t, t);
+    END IF;
+  END LOOP;
+END $guarded$;
+
 DROP POLICY IF EXISTS practitioner_no_payments ON public.payments;
 
 DROP FUNCTION IF EXISTS public.set_user_access(uuid, public.user_role, uuid);
