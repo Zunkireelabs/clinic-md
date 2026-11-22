@@ -148,7 +148,7 @@ const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist
             <h2 className="text-sm sm:text-base font-semibold text-gray-900 truncate">
               {DATE_RANGE_LABELS[dateRange] || "Appointments"}
             </h2>
-            <span className="hidden sm:inline-flex">
+            <span className="max-sm:hidden">
               <StatusLegend compact />
             </span>
           </div>
@@ -162,7 +162,7 @@ const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist
               iconName="RefreshCw"
               iconPosition="left"
               onClick={onRefresh}
-              className="hidden sm:inline-flex"
+              className="max-sm:hidden"
             >
               Refresh
             </Button>
