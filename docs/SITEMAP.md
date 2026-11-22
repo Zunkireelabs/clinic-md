@@ -129,7 +129,7 @@ each area its own address, so a link, the copilot or an agent's notification can
 
 | Screen | What it shows | Today | Phase |
 |---|---|---|---|
-| Agents overview | One card per agent: on or off, autonomy level, this week's scorecard. The clinic's **agent-handled share** at the top. | New | 2 |
+| Agents overview | One card per **live** agent (no cards for agents not built yet): on or off, autonomy level, this week's scorecard. The clinic's **agent-handled share** at the top. Tabs: Agents, Activity, Clinic brain, Usage and budget (manager and owner). | New | 2 |
 | Agent page `/agents/:agent` | Scorecard over time; playbooks; recent activity; suggestions to raise autonomy | New | 2 (Follow-up), then per agent |
 | Playbook editor | Trigger, goal, channel order, template, autonomy level, quiet hours; preview on a real patient; turn on or off | New (replaces Outreach rules and templates) | 2 |
 | Activity log `/agents/activity` | Every agent action: what, for whom, on whose approval, outcome; filter and undo | New | 2 |

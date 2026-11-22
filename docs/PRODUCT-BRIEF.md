@@ -48,6 +48,16 @@ phase once Phase 2 is live.
 | Calendar | Keep our custom calendar and port bookX's latest version in steps (section 10). |
 | Plan | This brief is the product plan. The earlier five-phase plan is folded into section 12. |
 
+**Added 2026-11-22 (Sadin):**
+
+| Decision | Detail |
+|---|---|
+| First chat app | WhatsApp, after SMS. |
+| Phone agent | Promised to Bright Smile and to Nexa Healthcare (a general pathlab clinic). Date not set yet. |
+| Agents list | Only agents that are live are shown. Future agents get no "coming soon" card (principle 4: hidden, not mocked). |
+| Budget and care | When the AI budget is used up, agents that work for the clinic (Follow-up drafts and the like) wait, but the Scribe keeps working: a budget never blocks patient care. Only an AI outage pauses the Scribe. |
+| Brand colour | The old brand purple `#7B2FF7` is dropped from the staff app; purple means "an agent did this" (DESIGN-DIRECTION §2). |
+
 ## 3. Where the product is today
 
 **Working and worth keeping:** calendar (4-Day, Day, Unassigned; drag and drop; blocks; staff transfers),
