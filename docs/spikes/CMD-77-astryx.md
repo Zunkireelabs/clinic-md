@@ -5,7 +5,7 @@
 
 ## 1. Verdict
 
-**GO WITH CONDITIONS.** Astryx 0.7.17 renders every component the Home brief needs inside our plain-JSX Vite app, on
+**GO WITH CONDITIONS** (round 2: local checks done, see section 7). Astryx 0.7.17 renders every component the Home brief needs inside our plain-JSX Vite app, on
 React 19, with no StyleX or Tailwind 4 build step, and `npm test` (231) and `npm run build` pass. The conditions:
 
 1. **Tailwind must go 3 → 4.** On Tailwind 3 the Astryx styles are overridden (section 5.1: unstyled buttons and
@@ -13,8 +13,8 @@ React 19, with no StyleX or Tailwind 4 build step, and `npm test` (231) and `npm
 2. **Do the upgrade as its own PR, behind a full visual pass of today's screens.** I only checked the
    build, the tests and the login page. The rest was not looked at (section 7).
 3. **`react-helmet` has to go** (React 19 peer conflict). Done here in two files.
-4. **Local DB wasn't available**, so sign-in, Calendar, the booking modal and the patient booking flow were **not
-   checked** (section 8).
+4. **Old screens keep working on Tailwind 4 on the paths I opened** (sign-in, Calendar, booking modal, patient flow;
+   section 7), but a full visual pass is still owed (section 5.2).
 5. **Bundle cost is real** when Astryx ships (section 6): decide with the lead how to load it.
 
 ## 2. The key finding: Astryx needs no build step
@@ -98,7 +98,7 @@ Checked with `npx @astryxdesign/cli component <Name>` (174 components) and rende
 | `List` | exists | `List` + `ListItem` (`startContent`, `description`, `endContent`). |
 | `EmptyState` | exists | `title`, `description`, `icon`, `actions`. |
 | `Skeleton` | exists | |
-| `Toast` | exists, used through `useToast()` | Rendered bottom-**right**; the design (FND · States) says bottom centre. Not looked into whether placement is configurable. |
+| `Toast` | exists, used through `useToast()` | **No bottom-centre.** `ToastViewport` takes `position`: `topEnd`, `topStart`, `bottomEnd` (default, as seen) or `bottomStart` (`dist/Toast/types.d.ts`). Bottom centre would need an override (`inset` prop or CSS), not tried. |
 | `CommandPalette` | exists | Needs a `searchSource`; `createStaticSource(items)` from `@astryxdesign/core/Typeahead` works. |
 | `ChatComposer` | exists (`@astryxdesign/core/Chat`) | Also `ChatDictationButton`, `ChatMessage*`. Fills its parent's width: don't put it in an `align="start"` stack. |
 | `Dialog` | exists | `isOpen`, `onOpenChange`, `DialogHeader`. |
@@ -140,7 +140,8 @@ Not used but relevant: `Table`, `Tabs`/`TabList`, `Drawer`, `BottomSheet`, `Mobi
 | **Visual regression of every existing screen under Tailwind 4.** I did not look at them. Counts in `src/`: 862 `space-x/y-*` (v4 changed the selector, can change spacing with `hidden` or margin children), 143 `outline-none` (v4 renamed it `outline-hidden`; the meaning differs), 10 `bg/text/border-opacity-*` (removed in v4: those 10 lose their opacity), 1 bare `ring` (width 3 px → 1 px), 64 `divide-*`. | **2 to 3 days** of walking every screen in light and dark, plus fixes. The biggest unknown in the whole upgrade. |
 | **Token name collisions on `:root`.** Our `tailwind.css` and the Astryx theme both define `--color-accent`, `--color-border`, `--color-error`, `--color-success`, `--color-text-primary`, `--color-text-secondary`, `--color-warning`. Astryx's wins (a later layer), and on the spike page `:root` shows Astryx's values. **`var(--color-…)` of those seven has zero uses in `src/`**, so nothing visible changes today; Tailwind's JS-config colours are separate. Anything new that reads them gets Astryx's values. | 0.5 day: rename ours with a `--spa-` prefix, or scope Astryx to the new screens. |
 | **Page background.** `body` stays our `bg-background` (`#FAFAFB`), not Astryx's `--color-background-body` (`#f1f1f1`). The cards still read as cards, but Home is not the "white cards on soft grey" look. | 0.5 day to decide the page background (scope the Astryx shell, or set the body background to the token). |
-| **Existing screen inside the Astryx `AppShell`.** The `?legacy=1` mode of the spike page embeds `BranchManagerDashboard`, but it needs sign-in and the local DB. **Not shown.** | needs the local DB |
+| **Existing screen inside the Astryx `AppShell`: works but doubles the chrome.** `?legacy=1` embeds `BranchManagerDashboard`: it renders and works with no console errors and no style bleed into its content, but it brings its own sidebar/top bar, which covers the Astryx `SideNav` (`old-screen-in-astryx-shell.jpg`). Old and new can share one page and one stylesheet; they cannot share one shell until the old screens' own chrome is removed or hidden. | Decide per screen at migration time; the Home work (CMD-76) replaces the shell around the new screens. |
+| **Visible Tailwind 4 differences on the screens I opened.** None seen that I could attribute to Tailwind 4. One oddity: "Find Existing Booking" on patient booking step 1 is white text on a transparent background, so it is almost invisible. Its classes are `bg-transparent text-primary-foreground hover:bg-opacity-50`: that is the app's own styling, not a Tailwind 4 change, but I did **not** compare with `origin/main`. `hover:bg-opacity-50` is one of the 10 removed utilities, so its hover state is gone on Tailwind 4. | in the visual-pass ticket |
 | **Prod build uses the runtime theme.** Dev warns: "Theme "clinic" is using runtime style injection… build the theme". The built path (`npx astryx theme build`) is not tried. | 0.5 day |
 | **Brand clash.** The existing app uses `--color-primary: #7B2FF7` as its brand purple, the same hex as the new agent purple, which design direction §2 reserves for agents only. Today's screens keep using it. | a design decision, not a build one |
 | Existing fonts. The app uses Inter; Astryx uses Figtree. They load side by side; I did not check old screens for a font change. | included in the visual pass |
@@ -164,8 +165,7 @@ less. The +65 kB main-JS is React 19 vs 18 (and −16 kB from removing react-hel
 
 ## 7. Spike page and screenshots
 
-Route `/:orgSlug/__astryx`, dev only (`import.meta.env.DEV`). It is mounted **without sign-in**, because the local DB was
-unavailable (section 8): fine for a dev-only page, not for anything real. Open it with `npm run start:local` →
+Route `/:orgSlug/__astryx`, dev only (`import.meta.env.DEV`). It is mounted **without sign-in** (the route sits outside `ProtectedRoute`/`TenantWrapper`): fine for a dev-only page, not for anything real. `?legacy=1` shows an old screen in the shell. Open it with `npm run start:local` →
 `http://localhost:4029/bright-smile-dental/__astryx`.
 
 Checked in Chrome on the dev server:
@@ -180,8 +180,28 @@ Checked in Chrome on the dev server:
   values exist once, in `src/theme/clinicTheme.js`.
 - Theme: `defineTheme({ extends: neutralTheme })` adds only the three agent tokens, with dark values (`light-dark(…)`).
   I **did not switch to dark mode** to look at it.
-- The spike page is **not in the production build**: `grep` of `build/` finds no spike code, no `data-astryx`,
-  no `--color-agent`. In `vite preview` the route renders nothing (no Astryx theme in the DOM).
+- The spike page is **not in the production build** (check 5, run properly in round 2): `npm run build -- --mode localdb`
+  then `npm run serve`; `grep` of `build/` finds no `data-astryx`, `__astryx` or `--color-agent`, and
+  `/bright-smile-dental/__astryx` shows the normal **404 "Page Not Found"** page (no Astryx theme in the DOM). (In round 1 I
+  saw a blank page in `vite preview`: that was a build with no Supabase env vars, not the gating.)
+
+### Round 2: acceptance check 2 on `npm run start:local` (local DB up, this branch, port 4032)
+
+| Screen | Result | Screenshot |
+|---|---|---|
+| Sign-in as `admin@clinicmd.test` | works; lands on the dashboard; title "Branch Manager Dashboard - ClinicMD" (native `<title>` works) | `old-dashboard-tw4.jpg` |
+| Sign-in as `staff@clinicmd.test` | works; lands on the Calendar | `old-staff-calendar-tw4.jpg` |
+| Calendar (admin) | renders, day view, dentists, now-line; the seed has no bookings today, so no booking blocks seen | `old-calendar-tw4.jpg` |
+| New booking panel (Calendar) | opens with fields | `old-new-booking-panel-tw4.jpg` |
+| Booking details modal (`/bookings/:id`, an existing seeded booking) | opens, tabs and actions render | `old-booking-modal-tw4.jpg` |
+| Patient booking flow v2 (`/book`) | step 1 (branch) and step 2 (treatments) render and advance; not completed (it would write a booking) | `old-patient-booking-step1-tw4.jpg`, `old-patient-booking-step2-tw4.jpg` |
+| Old screen inside the Astryx shell (`?legacy=1`) | see section 5.2 | `old-screen-in-astryx-shell.jpg` |
+
+Console: **no errors or exceptions** on the admin pages, the booking modal, the patient flow and the `?legacy=1` page
+(read after each navigation; the tool only tracks from its first call, so very early load-time messages could be missed).
+The patient flow still says "spa booking journey" and "Step 2 of 5": existing copy, not from this change.
+No Tailwind 4 breakage was visible on these screens, but with no `origin/main` side-by-side this is "nothing looked wrong", not "identical".
+
 
 Screenshots (`docs/spikes/CMD-77-assets/`):
 - `spike-1440-top.jpg`, `spike-1440-bottom.jpg`: 1440 px.
@@ -191,16 +211,14 @@ Screenshots (`docs/spikes/CMD-77-assets/`):
 
 ## 8. Not verified
 
-- Sign-in, Calendar, the booking modal and the patient booking flow (v2): **not verified, local DB unavailable.**
-  Ports 55321/55322 are held by another project's Supabase stack (`public.organizations` does not exist there); I did not touch it.
-- Any existing screen under Tailwind 4 beyond the login page: no visual comparison, no dark-mode check.
-- The `?legacy=1` embed of an old screen inside the Astryx `AppShell`.
+- **Every other existing screen under Tailwind 4**: no visual comparison, no `origin/main` side-by-side, no dark-mode check
+  (the 2 to 3 day pass; the lead has made it its own ticket).
+- The patient booking flow past step 2, and creating or changing a booking (I wrote nothing to the local DB).
+- Booking blocks on the Calendar (no bookings today in the seed), drag and drop, the other Calendar views.
 - A 390 px screenshot (500 px taken); real-phone rendering of Nepali text.
 - Dark mode of the Astryx theme.
-- A built theme (`astryx theme build`) and the production cost of it.
-- Toast placement (bottom centre) and the CommandPalette opening on ⌘K (I only opened it from a button).
-- Console errors on the pages in acceptance check 2 (the only console errors seen came from the missing local DB
-  tables; the spike page itself logged the runtime-theme warning only).
-- `npm run serve` (I used `vite preview`, which is what `serve` runs).
+- A built theme (`astryx theme build`) and the production cost of it; Toast at bottom centre (an override).
+- The CommandPalette opening on ⌘K (only opened from a button).
 - The Docker image build and the Deploy workflow (`npm ci` works locally; the image was not built).
-- `react-router-dom@6.0.2`, `recharts@2`, `@dnd-kit` and `jspdf` flows on React 19 (they installed with no peer errors; none exercised).
+- `react-router-dom@6.0.2`, `recharts@2`, `@dnd-kit` and `jspdf` flows on React 19 beyond the screens above.
+- Whether `hover:bg-opacity-*` and the other removed utilities (10 uses) change anything visible.
