@@ -48,6 +48,9 @@ All values are **Astryx's neutral theme tokens, unchanged** (read from `github.c
 - **Purple is reserved.** Never use it for a normal button, a link, a selected tab or decoration. If something
   is purple, an agent was involved.
 - **The primary button is near-black,** not a brand colour.
+- **The old brand purple `#7B2FF7` is dropped from the staff app** (Sadin, 2026-11-22). It was the same hex as the
+  agent purple (CMD-77 found this). As each screen moves to Astryx, replace its brand-purple buttons, links,
+  tabs and highlights with the neutral tokens. The logo keeps its own colours.
 - **State colours are for state only,** always with a word beside them. Colour is never the only signal.
 - **No gradients, no coloured page backgrounds, no decorative illustration.**
 - **Dark mode** is supported through Astryx's theme (light and dark values per token). Light is designed first.
