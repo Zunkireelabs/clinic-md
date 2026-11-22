@@ -1,3 +1,13 @@
+/* CMD-77: Tailwind 4 with real cascade layers. Order matters: Astryx's layers sit between Tailwind's
+   base and components/utilities (astryx docs: styling-libraries/tailwind). */
+@layer reset, theme, base, astryx-base, astryx-theme, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@config "../../tailwind.config.js";
+@source "../../src";
+@tailwind utilities;
+
 /* Inter — primary typeface (headings, body, captions) */
 @font-face {
   font-family: 'Inter';
@@ -28,9 +38,6 @@
   src: url('/fonts/Inter-Bold.ttf') format('truetype');
 }
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
 
 @layer base {
   :root {

@@ -46,7 +46,7 @@ const COMMANDS = [
 function Section({ title, children }) {
   return (
     <Card>
-      <VStack gap={3} align="start">
+      <VStack gap={3} align="stretch">
         <Heading level={3}>{title}</Heading>
         {children}
       </VStack>

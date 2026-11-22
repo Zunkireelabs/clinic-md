@@ -1,13 +1,16 @@
-body {
-    margin: 0;
-    padding: 0;
-    font-family: "Inter", sans-serif;
-  }
+/* CMD-77: in the base layer so these resets lose to utilities and to Astryx, as they did when everything was unlayered. */
+@layer base {
+  body {
+      margin: 0;
+      padding: 0;
+      font-family: "Inter", sans-serif;
+    }
   
-  * {
-    box-sizing: border-box;
-    line-height: normal;
-    font-family: inherit;
-    margin: unset;
-  }
+    * {
+      box-sizing: border-box;
+      line-height: normal;
+      font-family: inherit;
+      margin: unset;
+    }
   
+}
