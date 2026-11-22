@@ -59,6 +59,11 @@ phase once Phase 2 is live.
 | Consent for service messages | The phone a patient gave when booking counts as consent for service SMS (confirmations, reminders). Marketing needs explicit consent. STOP works at any time. To be confirmed by the legal check (CMD-59) before go-live. |
 | SMS gateway | Aakash SMS for now; Bird is the alternative. The hub keeps the gateway swappable. |
 | Brand colour | The old brand purple `#7B2FF7` is dropped from the staff app; purple means "an agent did this" (DESIGN-DIRECTION §2). |
+| Order of work (2026-11-22) | All mockups for phases 2–5 are finished before any new-design screen is built; until then builders do groundwork only. No phase dates are set; we keep moving. |
+| Channels (2026-11-22) | Zunkiree connects every channel and holds the provider accounts; no keys at the clinic. The clinic sees status, sender and cost, can pause a channel and ask for a new one (reply within one working day). Self-serve connection comes with Phase 7. |
+| Who edits messaging (2026-11-22) | Owner and managers edit templates, sending rules and consent wording. Front desk and practitioners pick templates in the Inbox. Only the owner turns AI on or off. |
+| AI providers shown (2026-11-22) | Settings › AI and privacy names each provider, what it is used for, what it receives, where, and how long it keeps data (today OpenAI: whisper-1 and gpt-4o). |
+| Defaults (2026-11-22) | Consultation recordings are deleted 30 days after the note is signed. Quiet hours 8:00 pm to 8:00 am, Nepal time; messages due then wait until 8:00 am. An undelivered message moves to the next channel after 10 minutes. |
 
 ## 3. Where the product is today
 
