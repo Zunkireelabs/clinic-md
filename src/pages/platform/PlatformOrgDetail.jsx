@@ -363,7 +363,7 @@ const PlatformOrgDetail = () => {
     <div className="min-h-screen bg-background">
       <PlatformNav />
       <main className="max-w-6xl mx-auto px-6 py-6 space-y-4">
-        <Link to="/platform/dashboard" className="font-body text-sm text-primary hover:underline">← All clients</Link>
+        <Link to="/platform/dashboard" className="inline-block font-body text-sm text-primary hover:underline">← All clients</Link>
         {error && <p className="font-body text-sm text-error">{error}</p>}
 
         <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-6 items-start">
