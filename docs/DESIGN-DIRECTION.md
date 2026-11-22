@@ -133,8 +133,11 @@ Anything an agent did that can be undone shows Undo beside it, where it is liste
 - **Review screens** (consultation note, drafted plan): the AI's draft with its sources beside it, and clear
   accept / edit / reject.
 - **Numbers:** one large figure with a short label, used sparingly (for example agent-handled share).
-- **Phone:** the sidebar becomes a bottom bar or a menu, columns stack, tables scroll sideways inside their own
-  box, panels become bottom sheets. Owner and practitioner screens are designed phone-first.
+- **Phone:** the sidebar becomes a **bottom bar with four tabs plus More** (Sadin, 2026-11-22). The four tabs are
+  the role's main areas; More holds the rest and Settings. The Inbox badge sits on its tab. Owner: Home, Inbox,
+  Calendar, Agents. Practitioner: Home, Inbox, Calendar, Patients. The clinic and branch switcher sits at the top.
+  Columns stack, tables scroll sideways inside their own box, panels become bottom sheets. Owner and practitioner
+  screens are designed phone-first and get phone boards first; front desk and manager follow.
 
 ## 7. Words and tone
 
