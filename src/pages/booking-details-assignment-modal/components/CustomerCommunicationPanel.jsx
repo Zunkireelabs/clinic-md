@@ -260,7 +260,7 @@ const CustomerCommunicationPanel = ({ booking, onSendMessage, isLoading }) => {
             />
             
             <div className="space-y-2">
-              <label className="font-body font-body-medium text-sm text-text-primary">
+              <label className="inline-block font-body font-body-medium text-sm text-text-primary">
                 Email Message
               </label>
               <textarea

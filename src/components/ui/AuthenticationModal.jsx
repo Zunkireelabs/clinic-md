@@ -130,7 +130,7 @@ const AuthenticationModal = ({ isOpen = true, onClose }) => {
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           {/* Role Selection */}
           <div className="space-y-3">
-            <label className="font-body font-body-medium text-sm text-text-primary">
+            <label className="inline-block font-body font-body-medium text-sm text-text-primary">
               Select Role
             </label>
             <div className="grid grid-cols-1 gap-3">
@@ -165,7 +165,7 @@ const AuthenticationModal = ({ isOpen = true, onClose }) => {
 
           {/* Branch Selection */}
           <div className="space-y-2">
-            <label className="font-body font-body-medium text-sm text-text-primary">
+            <label className="inline-block font-body font-body-medium text-sm text-text-primary">
               Branch Location
             </label>
             <CustomSelect
@@ -181,7 +181,7 @@ const AuthenticationModal = ({ isOpen = true, onClose }) => {
 
           {/* Email */}
           <div className="space-y-2">
-            <label className="font-body font-body-medium text-sm text-text-primary">
+            <label className="inline-block font-body font-body-medium text-sm text-text-primary">
               Email Address
             </label>
             <Input
@@ -202,7 +202,7 @@ const AuthenticationModal = ({ isOpen = true, onClose }) => {
 
           {/* Password */}
           <div className="space-y-2">
-            <label className="font-body font-body-medium text-sm text-text-primary">
+            <label className="inline-block font-body font-body-medium text-sm text-text-primary">
               Password
             </label>
             <Input

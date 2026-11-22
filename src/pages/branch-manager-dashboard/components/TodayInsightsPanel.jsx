@@ -194,7 +194,7 @@ const TodayInsightsPanel = ({ branchId, period }) => {
       <div className="p-4 sm:p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-3">
           <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Sold (value in)</span>
-          <div className="flex items-center justify-between">
+          <div className="mt-3 flex items-center justify-between">
             <span className="text-sm text-gray-700">Memberships</span>
             <span className="text-sm font-semibold text-gray-900">
               {data.membershipSold.count} · {formatNPR(data.membershipSold.value)}
@@ -216,7 +216,7 @@ const TodayInsightsPanel = ({ branchId, period }) => {
 
         <div className="space-y-3">
           <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Redeemed (value used)</span>
-          <div className="flex items-center justify-between">
+          <div className="mt-3 flex items-center justify-between">
             <span className="text-sm text-gray-700">Memberships</span>
             <span className="text-sm font-semibold text-gray-900">
               {data.membershipRedeemed.count} · {formatNPR(data.membershipRedeemed.value)}

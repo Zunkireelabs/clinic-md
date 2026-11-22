@@ -121,7 +121,7 @@ const CancellationModal = ({ isOpen, onClose, booking, onConfirm }) => {
 
               {/* Cancellation Reason */}
               <div className="space-y-3">
-                <label className="font-body font-body-medium text-sm text-text-primary">
+                <label className="inline-block font-body font-body-medium text-sm text-text-primary">
                   Reason for Cancellation
                 </label>
                 <div className="space-y-2">

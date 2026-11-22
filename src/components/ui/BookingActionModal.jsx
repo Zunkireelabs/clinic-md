@@ -1359,7 +1359,7 @@ const BookingActionModal = ({
                 {/* Dentist(s) */}
                 {(booking.dentists?.length > 0 || booking.dentist) && !isEditing && (
                   <div className="space-y-1.5 sm:space-y-2">
-                    <label className="font-body font-body-medium text-xs sm:text-sm text-text-secondary">
+                    <label className="inline-block font-body font-body-medium text-xs sm:text-sm text-text-secondary">
                       Assigned Dentist{(booking.dentists?.length || 0) > 1 ? 's' : ''}
                     </label>
                     <div className="font-body font-body-normal text-sm text-text-primary">
@@ -1375,7 +1375,7 @@ const BookingActionModal = ({
 
                 {/* Special Requests */}
                 <div className="space-y-1.5 sm:space-y-2">
-                  <label className="font-body font-body-medium text-xs sm:text-sm text-text-secondary">Special Requests</label>
+                  <label className="inline-block font-body font-body-medium text-xs sm:text-sm text-text-secondary">Special Requests</label>
                   {isEditing ? (
                     <textarea
                       value={editForm.specialRequests}
@@ -1395,7 +1395,7 @@ const BookingActionModal = ({
 
                 {/* Referred by — type freely or pick an existing dentist */}
                 <div className="space-y-1.5 sm:space-y-2">
-                  <label className="font-body font-body-medium text-xs sm:text-sm text-text-secondary">Referred by</label>
+                  <label className="inline-block font-body font-body-medium text-xs sm:text-sm text-text-secondary">Referred by</label>
                   {isEditing ? (
                     <div className="relative">
                       <input
@@ -1443,7 +1443,7 @@ const BookingActionModal = ({
                     booking was the referred customer's first booking. */}
                 {customerReferral && (
                   <div className="space-y-1.5 sm:space-y-2">
-                    <label className="font-body font-body-medium text-xs sm:text-sm text-text-secondary">Referred by (customer)</label>
+                    <label className="inline-block font-body font-body-medium text-xs sm:text-sm text-text-secondary">Referred by (customer)</label>
                     <div className="p-2.5 sm:p-3 bg-background rounded-spa flex items-center justify-between gap-2">
                       <div className="min-w-0">
                         <p className="font-body font-body-normal text-sm text-text-primary truncate">
@@ -1700,7 +1700,7 @@ const BookingActionModal = ({
                 )}
 
                 <div className="space-y-1.5 sm:space-y-2">
-                  <label className="font-body font-body-medium text-xs sm:text-sm text-text-primary">
+                  <label className="inline-block font-body font-body-medium text-xs sm:text-sm text-text-primary">
                     Assignment Notes
                   </label>
                   <textarea
@@ -2003,7 +2003,7 @@ const BookingActionModal = ({
 
                     {/* Discount value */}
                     <div className="space-y-1.5 sm:space-y-2">
-                      <label className="font-body font-body-medium text-xs sm:text-sm text-text-primary">
+                      <label className="inline-block font-body font-body-medium text-xs sm:text-sm text-text-primary">
                         {discountType === 'percentage' ? 'Discount Percentage' : 'Discount Amount (NPR)'}
                         {relatedBookings.length > 0 && (
                           <span className="font-body font-body-normal text-text-secondary"> (shared default — override any treatment above for its own rate)</span>
@@ -2042,7 +2042,7 @@ const BookingActionModal = ({
 
                     {/* Reason / Remarks */}
                     <div className="space-y-1.5 sm:space-y-2">
-                      <label className="font-body font-body-medium text-xs sm:text-sm text-text-primary">
+                      <label className="inline-block font-body font-body-medium text-xs sm:text-sm text-text-primary">
                         {discountExceedsLimit ? 'Remarks' : 'Reason'} <span className="text-error">*</span>
                       </label>
                       <textarea
@@ -2084,7 +2084,7 @@ const BookingActionModal = ({
 
                         {/* Approver picker */}
                         <div className="space-y-1.5">
-                          <label className="font-body font-body-medium text-xs text-text-primary">
+                          <label className="inline-block font-body font-body-medium text-xs text-text-primary">
                             Send request to <span className="text-error">*</span>
                           </label>
                           {approvers.length === 0 ? (
@@ -2416,7 +2416,7 @@ const BookingActionModal = ({
                   {/* Treatment — editable only for "add another treatment" */}
                   {newBookingMode === 'add-treatment' && (
                     <div className="sm:col-span-2">
-                      <label className="block font-body font-body-medium text-xs text-text-secondary mb-1">Treatment *</label>
+                      <label className="inline-block font-body font-body-medium text-xs text-text-secondary mb-1">Treatment *</label>
                       <CustomSelect
                         value={newBookingForm.treatmentId}
                         onChange={(val) => setNewBookingForm(f => ({ ...f, treatmentId: val }))}
@@ -2430,7 +2430,7 @@ const BookingActionModal = ({
 
                   {/* Date */}
                   <div>
-                    <label className="block font-body font-body-medium text-xs text-text-secondary mb-1">Date *</label>
+                    <label className="inline-block font-body font-body-medium text-xs text-text-secondary mb-1">Date *</label>
                     <input
                       type="date"
                       value={newBookingForm.date}
@@ -2442,7 +2442,7 @@ const BookingActionModal = ({
 
                   {/* Time */}
                   <div>
-                    <label className="block font-body font-body-medium text-xs text-text-secondary mb-1">Time *</label>
+                    <label className="inline-block font-body font-body-medium text-xs text-text-secondary mb-1">Time *</label>
                     <CustomSelect
                       value={newBookingForm.startTime}
                       onChange={(val) => setNewBookingForm(f => ({ ...f, startTime: val }))}
@@ -2455,7 +2455,7 @@ const BookingActionModal = ({
 
                   {/* Dentist */}
                   <div>
-                    <label className="block font-body font-body-medium text-xs text-text-secondary mb-1">Dentist</label>
+                    <label className="inline-block font-body font-body-medium text-xs text-text-secondary mb-1">Dentist</label>
                     <CustomSelect
                       value={newBookingForm.dentistId}
                       onChange={(val) => setNewBookingForm(f => ({ ...f, dentistId: val }))}
@@ -2467,7 +2467,7 @@ const BookingActionModal = ({
 
                   {/* Chair */}
                   <div>
-                    <label className="block font-body font-body-medium text-xs text-text-secondary mb-1">Chair</label>
+                    <label className="inline-block font-body font-body-medium text-xs text-text-secondary mb-1">Chair</label>
                     <CustomSelect
                       value={newBookingForm.chairId}
                       onChange={(val) => setNewBookingForm(f => ({ ...f, chairId: val }))}

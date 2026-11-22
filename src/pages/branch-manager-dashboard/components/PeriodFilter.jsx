@@ -57,7 +57,7 @@ const PeriodFilter = ({ value, onChange }) => {
         onChange={handleSelect}
         options={OPTIONS}
         size="sm"
-        className="min-w-28 sm:min-w-36 h-(--control-h) py-0!"
+        className="min-w-28 sm:min-w-36 h-(--control-h)! py-0!"
       />
       {showCustom && (
         <div className="absolute left-0 top-full mt-1 z-dropdown bg-white border border-gray-200 rounded-md shadow-lg p-3 space-y-2 w-64">
