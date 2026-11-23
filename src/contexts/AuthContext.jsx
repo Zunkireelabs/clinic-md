@@ -27,6 +27,7 @@ export const getDashboardPath = (role, orgSlug) => {
       case 'manager':
       case 'admin':
       case 'admin_viewer':
+      case 'practitioner':
         return '/branch-manager-dashboard';
       case 'staff':
       default:
