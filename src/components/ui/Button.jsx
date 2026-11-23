@@ -45,14 +45,14 @@ const Button = React.forwardRef(({
     const variantClasses = {
         primary: 'bg-primary text-primary-foreground hover:bg-primary/90',
         secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
-        success: 'bg-success text-white hover:bg-opacity-90 active:bg-opacity-100 disabled:opacity-50',
-        danger: 'bg-error text-white hover:bg-opacity-90 active:bg-opacity-100 disabled:opacity-50',
-        warning: 'bg-warning text-primary-foreground hover:bg-opacity-90 active:bg-opacity-100 disabled:opacity-50',
-        info: 'bg-accent text-white hover:bg-opacity-90 active:bg-opacity-100 disabled:opacity-50',
+        success: 'bg-success text-white hover:bg-success/90 active:bg-success disabled:opacity-50',
+        danger: 'bg-error text-white hover:bg-error/90 active:bg-error disabled:opacity-50',
+        warning: 'bg-warning text-primary-foreground hover:bg-warning/90 active:bg-warning disabled:opacity-50',
+        info: 'bg-accent text-white hover:bg-accent/90 active:bg-accent disabled:opacity-50',
         ghost: 'hover:bg-primary hover:text-primary-foreground',
         link: 'bg-transparent text-primary-foreground underline hover:text-primary-600 p-0',
         outline: 'border border-input bg-background hover:bg-primary hover:text-primary-foreground',
-        text: 'bg-transparent text-primary-foreground hover:bg-surface hover:bg-opacity-50 active:bg-surface active:bg-opacity-70',
+        text: 'bg-transparent text-primary-foreground hover:bg-surface/50 active:bg-surface/70',
     };
 
 
