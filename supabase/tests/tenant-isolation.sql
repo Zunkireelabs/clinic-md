@@ -285,7 +285,8 @@ DECLARE
   public_allow constant text[] := ARRAY[
     'public_check_branch_bookings_range', 'public_check_customer_exists', 'public_check_slot_availability',
     'public_find_customer_match', 'public_get_booking_by_id', 'public_lookup_referrer_by_phone',
-    'public_record_customer_referral', 'public_search_booking', 'find_customer_for_booking', 'upsert_customer_for_booking'
+    'public_record_customer_referral', 'public_search_booking', 'find_customer_for_booking', 'upsert_customer_for_booking',
+    'public_get_form', 'public_submit_form'
   ];
 BEGIN
   FOR r IN SELECT p.oid::regprocedure::text AS sig, p.proname, (p.prorettype = 'trigger'::regtype) AS is_trigger,
@@ -464,6 +465,7 @@ BEGIN
 
   -- a practitioner (Dr A1), a second dentist in the branch, a one-seat chair
   INSERT INTO auth.users (id, instance_id, aud, role, email, created_at, updated_at) VALUES (u_prac, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-actprac-' || sfx || '@test.invalid', now(), now());
+  UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3d
   INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES (u_prac, 'rls-actprac-' || sfx || '@test.invalid', 'RLS act practitioner', 'practitioner', a1, oa, true, d1);
   INSERT INTO t_actor VALUES ('act_practitioner', u_prac, oa, 'authenticated');
   INSERT INTO dentists (branch_id, name, gender, org_id) VALUES (a1, 'Dr A1b', 'Male', oa) RETURNING id INTO d1b;
@@ -763,6 +765,7 @@ BEGIN
     (u_p2, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-hubp2-' || sfx || '@test.invalid', now(), now()),
     (u_prof, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-hubprof-' || sfx || '@test.invalid', now(), now()),
     (u_staff2, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-hubs2-' || sfx || '@test.invalid', now(), now());
+  UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3d
   INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES
     (u_p1, 'rls-hubp1-' || sfx || '@test.invalid', 'Hub Practitioner One', 'practitioner', a1, oa, true, d1),
     (u_p2, 'rls-hubp2-' || sfx || '@test.invalid', 'Hub Practitioner Two', 'practitioner', a1, oa, true, d2),
@@ -1373,6 +1376,7 @@ BEGIN
   SELECT s.pk::uuid INTO bk_b FROM t_seed s WHERE s.tbl = 'bookings' AND s.org = ob LIMIT 1;
 
   INSERT INTO auth.users (id, instance_id, aud, role, email, created_at, updated_at) VALUES (u_prac, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-mprac-' || sfx || '@test.invalid', now(), now());
+  UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3d
   INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES (u_prac, 'rls-mprac-' || sfx || '@test.invalid', 'RLS money practitioner', 'practitioner', a1, oa, true, d1);
   INSERT INTO t_actor VALUES ('money_practitioner', u_prac, oa, 'authenticated');
   INSERT INTO customers (branch_id, full_name, org_id) VALUES (a1, 'Referred Cust', oa) RETURNING id INTO cu2;
@@ -1648,6 +1652,7 @@ BEGIN
     (u_pr1, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-agpr1-' || sfx || '@test.invalid', now(), now()),
     (u_pr2, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-agpr2-' || sfx || '@test.invalid', now(), now()),
     (u_sa2, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-agsa2-' || sfx || '@test.invalid', now(), now());
+  UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3d
   INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES
     (u_pr1, 'rls-agpr1-' || sfx || '@test.invalid', 'Agent Practitioner One', 'practitioner', a1, oa, true, d_pr1),
     (u_pr2, 'rls-agpr2-' || sfx || '@test.invalid', 'Agent Practitioner Two', 'practitioner', a1, oa, true, d_pr2),
@@ -2648,6 +2653,8 @@ BEGIN
   SELECT uid INTO u_staff FROM t_actor WHERE name = 'staff'; SELECT uid INTO u_prac FROM t_actor WHERE name = 'practitioner';
   SELECT v INTO bk_bd FROM t_prac WHERE k = 'bk_mine_bd'; SELECT v INTO bk_none FROM t_prac WHERE k = 'bk_nobody'; SELECT v INTO bk_col FROM t_prac WHERE k = 'bk_mine_col';
   SELECT v INTO d1 FROM t_prac WHERE k = 'd_a1'; SELECT v INTO d2 FROM t_prac WHERE k = 'd_a2'; SELECT v INTO db FROM t_prac WHERE k = 'd_b';
+  UPDATE public.users SET dentist_id = NULL WHERE dentist_id = d1 AND id <> u_prac;
+  UPDATE public.users SET dentist_id = d1 WHERE id = u_prac AND dentist_id IS DISTINCT FROM d1;   -- merge glue: re-link the shared practitioner
   SELECT v INTO c1 FROM t_prac WHERE k = 'c_a1'; SELECT v INTO bk_b FROM t_prac WHERE k = 'bk_b';
 
   -- (1) money: the practitioner reads NO rows, while staff (control) reads some. Not vacuous: staff must see > 0.
@@ -2765,12 +2772,374 @@ BEGIN
   r := pg_temp.fn_try('customer_no_staff_row', 'SELECT 1 FROM bookings');
   INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient still reads their own booking', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
   r := pg_temp.fn_try('customer_no_staff_row', 'SELECT 1 FROM voucher_types');
-  INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient still reads their org''s voucher types (table has a restrictive policy)', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient still reads their org''s voucher types (table has a restrictive policy)', CASE WHEN r LIKE 'ok:%' AND r <> 'ok:0' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
   r := pg_temp.fn_try('customer_no_staff_row', 'SELECT 1 FROM payments');
   INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient on payments: unchanged (0 rows, no error)', CASE WHEN r = 'ok:0' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
   r := pg_temp.fn_try('customer_no_staff_row', format('UPDATE bookings SET status = status WHERE id = %L', bk_none));
   INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient booking UPDATE not newly blocked by an error', CASE WHEN r IN ('ok:0', 'ok:1', 'denied') THEN 'PASS' ELSE 'FAIL' END, 'got ' || r || ' (same as before: patients have no UPDATE policy)');
 END $prac$;
+
+-- ───────────────────────────── 3e. PATIENTS DATA LAYER (migration-019, CMD-100) ─────────────────────────────
+-- Front desk wall (database + storage), org-scoped reads, patient number, families and the shared phone, alerts, forms (anon token), archive,
+-- erase, merge, consent. Needs 011, 012, 013 and 019, otherwise skipped. Seeds its own rows; the final ROLLBACK removes them.
+CREATE FUNCTION pg_temp.pt_q(p_actor text, p_sql text) RETURNS jsonb LANGUAGE sql AS $$ SELECT pg_temp.act_run(p_actor, p_sql, 0) $$;
+CREATE FUNCTION pg_temp.pt_a(p_actor text, p_sql text) RETURNS jsonb LANGUAGE sql AS $$ SELECT pg_temp.act_run(p_actor, p_sql, 1) $$;
+CREATE FUNCTION pg_temp.pt_ok(r jsonb) RETURNS boolean LANGUAGE sql AS $$ SELECT COALESCE((r ->> 'ok')::boolean, false) $$;
+DO $pat$
+DECLARE
+  oa uuid; ob uuid; a1 uuid; a2 uuid; b1 uuid; tr uuid; d1 uuid; bk uuid; c_a1 uuid; u_adm uuid; u_prac uuid;
+  p1 uuid; p2 uuid; pb uuid; pdup uuid; pfam uuid; pfam2 uuid; perase uuid; parch uuid; bkf uuid; bkm uuid;
+  p1no int; sfx text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 6);
+  r jsonb; r2 jsonb; n bigint; tok text; tok2 text; tmpl uuid; al uuid; al2 uuid; cv uuid; sub uuid; rr record; vv text;
+  nclin int; fam uuid; fam2 uuid; no_before int; no_after int; snap jsonb; snap2 jsonb;
+BEGIN
+  IF to_regprocedure('public.act_patient_create(jsonb,uuid,uuid,jsonb)') IS NULL OR to_regprocedure('public.get_user_dentist_id()') IS NULL THEN
+    INSERT INTO t_res VALUES ('PATIENTS', '-', 'migration-019 checks', 'INFO', 'skipped: migration-019 (or 011) not applied');
+    RETURN;
+  END IF;
+  SELECT org, uid INTO oa, u_adm FROM t_actor WHERE name = 'admin'; SELECT org INTO ob FROM t_actor WHERE name = 'admin_of_OTHER_org';
+  SELECT uid INTO u_prac FROM t_actor WHERE name = 'practitioner';
+  SELECT s.pk::uuid INTO a1 FROM t_seed s JOIN branches b ON b.id = s.pk::uuid WHERE s.tbl = 'branches' AND s.org = oa AND b.name = 'A1';
+  SELECT s.pk::uuid INTO a2 FROM t_seed s JOIN branches b ON b.id = s.pk::uuid WHERE s.tbl = 'branches' AND s.org = oa AND b.name = 'A2';
+  SELECT s.pk::uuid INTO b1 FROM t_seed s WHERE s.tbl = 'branches' AND s.org = ob LIMIT 1;
+  SELECT s.pk::uuid INTO tr FROM t_seed s WHERE s.tbl = 'treatments' AND s.org = oa LIMIT 1;
+  SELECT v INTO bk FROM t_prac WHERE k = 'bk_mine_bd'; SELECT v INTO d1 FROM t_prac WHERE k = 'd_a1'; SELECT v INTO c_a1 FROM t_prac WHERE k = 'c_a1';
+
+  -- seeds (as postgres): two patients in two branches of org A, one in org B; clinical content for p1
+  INSERT INTO customers (branch_id, org_id, full_name, phone, old_file_no) VALUES (a1, oa, 'Pat Lalitpur ' || sfx, '9701000001', 'OLD-' || sfx) RETURNING id, patient_no INTO p1, p1no;
+  INSERT INTO customers (branch_id, org_id, full_name, phone) VALUES (a2, oa, 'Pat Baneshwor ' || sfx, '9701000002') RETURNING id INTO p2;
+  INSERT INTO customers (branch_id, org_id, full_name, phone) VALUES (b1, ob, 'Pat OtherOrg ' || sfx, '9701000003') RETURNING id INTO pb;
+  INSERT INTO treatment_notes (note, booking_id, customer_id, dentist_id) VALUES ('SECRET note body ' || sfx, bk, p1, d1);
+  INSERT INTO consultations (org_id, branch_id, booking_id, customer_id, patient_name, doctor_notes, transcript, xray_image_paths, created_by_name, status)
+    VALUES (oa, a1, bk, p1, 'Pat Lalitpur', 'SECRET consult ' || sfx, 'SECRET transcript', ARRAY[oa::text || '/' || bk::text || '/xray-' || sfx || '.jpg'], 'Dr A1', 'completed');
+  INSERT INTO storage.objects (bucket_id, name) VALUES ('consultation-images', oa::text || '/' || bk::text || '/xray-' || sfx || '.jpg');
+
+  -- ── A. the front-desk wall ──────────────────────────────────────────────────────────────────────────────────────────────────
+  FOREACH vv IN ARRAY ARRAY['treatment_notes', 'consultations'] LOOP
+    PERFORM pg_temp.act_chk('WALL: front desk reads 0 rows of ' || vv, pg_temp.fn_try('staff', format('SELECT * FROM %I WHERE customer_id = %L', vv, p1)) = 'ok:0', 'staff');
+    PERFORM pg_temp.act_chk('WALL: practitioner / manager / admin / viewer read ' || vv,
+      (SELECT bool_and(pg_temp.fn_try(a, format('SELECT * FROM %I WHERE customer_id = %L', vv, p1)) = 'ok:1')
+         FROM unnest(ARRAY['practitioner', 'manager_2_branches', 'admin', 'admin_viewer']) a), 'the four clinical roles');
+  END LOOP;
+  PERFORM pg_temp.act_chk('WALL: front desk cannot write a treatment note', pg_temp.fn_try('staff', format('INSERT INTO treatment_notes (note, booking_id, customer_id) VALUES (''x'', %L, %L)', bk, p1)) = 'denied', 'insert');
+  PERFORM pg_temp.act_chk('WALL: front desk cannot change a treatment note', pg_temp.fn_try('staff', format('UPDATE treatment_notes SET note = ''x'' WHERE customer_id = %L', p1)) = 'ok:0', 'update sees no rows');
+  PERFORM pg_temp.act_chk('WALL: front desk cannot write a consultation', pg_temp.fn_try('staff', format(
+    'INSERT INTO consultations (org_id, branch_id, booking_id, customer_id, patient_name) VALUES (%L, %L, %L, %L, ''x'')', oa, a1, bk, p1)) IN ('denied', 'raised:42501'), 'insert');
+  PERFORM pg_temp.act_chk('WALL: front desk cannot delete a consultation', pg_temp.fn_try('staff', format('DELETE FROM consultations WHERE customer_id = %L', p1)) = 'ok:0', 'delete');
+  PERFORM pg_temp.act_chk('WALL (storage): front desk sees no consultation-images object', pg_temp.fn_try('staff', 'SELECT name FROM storage.objects WHERE bucket_id = ''consultation-images''') = 'ok:0', 'staff');
+  PERFORM pg_temp.act_chk('WALL (storage): front desk cannot upload one', pg_temp.fn_try('staff', format('INSERT INTO storage.objects (bucket_id, name) VALUES (''consultation-images'', %L)', oa::text || '/' || bk::text || '/new.jpg')) IN ('denied', 'raised:42501'), 'insert');
+  PERFORM pg_temp.act_chk('WALL (storage): front desk sees no consultation-audio object', pg_temp.fn_try('staff', 'SELECT name FROM storage.objects WHERE bucket_id = ''consultation-audio''') = 'ok:0', 'staff');
+  PERFORM pg_temp.act_chk('WALL (storage): practitioner / manager / admin / viewer can see the X-ray object',
+    (SELECT bool_and(pg_temp.fn_try(a, 'SELECT name FROM storage.objects WHERE bucket_id = ''consultation-images'' AND name LIKE ''%xray-' || sfx || '%''') = 'ok:1')
+       FROM unnest(ARRAY['practitioner', 'manager_2_branches', 'admin', 'admin_viewer']) a), 'four clinical roles');
+  -- by RPC: only functions on this list may touch the tables (booleans, existence, the metadata index, erase, undo); none may be executable by anon
+  FOR rr IN SELECT p.proname, has_function_privilege('anon', p.oid, 'EXECUTE') AS anon_x FROM pg_proc p
+             WHERE p.pronamespace = 'public'::regnamespace AND p.prosecdef AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
+               AND p.prosrc ~* '(treatment_notes|consultations|doctor_notes|xray_analysis|transcript)'
+               AND p.proname NOT IN ('patient_clinical_index', 'act_patient_erase', 'act_undo', 'consultation_remote_topic_ok') LOOP
+    PERFORM pg_temp.act_chk('WALL (RPC): ' || rr.proname || ' touches clinical tables and is not on the reviewed list', false, 'review it and add it to the list, or remove access');
+  END LOOP;
+  PERFORM pg_temp.act_chk('WALL (views): no public view reads the clinical tables', NOT EXISTS (SELECT 1 FROM information_schema.views WHERE table_schema = 'public' AND view_definition ~* '(treatment_notes|consultations)'), 'views');
+  r := pg_temp.pt_q('staff', format('SELECT jsonb_agg(to_jsonb(x)) FROM public.patient_clinical_index(%L) x', p1));
+  PERFORM pg_temp.act_chk('WALL: front desk gets the clinical INDEX (author, date, kind) and no body', jsonb_array_length(r -> 0 -> 'x' ) IS NULL AND r IS NOT NULL
+    AND NOT (r::text ~* 'SECRET') AND (SELECT bool_and(k IN ('kind', 'ref_id', 'author', 'occurred_at', 'item_count')) FROM jsonb_object_keys(r -> 0) k) AND r::text ~ 'Dr A1', left(r::text, 160));
+  PERFORM pg_temp.act_chk('WALL: anon and a patient cannot call the clinical index', pg_temp.fn_try('anon', format('SELECT * FROM public.patient_clinical_index(%L)', p1)) = 'denied'
+                          AND pg_temp.fn_try('customer_no_staff_row', format('SELECT * FROM public.patient_clinical_index(%L)', p1)) = 'ok:0', 'anon / patient');
+  PERFORM pg_temp.act_chk('WALL: another org cannot read the index', pg_temp.fn_try('admin_of_OTHER_org', format('SELECT * FROM public.patient_clinical_index(%L)', p1)) = 'ok:0', 'org B');
+  PERFORM pg_temp.act_chk('WALL: another org''s admin reads none of org A''s notes or consultations',
+    pg_temp.fn_try('admin_of_OTHER_org', format('SELECT * FROM treatment_notes WHERE customer_id = %L', p1)) = 'ok:0' AND pg_temp.fn_try('admin_of_OTHER_org', format('SELECT * FROM consultations WHERE customer_id = %L', p1)) = 'ok:0', 'org B');
+  PERFORM pg_temp.act_chk('WALL: customer notes (customers.notes) stay readable by front desk (decision 4)', pg_temp.fn_try('staff', format('SELECT notes FROM customers WHERE id = %L', p1)) = 'ok:1', 'customers.notes');
+
+  -- ── B. one record across branches; org scoping ───────────────────────────────────────────────────────────────────────────
+  r := pg_temp.pt_q('staff', format('SELECT jsonb_build_object(''n'', count(*), ''ids'', jsonb_agg(id)) FROM public.list_patients(NULL, ''all'', %L)', 'Pat Baneshwor ' || sfx));
+  PERFORM pg_temp.act_chk('CROSS-BRANCH: staff at A1 finds a patient whose home branch is A2 by name', (r ->> 'n')::int = 1 AND r -> 'ids' ? p2::text, r::text);
+  r := pg_temp.pt_q('staff', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.list_patients(NULL, ''all'', ''9701000002'')'));
+  PERFORM pg_temp.act_chk('CROSS-BRANCH: found by phone', (r ->> 'n')::int = 1, r::text);
+  r := pg_temp.pt_q('staff', format('SELECT jsonb_build_object(''n'', count(*), ''id'', min(id::text)) FROM public.list_patients(NULL, ''all'', %L)', 'P-' || lpad((SELECT patient_no FROM customers WHERE id = p2)::text, 5, '0')));
+  PERFORM pg_temp.act_chk('CROSS-BRANCH: found by P-number (P-01234 form)', (r ->> 'n')::int = 1 AND r ->> 'id' = p2::text, r::text);
+  r := pg_temp.pt_q('staff', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.list_patients(NULL, ''all'', %L)', lower('OLD-' || sfx)));
+  PERFORM pg_temp.act_chk('SEARCH: found by old file number (case-insensitive)', (r ->> 'n')::int = 1, r::text);
+  r := pg_temp.pt_q('staff', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.list_patients(%L, ''all'', %L)', a1, 'Pat Baneshwor ' || sfx));
+  PERFORM pg_temp.act_chk('BRANCH FILTER: filtering to A1 hides the A2 patient; All branches shows them', (r ->> 'n')::int = 0, r::text);
+  r := pg_temp.pt_q('staff', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.list_patients(%L, ''all'', %L)', a2, 'Pat Baneshwor ' || sfx));
+  PERFORM pg_temp.act_chk('BRANCH FILTER: filtering to A2 shows them', (r ->> 'n')::int = 1, r::text);
+  r := pg_temp.pt_q('admin_of_OTHER_org', 'SELECT jsonb_build_object(''n'', count(*), ''leak'', count(*) FILTER (WHERE id IN (SELECT id FROM customers WHERE org_id <> (SELECT org_id FROM users WHERE id = auth.uid())))) FROM public.list_patients(NULL, ''all'', ''Pat'')');
+  PERFORM pg_temp.act_chk('CROSS-ORG: org B lists only its own patients', (r ->> 'leak')::int = 0 AND (r ->> 'n')::int >= 1, r::text);
+  r := pg_temp.pt_q('admin_of_OTHER_org', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.list_patients(NULL, ''all'', %L)', 'Pat Lalitpur ' || sfx));
+  PERFORM pg_temp.act_chk('CROSS-ORG: org B cannot find org A''s patient by name', (r ->> 'n')::int = 0, r::text);
+  r := pg_temp.pt_q('admin_of_OTHER_org', format('SELECT jsonb_build_object(''n'', count(*), ''leak'', count(*) FILTER (WHERE id = %L)) FROM public.patient_lookup(%s)', p1, p1no));
+  PERFORM pg_temp.act_chk('CROSS-ORG: the same P-number in org B never resolves to org A''s patient', (r ->> 'leak')::int = 0, r::text);
+  PERFORM pg_temp.act_chk('CROSS-ORG: org B reads none of org A''s alerts / families / forms / erasures / redirects / counters',
+    (SELECT bool_and(pg_temp.fn_try('admin_of_OTHER_org', format('SELECT * FROM %I WHERE org_id = %L', t, oa)) = 'ok:0') FROM unnest(ARRAY['patient_alerts', 'families', 'form_submissions', 'patient_erasures', 'patient_redirects']) t)
+    AND pg_temp.fn_try('admin_of_OTHER_org', 'SELECT * FROM patient_counters') = 'denied', 'org B');
+  PERFORM pg_temp.act_chk('ANON: list_patients, patient_lookup, needs_attention, act_patient_create are not callable',
+    pg_temp.fn_try('anon', 'SELECT * FROM public.list_patients()') = 'denied' AND pg_temp.fn_try('anon', 'SELECT * FROM public.patient_lookup(1)') = 'denied'
+    AND pg_temp.fn_try('anon', 'SELECT * FROM public.patient_needs_attention()') = 'denied'
+    AND pg_temp.fn_try('anon', 'SELECT public.act_patient_create(''{"full_name":"x"}''::jsonb)') = 'denied', 'anon');
+  PERFORM pg_temp.act_chk('PATIENT LOGIN (no staff row): list_patients refused', pg_temp.fn_try('customer_no_staff_row', 'SELECT * FROM public.list_patients()') = 'denied', 'patient');
+  PERFORM pg_temp.act_chk('staff cannot list ARCHIVED patients (managers only)', pg_temp.fn_try('staff', 'SELECT * FROM public.list_patients(NULL, ''all'', NULL, 5, 0, true)') = 'denied', 'staff');
+
+  -- ── C. patient number: per org, gapless, immutable ────────────────────────────────────────────────────────────────────────
+  SELECT max(patient_no) INTO no_before FROM customers WHERE org_id = oa;
+  BEGIN
+    INSERT INTO customers (branch_id, org_id, full_name) VALUES (a1, oa, 'rolled back ' || sfx);
+    RAISE EXCEPTION 'undo the insert';
+  EXCEPTION WHEN raise_exception THEN NULL; END;
+  INSERT INTO customers (branch_id, org_id, full_name, patient_no) VALUES (a1, oa, 'gapless ' || sfx, 99999) RETURNING patient_no INTO no_after;
+  PERFORM pg_temp.act_chk('PATIENT NO: gapless (a rolled-back insert uses no number) and a supplied number is ignored', no_after = no_before + 1, format('before %s after %s', no_before, no_after));
+  PERFORM pg_temp.act_chk('PATIENT NO: unique per organization (same number may exist in org B)', (SELECT count(*) FROM (SELECT org_id, patient_no FROM customers GROUP BY 1, 2 HAVING count(*) > 1) x) = 0, 'no duplicates');
+  PERFORM pg_temp.act_chk('PATIENT NO: cannot be changed', pg_temp.fn_try('admin', format('UPDATE customers SET patient_no = 4242 WHERE id = %L', p1)) IN ('denied', 'raised:42501'), 'update');
+  PERFORM pg_temp.act_chk('PATIENT NO: the public booking flow (anon insert) still gets a number', pg_temp.fn_try('anon', format('INSERT INTO customers (branch_id, org_id, full_name) VALUES (%L, %L, ''anon booker'')', a1, oa)) = 'ok:1', 'anon insert');
+
+  -- ── D. families and the shared phone ──────────────────────────────────────────────────────────────────────────────────────
+  r := pg_temp.pt_a('staff', 'SELECT public.act_patient_create(' || quote_literal(jsonb_build_object('full_name', 'Fam Parent ' || sfx, 'phone', '9702000001')::text) || '::jsonb, ' || quote_literal(a1) || '::uuid)');
+  pfam := (r #>> '{data,customer_id}')::uuid;
+  PERFORM pg_temp.act_chk('CREATE: front desk creates a patient at their branch and gets a P-number', pg_temp.pt_ok(r) AND (r #>> '{data,patient_no}')::int > 0, r::text);
+  r := pg_temp.pt_q('staff', 'SELECT public.act_patient_create(' || quote_literal(jsonb_build_object('full_name', 'Fam Child ' || sfx, 'phone', '9702000001')::text) || '::jsonb, ' || quote_literal(a1) || '::uuid)');
+  PERFORM pg_temp.act_chk('CREATE: an existing phone asks for the family choice and writes nothing', pg_temp.act_code(r) = 'PHONE_EXISTS' AND r #>> '{data,matches,0,id}' = pfam::text, r::text);
+  r := pg_temp.pt_a('staff', 'SELECT public.act_patient_create(' || quote_literal(jsonb_build_object('full_name', 'Fam Child ' || sfx, 'phone', '9702000001')::text) || '::jsonb, ' || quote_literal(a1) || '::uuid, ' || quote_literal(pfam) || '::uuid)');
+  pfam2 := (r #>> '{data,customer_id}')::uuid;
+  PERFORM pg_temp.act_chk('CREATE: "Add to family" links them (a family is made, the first patient is the contact) and shares the phone',
+    pg_temp.pt_ok(r) AND (SELECT count(DISTINCT family_id) = 1 AND bool_and(family_id IS NOT NULL) FROM customers WHERE id IN (pfam, pfam2))
+    AND (SELECT contact_customer_id FROM families WHERE id = (SELECT family_id FROM customers WHERE id = pfam)) = pfam, r::text);
+  SELECT family_id INTO fam FROM customers WHERE id = pfam;
+  PERFORM pg_temp.act_chk('PHONE: a third person with that phone and no family is still refused (23505)', pg_temp.fn_try('admin', format('INSERT INTO customers (branch_id, org_id, full_name, phone) VALUES (%L, %L, ''Stranger'', ''9702000001'')', a1, oa)) = 'raised:23505', 'guard');
+  vv := 'no error';
+  BEGIN
+    INSERT INTO families (org_id) VALUES (oa) RETURNING id INTO fam2;
+    INSERT INTO customers (branch_id, org_id, full_name, phone, family_id) VALUES (a1, oa, 'Other family', '9702000001', fam2);
+    RAISE EXCEPTION 'undo';
+  EXCEPTION WHEN unique_violation THEN vv := '23505'; WHEN raise_exception THEN NULL; END;
+  PERFORM pg_temp.act_chk('PHONE: two people with a phone in different families are refused', vv = '23505', vv);
+  r := pg_temp.pt_q('staff', format('SELECT jsonb_build_object(''phone'', to_phone, ''to'', to_name, ''patient'', patient_name, ''via'', via_family) FROM public.patient_message_target(%L)', pfam2));
+  PERFORM pg_temp.act_chk('FAMILY: a message to a member goes to the CONTACT''s phone and names the patient', r ->> 'phone' = '+9779702000001' AND r ->> 'to' = 'Fam Parent ' || sfx AND r ->> 'patient' = 'Fam Child ' || sfx AND (r ->> 'via')::boolean, r::text);
+  r := pg_temp.pt_q('admin_of_OTHER_org', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.patient_message_target(%L)', pfam2));
+  PERFORM pg_temp.act_chk('FAMILY: another org cannot resolve the target', (r ->> 'n')::int = 0, r::text);
+  -- anon booking flow with a shared phone: never an error, never several rows, picks the exact name, else the contact
+  r := pg_temp.pt_q('anon', format('SELECT jsonb_build_object(''n'', count(*), ''id'', min(id::text)) FROM public.find_customer_for_booking(%L, ''9702000001'', NULL, %L)', oa, '  fam   CHILD ' || sfx));
+  PERFORM pg_temp.act_chk('ANON BOOKING: shared phone + the child''s name (case and spaces normalised) -> the child, one row', (r ->> 'n')::int = 1 AND r ->> 'id' = pfam2::text, r::text);
+  r := pg_temp.pt_q('anon', format('SELECT jsonb_build_object(''n'', count(*), ''id'', min(id::text)) FROM public.find_customer_for_booking(%L, ''9702000001'', NULL, ''Somebody New'')', oa));
+  PERFORM pg_temp.act_chk('ANON BOOKING: shared phone + an unknown name -> the family contact, one row', (r ->> 'n')::int = 1 AND r ->> 'id' = pfam::text, r::text);
+  r := pg_temp.pt_q('anon', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.find_customer_for_booking(%L, ''9702000001'')', oa));
+  PERFORM pg_temp.act_chk('ANON BOOKING: the old 3-argument call still works and returns one row', (r ->> 'n')::int = 1, r::text);
+  r := pg_temp.pt_q('anon', format('SELECT to_jsonb(public.upsert_customer_for_booking(%L, %L, ''Somebody New'', ''9702000001''))', oa, a1));
+  PERFORM pg_temp.act_chk('ANON BOOKING: upsert with a shared phone and a new name does not error and returns the contact', r #>> '{}' = pfam::text, r::text);
+  r := pg_temp.pt_q('admin', format('SELECT to_jsonb(public.upsert_customer_for_booking(%L, %L, ''Somebody New'', ''9702000001''))', oa, a1));
+  PERFORM pg_temp.act_chk('STAFF BOOKING: upsert with a shared phone does not rename the contact', (SELECT full_name FROM customers WHERE id = pfam) = 'Fam Parent ' || sfx, 'name kept');
+  PERFORM pg_temp.act_chk('DUPLICATES: members of one family are not listed as duplicates',
+    NOT EXISTS (SELECT 1 FROM (SELECT * FROM public.customer_duplicate_candidates(oa)) x WHERE x.customer_id_a IN (pfam, pfam2) AND x.customer_id_b IN (pfam, pfam2)), 'pairs');   -- (as postgres: definer function checks role, so run as manager below)
+  r := pg_temp.pt_q('manager_2_branches', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.customer_duplicate_candidates(%L) x WHERE x.customer_id_a IN (%L, %L) AND x.customer_id_b IN (%L, %L)', oa, pfam, pfam2, pfam, pfam2));
+  PERFORM pg_temp.act_chk('DUPLICATES: ... and a manager''s candidate list agrees', (r ->> 'n')::int = 0, r::text);
+  r := pg_temp.pt_a('staff', format('SELECT public.act_family_unlink(%L)', pfam2));
+  PERFORM pg_temp.act_chk('FAMILY: unlinking someone who shares the phone is refused (PHONE_SHARED), nothing changes', pg_temp.act_code(r) = 'PHONE_SHARED' AND (SELECT family_id FROM customers WHERE id = pfam2) = fam, r::text);
+  r := pg_temp.pt_a('practitioner', format('SELECT public.act_family_link(%L, NULL, %L)', p1, pfam));
+  PERFORM pg_temp.act_chk('FAMILY: a practitioner cannot link families', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.pt_a('staff', format('SELECT public.act_family_link(%L, NULL, %L)', p1, pfam));
+  PERFORM pg_temp.act_chk('FAMILY: linking a patient with a different phone to the family works; undo restores', pg_temp.pt_ok(r) AND (SELECT family_id FROM customers WHERE id = p1) = fam, r::text);
+  r2 := pg_temp.pt_a('staff', format('SELECT public.act_patient_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('FAMILY: undo of the link', pg_temp.pt_ok(r2) AND (SELECT family_id FROM customers WHERE id = p1) IS NULL, r2::text);
+  r := pg_temp.pt_a('manager_2_branches', format('SELECT public.act_family_set_contact(%L, %L)', fam, p2));
+  PERFORM pg_temp.act_chk('FAMILY: the contact must be a member', pg_temp.act_code(r) = 'INVALID_INPUT', r::text);
+  r := pg_temp.pt_a('manager_2_branches', format('SELECT public.act_family_set_contact(%L, %L)', fam, pfam2));
+  PERFORM pg_temp.act_chk('FAMILY: set contact; messages now go to the new contact', pg_temp.pt_ok(r) AND (SELECT contact_customer_id FROM families WHERE id = fam) = pfam2, r::text);
+
+  -- ── E. patient.update and consent ─────────────────────────────────────────────────────────────────────────────────────────
+  r := pg_temp.pt_a('practitioner', format('SELECT public.act_patient_update(%L, ''{"address":"Kupondol","language":"ne"}''::jsonb)', p1));
+  PERFORM pg_temp.act_chk('UPDATE: a practitioner may edit a patient; the audit row holds field NAMES, not values',
+    pg_temp.pt_ok(r) AND (SELECT address FROM customers WHERE id = p1) = 'Kupondol'
+    AND NOT EXISTS (SELECT 1 FROM action_log WHERE id = (r ->> 'action_id')::uuid AND (inputs::text ~ 'Kupondol' OR result::text ~ 'Kupondol')), r::text);
+  r := pg_temp.pt_a('admin_viewer', format('SELECT public.act_patient_update(%L, ''{"address":"x"}''::jsonb)', p1));
+  PERFORM pg_temp.act_chk('UPDATE: read-only (admin_viewer) is refused', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.pt_a('staff', format('SELECT public.act_patient_update(%L, ''{"patient_no":5}''::jsonb)', p1));
+  PERFORM pg_temp.act_chk('UPDATE: a field outside the list (patient_no) is refused', pg_temp.act_code(r) = 'INVALID_INPUT', r::text);
+  r := pg_temp.pt_a('staff', format('SELECT public.act_patient_update(%L, ''{"phone":"9701000002"}''::jsonb)', p1));
+  PERFORM pg_temp.act_chk('UPDATE: taking another patient''s phone is refused (PHONE_EXISTS)', pg_temp.act_code(r) = 'PHONE_EXISTS', r::text);
+  r := pg_temp.pt_a('staff', format('SELECT public.act_patient_update(%L, ''{"date_of_birth":"not a date"}''::jsonb)', p1));
+  PERFORM pg_temp.act_chk('UPDATE: a bad date gives INVALID_INPUT, not a crash', pg_temp.act_code(r) = 'INVALID_INPUT', r::text);
+  r := pg_temp.pt_a('admin_of_OTHER_org', format('SELECT public.act_patient_update(%L, ''{"address":"x"}''::jsonb)', p1));
+  PERFORM pg_temp.act_chk('UPDATE: another organization cannot edit', pg_temp.act_code(r) = 'PATIENT_NOT_FOUND', r::text);
+  r := pg_temp.pt_a('staff', format('SELECT public.act_consent_marketing_yes(%L, ''sms'', ''9701000001'', '''')', p1));
+  PERFORM pg_temp.act_chk('CONSENT: marketing yes without the patient''s words is refused', pg_temp.act_code(r) = 'INVALID_INPUT', r::text);
+  r := pg_temp.pt_a('practitioner', format('SELECT public.act_consent_marketing_yes(%L, ''sms'', ''9701000001'', ''yes please'')', p1));
+  PERFORM pg_temp.act_chk('CONSENT: a practitioner cannot record it', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.pt_a('staff', format('SELECT public.act_consent_marketing_yes(%L, ''sms'', ''9701000001'', ''Said yes at the desk'')', p1));
+  PERFORM pg_temp.act_chk('CONSENT: front desk records it with the patient''s words', pg_temp.pt_ok(r) AND EXISTS (SELECT 1 FROM patient_channels WHERE customer_id = p1 AND purpose = 'marketing' AND status = 'agreed'), r::text);
+
+  -- ── F. alerts ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  r := pg_temp.pt_a('staff', format('SELECT public.act_alert_add(%L, ''allergy'', ''Penicillin'', NULL, ''danger'')', p1));
+  al := (r #>> '{data,alert_id}')::uuid;
+  PERFORM pg_temp.act_chk('ALERT: front desk adds one; it is NOT confirmed for everyone', pg_temp.pt_ok(r) AND (SELECT confirmed_at IS NULL AND source = 'front_desk' FROM patient_alerts WHERE id = al), r::text);
+  PERFORM pg_temp.act_chk('ALERT: everyone in the org sees it as unconfirmed, other orgs see nothing',
+    (SELECT bool_and(pg_temp.fn_try(a, format('SELECT * FROM patient_alerts WHERE id = %L AND confirmed_at IS NULL', al)) = 'ok:1') FROM unnest(ARRAY['staff', 'manager_2_branches', 'admin', 'admin_viewer', 'practitioner']) a)
+    AND pg_temp.fn_try('admin_of_OTHER_org', format('SELECT * FROM patient_alerts WHERE id = %L', al)) = 'ok:0', 'visibility');
+  r := pg_temp.pt_a('staff', format('SELECT public.act_alert_confirm(%L)', al));      PERFORM pg_temp.act_chk('ALERT: front desk cannot confirm', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.pt_a('manager_2_branches', format('SELECT public.act_alert_confirm(%L)', al)); PERFORM pg_temp.act_chk('ALERT: a manager cannot confirm', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.pt_a('admin', format('SELECT public.act_alert_confirm(%L)', al));       PERFORM pg_temp.act_chk('ALERT: the owner cannot confirm (unless a practitioner)', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.pt_a('admin_viewer', format('SELECT public.act_alert_add(%L, ''other'', ''x'')', p1)); PERFORM pg_temp.act_chk('ALERT: read-only cannot add', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.pt_a('staff', format('SELECT public.act_alert_update(%L, ''{"text":"Penicillin (rash)"}''::jsonb)', al));
+  PERFORM pg_temp.act_chk('ALERT: an UNCONFIRMED alert can still be changed by front desk', pg_temp.pt_ok(r) AND (SELECT text FROM patient_alerts WHERE id = al) = 'Penicillin (rash)', r::text);
+  r := pg_temp.pt_a('practitioner', format('SELECT public.act_alert_confirm(%L)', al));
+  PERFORM pg_temp.act_chk('ALERT: a practitioner confirms; everyone now sees it confirmed', pg_temp.pt_ok(r) AND (SELECT confirmed_by = u_prac FROM patient_alerts WHERE id = al), r::text);
+  r := pg_temp.pt_a('practitioner', format('SELECT public.act_alert_confirm(%L)', al));  PERFORM pg_temp.act_chk('ALERT: confirming twice is refused', pg_temp.act_code(r) = 'ALREADY_CONFIRMED', r::text);
+  r := pg_temp.pt_a('staff', format('SELECT public.act_alert_update(%L, ''{"severity":"note"}''::jsonb)', al));  PERFORM pg_temp.act_chk('ALERT: front desk cannot change a CONFIRMED alert', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.pt_a('staff', format('SELECT public.act_alert_remove(%L)', al));         PERFORM pg_temp.act_chk('ALERT: front desk cannot remove a CONFIRMED alert', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.pt_a('manager_2_branches', format('SELECT public.act_alert_remove(%L)', al)); PERFORM pg_temp.act_chk('ALERT: a manager cannot remove a CONFIRMED alert', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.pt_a('practitioner', format('SELECT public.act_alert_update(%L, ''{"severity":"caution"}''::jsonb)', al));
+  PERFORM pg_temp.act_chk('ALERT: a practitioner changes a confirmed alert (stays confirmed)', pg_temp.pt_ok(r) AND (SELECT severity = 'caution' AND confirmed_at IS NOT NULL FROM patient_alerts WHERE id = al), r::text);
+  r := pg_temp.pt_a('practitioner', format('SELECT public.act_alert_remove(%L)', al));
+  PERFORM pg_temp.act_chk('ALERT: a practitioner removes a confirmed alert (soft: the row stays for the audit)', pg_temp.pt_ok(r) AND (SELECT removed_at IS NOT NULL FROM patient_alerts WHERE id = al), r::text);
+  PERFORM pg_temp.act_chk('ALERT: every change above is in the audit log (add, update x2, confirm x2, remove, refusals)', (SELECT count(*) FROM action_log WHERE action LIKE 'alert.%' AND inputs ->> 'alert_id' = al::text OR result #>> '{data,alert_id}' = al::text) >= 10, 'rows');
+  r := pg_temp.pt_a('staff', format('SELECT public.act_alert_add(%L, ''condition'', ''Diabetes'')', p1)); al2 := (r #>> '{data,alert_id}')::uuid;
+  r2 := pg_temp.pt_a('staff', format('SELECT public.act_patient_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('ALERT: undo of an add removes it (only while unconfirmed)', pg_temp.pt_ok(r2) AND (SELECT removed_at IS NOT NULL FROM patient_alerts WHERE id = al2), r2::text);
+  r2 := pg_temp.pt_a('staff', format('SELECT public.act_patient_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('ALERT: the same undo twice is refused', pg_temp.act_code(r2) = 'UNDO_ALREADY', r2::text);
+
+  -- ── G. forms: staff side, the anon token, intake alerts ───────────────────────────────────────────────────────────────────
+  SELECT id INTO tmpl FROM form_templates WHERE key = 'intake' AND org_id IS NULL;
+  r := pg_temp.pt_a('staff', format('SELECT public.act_form_send_link(%L, %L)', p1, tmpl));
+  tok := r #>> '{data,token}';
+  PERFORM pg_temp.act_chk('FORM: front desk sends a link; the token is 64 hex chars (32 random bytes) and only its hash is stored',
+    pg_temp.pt_ok(r) AND tok ~ '^[0-9a-f]{64}$' AND NOT EXISTS (SELECT 1 FROM form_submissions WHERE token_hash = tok) AND EXISTS (SELECT 1 FROM form_submissions WHERE token_hash = encode(sha256(convert_to(tok, 'UTF8')), 'hex')), 'token');
+  PERFORM pg_temp.act_chk('FORM: valid for 3 days', (SELECT expires_at BETWEEN now() + interval '71 hours' AND now() + interval '73 hours' FROM form_submissions WHERE token_hash = encode(sha256(convert_to(tok, 'UTF8')), 'hex')), 'expiry');
+  r := pg_temp.pt_a('practitioner', format('SELECT public.act_form_send_link(%L, %L)', p1, tmpl));   PERFORM pg_temp.act_chk('FORM: a practitioner may send one', pg_temp.pt_ok(r), r::text);
+  r := pg_temp.pt_a('admin_viewer', format('SELECT public.act_form_send_link(%L, %L)', p1, tmpl));  PERFORM pg_temp.act_chk('FORM: read-only may not', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.pt_q('anon', format('SELECT to_jsonb(x) FROM public.public_get_form(%L) x', tok));
+  PERFORM pg_temp.act_chk('FORM (anon): returns only title, body, first name, status (nothing else of the patient)',
+    r ->> 'first_name' = 'Pat' AND (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(r) k) = ARRAY['body', 'first_name', 'status', 'title'] AND NOT (r::text ~ ('9701000001|' || sfx)), r::text);
+  r := pg_temp.pt_q('anon', format('SELECT to_jsonb(x) FROM public.public_get_form(%L) x', repeat('a', 64)));       PERFORM pg_temp.act_chk('FORM (anon): a wrong token returns nothing', r IS NULL, coalesce(r::text, 'null'));
+  r := pg_temp.pt_q('anon', 'SELECT to_jsonb(x) FROM public.public_get_form(''short'') x');                          PERFORM pg_temp.act_chk('FORM (anon): a short token returns nothing', r IS NULL, coalesce(r::text, 'null'));
+  r := pg_temp.pt_q('anon', format('SELECT to_jsonb(public.public_submit_form(%L, ''{}''::jsonb))', repeat('b', 64)));  PERFORM pg_temp.act_chk('FORM (anon): submitting with a wrong token is "invalid"', r #>> '{}' = 'invalid', r::text);
+  r := pg_temp.pt_q('anon', format('SELECT to_jsonb(public.public_submit_form(%L, ''{"allergies":"Latex","conditions":["Asthma"]}''::jsonb, ''phone''))', tok));
+  PERFORM pg_temp.act_chk('FORM (anon): submit works once; the answers create UNCONFIRMED alerts (source intake_form)',
+    r #>> '{}' = 'ok' AND (SELECT count(*) FROM patient_alerts WHERE customer_id = p1 AND source = 'intake_form' AND confirmed_at IS NULL AND text IN ('Latex', 'Asthma')) = 2, r::text);
+  r := pg_temp.pt_q('anon', format('SELECT to_jsonb(public.public_submit_form(%L, ''{}''::jsonb))', tok));
+  PERFORM pg_temp.act_chk('FORM (anon): a signed form cannot be submitted again', r #>> '{}' = 'already_signed', r::text);
+  r := pg_temp.pt_q('anon', format('SELECT to_jsonb(x) FROM public.public_get_form(%L) x', tok));                      PERFORM pg_temp.act_chk('FORM (anon): and can no longer be opened', r IS NULL, coalesce(r::text, 'null'));
+  r := pg_temp.pt_a('staff', format('SELECT public.act_form_send_link(%L, %L)', p1, tmpl)); tok2 := r #>> '{data,token}';
+  UPDATE form_submissions SET expires_at = now() - interval '1 minute' WHERE token_hash = encode(sha256(convert_to(tok2, 'UTF8')), 'hex');
+  r := pg_temp.pt_q('anon', format('SELECT to_jsonb(public.public_submit_form(%L, ''{}''::jsonb))', tok2));            PERFORM pg_temp.act_chk('FORM (anon): an expired link is refused', r #>> '{}' = 'expired', r::text);
+  r := pg_temp.pt_q('anon', format('SELECT to_jsonb(x) FROM public.public_get_form(%L) x', tok2));                    PERFORM pg_temp.act_chk('FORM (anon): an expired link cannot be opened', r IS NULL, coalesce(r::text, 'null'));
+  PERFORM pg_temp.act_chk('FORM (anon): anon cannot read the table itself', pg_temp.fn_try('anon', 'SELECT * FROM form_submissions') = 'denied', 'anon');
+  PERFORM pg_temp.act_chk('FORMS ARE NOT CLINICAL: front desk reads the answers', pg_temp.fn_try('staff', format('SELECT answers FROM form_submissions WHERE customer_id = %L AND status = ''signed''', p1)) = 'ok:1', 'staff reads');
+  r := pg_temp.pt_a('staff', format('SELECT public.act_form_record_typed(%L, %L, ''{"allergies":"Nuts"}''::jsonb)', p1, tmpl));
+  PERFORM pg_temp.act_chk('FORMS ARE NOT CLINICAL: front desk types the answers in (signed, channel typed)', pg_temp.pt_ok(r) AND EXISTS (SELECT 1 FROM form_submissions WHERE customer_id = p1 AND channel = 'typed' AND status = 'signed'), r::text);
+  r := pg_temp.pt_a('staff', format('SELECT public.act_form_start_on_device(%L, %L)', p1, tmpl));  PERFORM pg_temp.act_chk('FORM: start on the clinic tablet gives a token', pg_temp.pt_ok(r) AND (r #>> '{data,token}') ~ '^[0-9a-f]{64}$', r::text);
+
+  -- ── H. needs attention ────────────────────────────────────────────────────────────────────────────────────────────────────
+  r := pg_temp.pt_q('staff', format('SELECT jsonb_agg(reason) FROM public.patient_needs_attention() WHERE customer_id = %L', p1));
+  PERFORM pg_temp.act_chk('NEEDS ATTENTION: unconfirmed alerts put the patient on the list', r ? 'unconfirmed_alert', coalesce(r::text, 'null'));
+  r := pg_temp.pt_q('admin_of_OTHER_org', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.patient_needs_attention() WHERE customer_id = %L', p1));
+  PERFORM pg_temp.act_chk('NEEDS ATTENTION: org B never sees org A''s patients', (r ->> 'n')::int = 0, r::text);
+
+  -- ── I. archive and restore ────────────────────────────────────────────────────────────────────────────────────────────────
+  INSERT INTO customers (branch_id, org_id, full_name, phone) VALUES (a1, oa, 'Archive Me ' || sfx, '9703000001') RETURNING id INTO parch;
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status)
+    VALUES (a1, tr, parch, 'Archive Me', '2031-06-01', '10:00', '10:30', '2031-06-01 10:00+00', '2031-06-01 10:30+00', 1000, 1000, 'Confirmed') RETURNING id INTO bkf;
+  INSERT INTO conversations (org_id, branch_id, channel, address, customer_id) VALUES (oa, a1, 'sms', '9703000001', parch) RETURNING id INTO cv;
+  r := pg_temp.pt_a('staff', format('SELECT public.act_patient_archive(%L, ''moved away'')', parch));         PERFORM pg_temp.act_chk('ARCHIVE: front desk cannot', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.pt_a('practitioner', format('SELECT public.act_patient_archive(%L)', parch));                  PERFORM pg_temp.act_chk('ARCHIVE: a practitioner cannot', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.act_run('manager_2_branches', format('SELECT public.act_patient_archive(%L, ''moved away'')', parch), 2);   -- the archive row + the booking cancellation row
+  PERFORM pg_temp.act_chk('ARCHIVE: a manager archives; the future booking is cancelled (audited) and dues are reported',
+    pg_temp.pt_ok(r) AND (r #>> '{data,cancelled_bookings}')::int = 1 AND (SELECT status::text FROM bookings WHERE id = bkf) = 'Cancelled' AND (SELECT archived_at IS NOT NULL FROM customers WHERE id = parch), r::text);
+  r := pg_temp.pt_q('staff', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.list_patients(NULL, ''all'', %L)', 'Archive Me ' || sfx));
+  PERFORM pg_temp.act_chk('ARCHIVE: hidden from list and search', (r ->> 'n')::int = 0, r::text);
+  r := pg_temp.pt_q('manager_2_branches', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.list_patients(NULL, ''all'', %L, 10, 0, true)', 'Archive Me ' || sfx));
+  PERFORM pg_temp.act_chk('ARCHIVE: a manager can find them in the archived view', (r ->> 'n')::int = 1, r::text);
+  INSERT INTO messages (org_id, conversation_id, direction, kind, body, author_kind, author_agent, status) VALUES (oa, cv, 'out', 'message', 'reminder', 'agent', 'follow_up', 'queued');
+  PERFORM pg_temp.act_chk('ARCHIVE: an agent message to an archived patient is cancelled, never sent', (SELECT status = 'cancelled' AND error = 'PATIENT_ARCHIVED' FROM messages WHERE conversation_id = cv), 'trigger');
+  snap := (SELECT to_jsonb(c) - 'archived_at' - 'archived_by' - 'archive_reason' FROM customers c WHERE id = parch);
+  r := pg_temp.pt_a('admin', format('SELECT public.act_patient_restore(%L)', parch));
+  snap2 := (SELECT to_jsonb(c) - 'archived_at' - 'archived_by' - 'archive_reason' FROM customers c WHERE id = parch);
+  PERFORM pg_temp.act_chk('RESTORE: the owner restores; the record is unchanged', pg_temp.pt_ok(r) AND snap = snap2 AND (SELECT archived_at IS NULL FROM customers WHERE id = parch), r::text);
+  r := pg_temp.pt_q('staff', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.list_patients(NULL, ''all'', %L)', 'Archive Me ' || sfx));
+  PERFORM pg_temp.act_chk('RESTORE: back in the list', (r ->> 'n')::int = 1, r::text);
+
+  -- ── J. merge ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  INSERT INTO customers (branch_id, org_id, full_name, phone) VALUES (a1, oa, 'Dup Of Archive ' || sfx, '9703000099') RETURNING id, patient_no INTO pdup, no_before;
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount)
+    VALUES (a1, tr, pdup, 'Dup', '2031-07-01', '10:00', '10:30', '2031-07-01 10:00+00', '2031-07-01 10:30+00', 1000, 1000) RETURNING id INTO bkm;
+  INSERT INTO treatment_notes (note, booking_id, customer_id, dentist_id) VALUES ('dup note', bkm, pdup, d1);
+  INSERT INTO patient_alerts (org_id, customer_id, type, text, source) VALUES (oa, pdup, 'other', 'dup alert', 'import');
+  INSERT INTO form_submissions (org_id, customer_id, template_id, channel, status, signed_at) VALUES (oa, pdup, tmpl, 'typed', 'signed', now());
+  INSERT INTO conversations (org_id, branch_id, channel, address, customer_id) VALUES (oa, a1, 'sms', '9703000099', pdup);
+  r := pg_temp.pt_a('staff', format('SELECT public.act_duplicates_merge(%L, %L)', parch, pdup));              PERFORM pg_temp.act_chk('MERGE: front desk cannot', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.pt_a('admin_of_OTHER_org', format('SELECT public.act_duplicates_merge(%L, %L)', parch, pdup)); PERFORM pg_temp.act_chk('MERGE: another org cannot', pg_temp.act_code(r) = 'INVALID_INPUT', r::text);
+  r := pg_temp.pt_a('manager_2_branches', format('SELECT public.act_duplicates_merge(%L, %L)', parch, pdup));
+  PERFORM pg_temp.act_chk('MERGE: moves bookings, notes, alerts, forms and conversations to the kept record; the dropped row is gone',
+    pg_temp.pt_ok(r) AND NOT EXISTS (SELECT 1 FROM customers WHERE id = pdup)
+    AND (SELECT customer_id FROM bookings WHERE id = bkm) = parch AND (SELECT count(*) FROM treatment_notes WHERE customer_id = parch AND note = 'dup note') = 1
+    AND (SELECT count(*) FROM patient_alerts WHERE customer_id = parch AND text = 'dup alert') = 1 AND (SELECT count(*) FROM form_submissions WHERE customer_id = parch AND channel = 'typed') >= 1
+    AND (SELECT count(*) FROM conversations WHERE customer_id = parch AND address = '9703000099') = 1, r::text);
+  r := pg_temp.pt_q('staff', format('SELECT jsonb_build_object(''id'', id, ''redirected'', redirected) FROM public.patient_lookup(%s)', no_before));
+  PERFORM pg_temp.act_chk('MERGE: the old P-number opens the kept record', r ->> 'id' = parch::text AND (r ->> 'redirected')::boolean, r::text);
+  PERFORM pg_temp.act_chk('MERGE: audited (one row, ids only)', (SELECT count(*) FROM action_log WHERE action = 'duplicates.merge' AND ok AND target_id = parch) = 1, 'log');
+  INSERT INTO customers (branch_id, org_id, full_name, phone) VALUES (a1, oa, 'Dismiss A ' || sfx, '9803000201') RETURNING id INTO pdup;
+  INSERT INTO customers (branch_id, org_id, full_name, phone) VALUES (a1, oa, 'Dismiss B ' || sfx, '9803000202') RETURNING id INTO pfam;
+  r := pg_temp.pt_a('manager_2_branches', format('SELECT public.act_duplicates_dismiss(%L, %L)', pdup, pfam));
+  PERFORM pg_temp.act_chk('DISMISS: a manager dismisses a pair; front desk cannot', pg_temp.pt_ok(r) AND pg_temp.act_code(pg_temp.pt_a('staff', format('SELECT public.act_duplicates_dismiss(%L, %L)', pdup, pfam))) = 'FORBIDDEN', r::text);
+  r := pg_temp.pt_a('staff', format('SELECT public.act_duplicates_link_family(%L, %L)', pdup, pfam));
+  PERFORM pg_temp.act_chk('LINK AS FAMILY (duplicates screen): front desk cannot, a manager can', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+
+  -- ── K. erase ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  INSERT INTO customers (branch_id, org_id, full_name, phone, email, notes, address, family_id) VALUES (a1, oa, 'Erase Me ' || sfx, '9704000001', 'erase@example.test', 'private note', 'Somewhere', fam) RETURNING id INTO perase;
+  UPDATE customers SET phone = NULL WHERE id = perase;   -- a family member may not share a phone without the contact; keep the test simple
+  UPDATE customers SET phone = '9704000001' WHERE id = perase AND family_id IS NULL;
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, customer_phone, customer_email, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount)
+    VALUES (a1, tr, perase, 'Erase Me', '9704000001', 'erase@example.test', '2031-08-01', '10:00', '10:30', '2031-08-01 10:00+00', '2031-08-01 10:30+00', 1000, 1000) RETURNING id INTO bkm;
+  INSERT INTO treatment_notes (note, booking_id, customer_id, dentist_id) VALUES ('kept clinical note', bkm, perase, d1);
+  INSERT INTO consultations (org_id, branch_id, booking_id, customer_id, patient_name, doctor_notes, transcript, audio_paths, status)
+    VALUES (oa, a1, bkm, perase, 'Erase Me', 'kept consult', 'spoken words', ARRAY[oa::text || '/' || bkm::text || '/rec-' || sfx || '.webm'], 'completed');
+  INSERT INTO storage.objects (bucket_id, name) VALUES ('consultation-audio', oa::text || '/' || bkm::text || '/rec-' || sfx || '.webm');
+  INSERT INTO patient_alerts (org_id, customer_id, type, text, source) VALUES (oa, perase, 'allergy', 'kept alert', 'practitioner');
+  INSERT INTO conversations (org_id, branch_id, channel, address, customer_id) VALUES (oa, a1, 'sms', '9704000001', perase);
+  INSERT INTO patient_channels (org_id, customer_id, channel, address, purpose, status, source) VALUES (oa, perase, 'sms', '9704000001', 'service', 'agreed', 'booking');
+  FOREACH vv IN ARRAY ARRAY['staff', 'manager_2_branches', 'practitioner', 'admin_viewer'] LOOP
+    r := pg_temp.pt_a(vv, format('SELECT public.act_patient_erase(%L, ''x'', ''Erase Me %s'')', perase, sfx));
+    PERFORM pg_temp.act_chk('ERASE: ' || vv || ' is refused', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  END LOOP;
+  r := pg_temp.pt_a('admin_of_OTHER_org', format('SELECT public.act_patient_erase(%L, ''x'', ''Erase Me %s'')', perase, sfx));
+  PERFORM pg_temp.act_chk('ERASE: another org''s owner cannot', pg_temp.act_code(r) = 'PATIENT_NOT_FOUND', r::text);
+  r := pg_temp.pt_a('admin', format('SELECT public.act_patient_erase(%L, %L, ''Erase Me %s'')', perase, oa::text || '/' || perase::text || '/request.pdf', sfx));
+  PERFORM pg_temp.act_chk('ERASE: without the uploaded written request it is refused', pg_temp.act_code(r) = 'REQUEST_FILE_MISSING', r::text);
+  INSERT INTO storage.objects (bucket_id, name) VALUES ('erase-requests', oa::text || '/' || perase::text || '/request.pdf');
+  r := pg_temp.pt_a('admin', format('SELECT public.act_patient_erase(%L, %L, ''Somebody Else'')', perase, oa::text || '/' || perase::text || '/request.pdf'));
+  PERFORM pg_temp.act_chk('ERASE: the typed name must match', pg_temp.act_code(r) = 'NAME_MISMATCH', r::text);
+  r := pg_temp.pt_a('admin', format('SELECT public.act_patient_erase(%L, %L, ''Erase Me %s'')', perase, oa::text || '/' || (SELECT gen_random_uuid())::text || '/request.pdf', sfx));
+  PERFORM pg_temp.act_chk('ERASE: a request file under another patient''s folder is refused', pg_temp.act_code(r) = 'REQUEST_FILE_MISSING', r::text);
+  r := pg_temp.pt_a('admin', format('SELECT public.act_patient_erase(%L, %L, ''  erase   ME %s'')', perase, oa::text || '/' || perase::text || '/request.pdf', sfx));
+  PERFORM pg_temp.act_chk('ERASE: while the recordings still exist in storage the SQL refuses (the two steps cannot be split)', pg_temp.act_code(r) = 'AUDIO_FILES_REMAIN' AND (SELECT erased_at IS NULL FROM customers WHERE id = perase), r::text);
+  PERFORM set_config('storage.allow_delete_query', 'true', true);   -- stands in for the edge function deleting through the Storage API
+  DELETE FROM storage.objects WHERE bucket_id = 'consultation-audio' AND name LIKE '%rec-' || sfx || '.webm';
+  PERFORM set_config('storage.allow_delete_query', 'false', true);
+  r := pg_temp.pt_a('admin', format('SELECT public.act_patient_erase(%L, %L, ''  erase   ME %s'')', perase, oa::text || '/' || perase::text || '/request.pdf', sfx));
+  PERFORM pg_temp.act_chk('ERASE: the owner erases (typed name normalised)', pg_temp.pt_ok(r), r::text);
+  PERFORM pg_temp.act_chk('ERASE: personal fields, family link, threads, channels and recordings are gone',
+    (SELECT full_name = 'Erased patient P-' || lpad(patient_no::text, 5, '0') AND phone IS NULL AND email IS NULL AND notes IS NULL AND address IS NULL AND family_id IS NULL AND erased_at IS NOT NULL FROM customers WHERE id = perase)
+    AND NOT EXISTS (SELECT 1 FROM conversations WHERE customer_id = perase) AND NOT EXISTS (SELECT 1 FROM patient_channels WHERE customer_id = perase)
+    AND (SELECT transcript IS NULL AND audio_paths = '{}' FROM consultations WHERE customer_id = perase), 'wiped');
+  PERFORM pg_temp.act_chk('ERASE: clinical rows are KEPT, shown as "Erased patient P-…"; booking contact copies are relabelled',
+    (SELECT note FROM treatment_notes WHERE customer_id = perase) = 'kept clinical note' AND (SELECT doctor_notes FROM consultations WHERE customer_id = perase) = 'kept consult'
+    AND (SELECT count(*) FROM patient_alerts WHERE customer_id = perase) = 1
+    AND (SELECT customer_name LIKE 'Erased patient P-%' AND customer_phone IS NULL AND customer_email IS NULL FROM bookings WHERE id = bkm)
+    AND (SELECT patient_name LIKE 'Erased patient P-%' FROM consultations WHERE customer_id = perase), 'kept');
+  PERFORM pg_temp.act_chk('ERASE: recorded in patient_erasures (with the request path) and audited without the name or phone',
+    EXISTS (SELECT 1 FROM patient_erasures WHERE customer_id = perase AND request_path LIKE '%request.pdf') AND (SELECT count(*) FROM action_log WHERE action = 'patient.erase' AND target_id = perase AND ok AND NOT (inputs::text || result::text ~* 'Erase Me|9704000001|erase@example')) = 1, 'audit');
+  r := pg_temp.pt_q('staff', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.list_patients(NULL, ''all'', ''Erase'')'));
+  PERFORM pg_temp.act_chk('ERASE: gone from list and search; the old number says erased', (r ->> 'n')::int = 0 AND (SELECT erased FROM public.patient_lookup((SELECT patient_no FROM customers WHERE id = perase)) WHERE id = perase), r::text);
+  r := pg_temp.pt_a('staff', format('SELECT public.act_patient_update(%L, ''{"address":"x"}''::jsonb)', perase));  PERFORM pg_temp.act_chk('ERASE: an erased patient cannot be edited', pg_temp.act_code(r) = 'PATIENT_ERASED', r::text);
+  r := pg_temp.pt_a('admin', format('SELECT public.act_patient_erase(%L, %L, ''x'')', perase, oa::text || '/' || perase::text || '/request.pdf'));
+  PERFORM pg_temp.act_chk('ERASE: twice is refused', pg_temp.act_code(r) = 'ALREADY_ERASED', r::text);
+  PERFORM pg_temp.act_chk('ERASE: front desk cannot read the erase requests bucket', pg_temp.fn_try('staff', 'SELECT * FROM storage.objects WHERE bucket_id = ''erase-requests''') = 'ok:0'
+                          AND pg_temp.fn_try('admin', 'SELECT * FROM storage.objects WHERE bucket_id = ''erase-requests''') = 'ok:1', 'bucket');
+
+  -- ── L. the rest of the surface ────────────────────────────────────────────────────────────────────────────────────────────
+  PERFORM pg_temp.act_chk('SURFACE: no new patient function is executable by anon except the two token functions and the booking pair',
+    NOT EXISTS (SELECT 1 FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND has_function_privilege('anon', p.oid, 'EXECUTE')
+                 AND (p.proname LIKE 'act\_%' OR p.proname LIKE '\_pt\_%' OR p.proname LIKE 'list\_patients%' OR p.proname LIKE 'patient\_%' OR p.proname LIKE '\_merge%' OR p.proname LIKE '\_pick%')), 'anon');
+  PERFORM pg_temp.act_chk('SURFACE: patient_counters and the 019 tables cannot be written by clients',
+    (SELECT bool_and(pg_temp.fn_try('admin', format('INSERT INTO %I SELECT * FROM %I WHERE false', t, t)) IN ('denied', 'raised:42501')) FROM unnest(ARRAY['patient_alerts', 'families', 'form_submissions', 'form_templates', 'patient_erasures', 'patient_redirects']) t), 'no write grants');
+END $pat$;
 
 -- COVERAGE: RLS tables that this test does not seed (static checks above still apply)
 INSERT INTO t_res

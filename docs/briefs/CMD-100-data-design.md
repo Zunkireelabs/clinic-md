@@ -1,8 +1,61 @@
 # CMD-100 · Patients Part 0 (data layer): design for approval
 
-**Status:** DRAFT for lead approval. No SQL written. · **Migration:** 019 (PM to claim on CMD-100; no `019` exists on any remote branch as of 2026-11-23)
+**Status:** APPROVED 9.2/10 by the lead (2026-11-23) with rulings; SQL written and tested on local. See "As built" below, which wins over the text under it where they differ. · **Migration:** 019 (PM to claim on CMD-100; no `019` exists on any remote branch as of 2026-11-23)
 **Branch:** `feature/CMD-100-patients-data`, from `origin/feature/CMD-97-playbooks-new-orgs` (#22). Local DB only (55322).
 **Brief:** `docs/briefs/CMD-99-patients.md` §2 row 0, §6, checks 2, 3, 6, 8, 9, 10, 13, 14 at data level.
+
+
+## As built (what the code does; read this first)
+
+Files: `supabase/migration-019-patients-data.sql`, `-rollback.sql`, `-preflight.sql`; `src/services/actions.js` (+ test); `supabase/functions/patient-erase/` and
+`_shared/patient-erase*.ts` (+ test); `scripts/test-patient-erase-local.mjs`; `supabase/tests/tenant-isolation.sql` section 3e (131 checks).
+Branch merged `origin/feature/CMD-79-practitioner-access` (011) as ruled; the PR says "stacks on #15 and #22".
+
+**Rulings folded in:** (1) 011 merged. (2) Phone rule A, plus `patient_message_target(p_customer)` (messages to ANY family member go to the contact's phone
+and name the patient). The anon booking pair never errors and returns one row: `_pick_customer_for_booking` takes the exact (case/space-normalised) name, else the
+family contact, else the oldest; `find_customer_for_booking` gained an optional 4th argument `p_full_name` (the 3-argument call still works). Phones are now
+matched **normalised** (`normalize_phone_e164`), because stored phones are normalised by an existing trigger and the old exact compare never matched raw input.
+Staff upsert never renames a family member to a different typed name. (3) Front desk cannot read or write `consultations` / `treatment_notes` or touch
+`consultation-audio` / `-images` (RESTRICTIVE policies; also proven through the Storage API: signed URL and download). **Forms are NOT clinical**: no policy on
+`form_submissions`; front desk reads and types the answers. Preflight lists staff users who wrote clinical content. (4) `customers.notes`, `bookings.notes` stay
+readable. (5) Patient actions are org-wide for every allowed role; the audit `branch_id` is the actor's first branch. (6) `notice.send_bulk` is not in 019.
+(7) Alerts are kept on erase. A. Erase: edge function `patient-erase` + SQL refusing while audio exists. B. Form token: 32 random bytes (64 hex), only the sha256 is
+stored, 3 days, one submission, `public_get_form` returns title/body/first name/status only. C. Erase role is `admin` = owner; `admin_viewer` refused. D. Only
+§4 touches `consultations`. E. See "api.js reads Part 1 must change" below.
+
+**Differences from the draft above:**
+- **Merge** deletes the dropped row (as today's `merge_customers` does) and writes `patient_redirects (org, old P-number -> kept id)`; there is no `merged_into` column.
+  One routine `_merge_customer_rows` serves `act_duplicates_merge` and the legacy `merge_customers` RPC. It repoints **every** referencing table; the old RPC missed
+  treatment_notes, consultations, conversations, patient_channels, agent rows and packages (their FKs are ON DELETE SET NULL / NO ACTION, so a merge would have orphaned
+  notes). Duplicate dismissals reuse the existing `customer_duplicate_dismissals`; `customer_duplicate_candidates` now ignores same-family pairs.
+- **Undo:** `patient.create`, `patient.update`, forms, archive, erase and merge have none (create keeps numbers gapless; update would copy personal values into the audit log).
+  Undo exists for alert add / confirm / remove and family link / unlink, through `act_patient_undo` (action name `patient.undo`), kept apart from `act_undo` so 012 / 013 / 016 are untouched.
+  The audit rows hold ids and field NAMES only, never values.
+- **`list_patients` has no balance column** (money is a separate read; practitioners have no money access). Part 1 adds it for the roles that may see it.
+- **Archive** also skips queued `agent_jobs`, expires open `agent_work_items`, and a trigger on `messages` cancels any outbound agent / rule / system message to an archived or erased patient
+  (`PATIENT_ARCHIVED`). Bulk sends do not exist yet (Part 1 must filter `archived_at IS NULL AND erased_at IS NULL`).
+- **Erase order** in the edge function: ask the database first (it checks role, request file, typed name); only `AUDIO_FILES_REMAIN` triggers deletion of the recordings, then the
+  database step again. A bad request therefore never deletes a file. It also removes the patient's login (auth user).
+- **`patient.erase` in the client** calls the edge function (`runAction` gained an `fn` kind), not an RPC.
+- Not changed: migration-013 line 226 (staff/manager reach a patient's conversation only by the patient's HOME branch). Under "one record across branches" a front desk at another branch cannot open that
+  patient's thread. Proposed follow-up ticket, not scope creep here.
+
+**Known gap:** `action_log` is append-only, so personal words recorded by EARLIER actions (013 consent `evidence` text) stay in the log after an erase. 019's own actions log no values.
+
+## PR body notes (production)
+
+- **Stacks on #15 (011) and #22.** Prod order: #15 applied and merged first, then 012..018, then 019.
+- **019 is applied only after the users listed by `migration-019-preflight.sql` section 1 and 2 are moved to practitioner, and only with Part 2's lock lines or Sadin's explicit go-ahead.** After 019 front desk loses all access to consultations, notes and consultation files.
+- Not applied to production. Rehearse on a prod-schema copy (CMD-11). Rollback file stops if any patient was erased or any family shares a phone.
+- Deploy the `patient-erase` edge function before the owner uses erase; the `erase-requests` bucket is created by 019 (it is not deleted by the rollback).
+
+### api.js reads Part 1 must change (E)
+- `fetchCustomers(branchId)` (api.js:6187): `.eq('branch_id', ...)`; replace with `list_patients(p_branch, ...)` (org-wide, branch is a filter).
+- `getCustomerIntelligence({ branchId })` (api.js:6533): `withBranch(custQuery, branchId)`; decide per widget whether branch (home branch) or org.
+- `getPatientsDirectory({ branchId })` (api.js:6716, 6731): patients with a booking at the branch; replace with the org list.
+- Already org-wide, only add `archived_at IS NULL` / `erased_at IS NULL` and P-number / old-file search: `searchCustomers` (4022), `findCustomerByPhone` (4067), `updateBookingDetails` (2025), `findOrCreateCustomer` (8856-8911; note phones are now matched normalised).
+- `updateCustomerFields` (6515) should call `patient.update`; `mergeCustomers` (6273) should call `duplicates.merge`.
+- `getPatientRecord` (6478) reads `treatment_notes` / `consultations` directly: for front desk it now returns no notes; Part 2 must use `patient_clinical_index` for the lock lines.
 
 ## 0. Problems found first (need a ruling)
 
