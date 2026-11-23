@@ -17,19 +17,21 @@ import { isSettingsView } from '../pages/branch-manager-dashboard/components/Set
 const ALL = ['staff', 'manager', 'admin', 'admin_viewer'];
 const STAFF_UP = ['manager', 'admin', 'admin_viewer'];
 const MGR_ADMIN = ['manager', 'admin'];
+// practitioner (CMD-79): Calendar and Patients only. No Dashboard (money), Bookings, Reports, Money, Payroll or Settings.
+const WITH_PRACTITIONER = (roles) => [...roles, 'practitioner'];
 
 const flagged = (enabled, items) => (enabled ? items : []);
 
 export const NAV_SECTIONS = [
   { id: 'main', label: null, items: [
     { id: 'dashboard', label: 'Dashboard', icon: 'LayoutDashboard', view: 'dashboard', roles: ALL },
-    { id: 'calendar', label: 'Calendar', icon: 'CalendarDays', view: 'calendar', keywords: 'schedule diary appointments', roles: ALL },
+    { id: 'calendar', label: 'Calendar', icon: 'CalendarDays', view: 'calendar', keywords: 'schedule diary appointments', roles: WITH_PRACTITIONER(ALL) },
     { id: 'reports', label: 'Reports', icon: 'BarChart3', view: 'all-reports', keywords: 'analytics insights', roles: STAFF_UP, isActiveView: isReportView },
   ] },
   { id: 'operations', label: 'Operations', items: [
     { id: 'bookings', label: 'Bookings', icon: 'ClipboardList', view: 'bookings', keywords: 'appointments', roles: ALL,
       activeViews: ['bookings', 'new-booking', 'check-booking', 'collect-payment', 'new-membership', 'new-voucher'] },
-    { id: 'customers', label: 'Patients', icon: 'Users', view: 'customers', keywords: 'patients customers clients', roles: STAFF_UP },
+    { id: 'customers', label: 'Patients', icon: 'Users', view: 'customers', keywords: 'patients customers clients', roles: WITH_PRACTITIONER(STAFF_UP) },
   ] },
   { id: 'sales', label: 'Sales', items: [
     { id: 'packages', label: 'Packages', icon: 'Layers', view: 'package-overview', keywords: 'sessions bundles', roles: MGR_ADMIN, activeViews: ['package-overview', 'packages'] },
