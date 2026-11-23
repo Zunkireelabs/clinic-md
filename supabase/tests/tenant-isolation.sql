@@ -76,7 +76,9 @@ DECLARE
   oa uuid := gen_random_uuid(); ob uuid := gen_random_uuid();
   a1 uuid := gen_random_uuid(); a2 uuid := gen_random_uuid(); b1 uuid := gen_random_uuid();
   u_admin uuid := gen_random_uuid(); u_viewer uuid := gen_random_uuid(); u_mgr uuid := gen_random_uuid(); u_staff uuid := gen_random_uuid();
-  u_cust uuid := gen_random_uuid(); u_adminb uuid := gen_random_uuid();
+  u_cust uuid := gen_random_uuid(); u_adminb uuid := gen_random_uuid(); u_prac uuid := gen_random_uuid(); u_prac_nolink uuid := gen_random_uuid();
+  bk_a1b uuid; bk_a1c uuid; ca_id uuid;
+  has011 boolean := to_regprocedure('public.get_user_dentist_id()') IS NOT NULL;   -- migration-011 present? (the test also runs on a pre-011 copy)
   tr_a uuid; tr_b uuid; d_a1 uuid; d_a2 uuid; d_b uuid; c_a1 uuid; c_a2 uuid; c_b uuid; bk_a1 uuid; bk_a2 uuid; bk_b uuid;
   run_a1 uuid; run_a2 uuid; run_b uuid; x uuid; sfx text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
   seq int := 0;
@@ -95,21 +97,30 @@ BEGIN
     (u_mgr,    '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-mgr-' || sfx || '@test.invalid', now(), now()),
     (u_staff,  '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-staff-' || sfx || '@test.invalid', now(), now()),
     (u_cust,   '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-cust-' || sfx || '@test.invalid', now(), now()),
-    (u_adminb, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-adminb-' || sfx || '@test.invalid', now(), now());
+    (u_adminb, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-adminb-' || sfx || '@test.invalid', now(), now()),
+    (u_prac,   '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-prac-' || sfx || '@test.invalid', now(), now()),
+    (u_prac_nolink, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-pracnl-' || sfx || '@test.invalid', now(), now());
   INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active) VALUES
     (u_admin,  'rls-admin-' || sfx || '@test.invalid',  'RLS admin A',  'admin',        a1, oa, true),
     (u_viewer, 'rls-viewer-' || sfx || '@test.invalid', 'RLS viewer A', 'admin_viewer', a1, oa, true),
     (u_mgr,    'rls-mgr-' || sfx || '@test.invalid',    'RLS mgr A',    'manager',      a1, oa, true),
     (u_staff,  'rls-staff-' || sfx || '@test.invalid',  'RLS staff A',  'staff',        a1, oa, true),
     (u_adminb, 'rls-adminb-' || sfx || '@test.invalid', 'RLS admin B',  'admin',        b1, ob, true);
+  IF has011 THEN
+    INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active) VALUES
+      (u_prac,   'rls-prac-' || sfx || '@test.invalid',   'RLS practitioner A', 'practitioner', a1, oa, true),
+      (u_prac_nolink, 'rls-pracnl-' || sfx || '@test.invalid', 'RLS practitioner A (no profile)', 'practitioner', a1, oa, true);
+  END IF;
   INSERT INTO user_branches (user_id, branch_id) VALUES (u_mgr, a2); -- the manager works in TWO branches
   PERFORM pg_temp.sd('users', 'id', u_admin::text, oa); PERFORM pg_temp.sd('users', 'id', u_viewer::text, oa); PERFORM pg_temp.sd('users', 'id', u_mgr::text, oa);
   PERFORM pg_temp.sd('users', 'id', u_staff::text, oa); PERFORM pg_temp.sd('users', 'id', u_adminb::text, ob);
   PERFORM pg_temp.sd('user_branches', 'user_id', u_mgr::text, oa);
+  IF has011 THEN PERFORM pg_temp.sd('users', 'id', u_prac::text, oa); PERFORM pg_temp.sd('users', 'id', u_prac_nolink::text, oa); END IF;
 
   INSERT INTO t_actor VALUES ('admin', u_admin, oa, 'authenticated'), ('admin_viewer', u_viewer, oa, 'authenticated'),
     ('manager_2_branches', u_mgr, oa, 'authenticated'), ('staff', u_staff, oa, 'authenticated'),
     ('customer_no_staff_row', u_cust, oa, 'authenticated'), ('anon', NULL, oa, 'anon'), ('admin_of_OTHER_org', u_adminb, ob, 'authenticated');
+  IF has011 THEN INSERT INTO t_actor VALUES ('practitioner', u_prac, oa, 'authenticated'), ('practitioner_no_profile', u_prac_nolink, oa, 'authenticated'); END IF;
 
   -- treatments, dentists, customers
   INSERT INTO treatments (name, duration_minutes, price_npr, org_id) VALUES ('T A', 30, 1000, oa) RETURNING id INTO tr_a;
@@ -119,6 +130,7 @@ BEGIN
   INSERT INTO dentists (branch_id, name, gender, org_id) VALUES (a2, 'Dr A2', 'Male', oa) RETURNING id INTO d_a2;
   INSERT INTO dentists (branch_id, name, gender, org_id) VALUES (b1, 'Dr B', 'Male', ob) RETURNING id INTO d_b;
   PERFORM pg_temp.sd('dentists', 'id', d_a1::text, oa); PERFORM pg_temp.sd('dentists', 'id', d_a2::text, oa); PERFORM pg_temp.sd('dentists', 'id', d_b::text, ob);
+  IF has011 THEN UPDATE public.users SET dentist_id = d_a1 WHERE id = u_prac; END IF;   -- the practitioner is Dr A1 (migration-011)
   INSERT INTO customers (branch_id, full_name, org_id) VALUES (a1, 'Cust A1', oa) RETURNING id INTO c_a1;
   INSERT INTO customers (branch_id, full_name, org_id) VALUES (a2, 'Cust A2', oa) RETURNING id INTO c_a2;
   INSERT INTO customers (branch_id, full_name, org_id) VALUES (b1, 'Cust B', ob) RETURNING id INTO c_b;
@@ -135,6 +147,18 @@ BEGIN
   INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount)
     VALUES (b1, tr_b, c_b, 'Cust B', '2031-01-10', '10:00', '10:30', '2031-01-10 10:00+00', '2031-01-10 10:30+00', 1000, 1000) RETURNING id INTO bk_b;
   PERFORM pg_temp.sd('bookings', 'id', bk_a1::text, oa); PERFORM pg_temp.sd('bookings', 'id', bk_a2::text, oa); PERFORM pg_temp.sd('bookings', 'id', bk_b::text, ob);
+  -- practitioner cases (migration-011): bk_a1 is Dr A1's via booking_dentists; bk_a1b (branch A1) belongs to nobody; bk_a1c is Dr A1's via bookings.dentist_id only
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount)
+    VALUES (a1, tr_a, c_a1, 'Cust A1', '2031-01-11', '10:00', '10:30', '2031-01-11 10:00+00', '2031-01-11 10:30+00', 1000, 1000) RETURNING id INTO bk_a1b;
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, dentist_id)
+    VALUES (a1, tr_a, c_a1, 'Cust A1', '2031-01-12', '10:00', '10:30', '2031-01-12 10:00+00', '2031-01-12 10:30+00', 1000, 1000, d_a1) RETURNING id INTO bk_a1c;
+  PERFORM pg_temp.sd('bookings', 'id', bk_a1b::text, oa); PERFORM pg_temp.sd('bookings', 'id', bk_a1c::text, oa);
+  CREATE TEMP TABLE IF NOT EXISTS t_prac (k text PRIMARY KEY, v uuid); GRANT ALL ON t_prac TO PUBLIC;
+  INSERT INTO t_prac VALUES ('bk_mine_bd', bk_a1), ('bk_nobody', bk_a1b), ('bk_mine_col', bk_a1c), ('d_a1', d_a1), ('d_a2', d_a2), ('d_b', d_b), ('c_a1', c_a1), ('bk_b', bk_b);
+  -- a patient login for the NULL-role case: own booking + own org's voucher type
+  INSERT INTO customer_accounts (org_id, auth_user_id, email, full_name, customer_id) VALUES (oa, u_cust, 'rls-cust-' || sfx || '@test.invalid', 'Cust A1', c_a1) RETURNING id INTO ca_id;
+  UPDATE bookings SET customer_account_id = ca_id WHERE id = bk_a1b;
+  INSERT INTO voucher_types (org_id, name, code_prefix) VALUES (oa, 'VT A', 'VA');
   INSERT INTO payments (booking_id, amount, payment_mode, recorded_by) VALUES (bk_a1, 100, 'Cash', u_admin) RETURNING id INTO x; PERFORM pg_temp.sd('payments', 'id', x::text, oa);
   INSERT INTO payments (booking_id, amount, payment_mode, recorded_by) VALUES (bk_a2, 100, 'Cash', u_admin) RETURNING id INTO x; PERFORM pg_temp.sd('payments', 'id', x::text, oa);
   INSERT INTO payments (booking_id, amount, payment_mode, recorded_by) VALUES (bk_b, 100, 'Cash', u_adminb) RETURNING id INTO x; PERFORM pg_temp.sd('payments', 'id', x::text, ob);
@@ -2607,6 +2631,146 @@ BEGIN
     END LOOP;
   END LOOP;
 END $neworg$;
+
+-- ───────────────────────────── 3h. PRACTITIONER ACCESS LEVEL (migration-011) ─────────────────────────────
+-- Actors: 'practitioner' (users.role = practitioner, linked to Dr A1), 'practitioner_no_profile' (role only, no dentist link),
+-- 'staff' (control), 'customer_no_staff_row' (a signed-in patient: NO users row, so get_user_role() IS NULL).
+-- Seeded: bk_mine_bd (Dr A1 via booking_dentists), bk_mine_col (Dr A1 via bookings.dentist_id only), bk_nobody (branch A1, nobody's).
+DO $prac$
+DECLARE
+  oa uuid; ob uuid; bk_bd uuid; bk_none uuid; bk_col uuid; d1 uuid; d2 uuid; db uuid; c1 uuid; bk_b uuid; u_staff uuid; u_prac uuid; r text; t record;
+BEGIN
+  IF to_regprocedure('public.get_user_dentist_id()') IS NULL THEN
+    INSERT INTO t_res VALUES ('PRACT', '-', 'migration-011 checks', 'INFO', 'skipped: migration-011 not applied');
+    RETURN;
+  END IF;
+  SELECT org INTO oa FROM t_actor WHERE name = 'admin'; SELECT org INTO ob FROM t_actor WHERE name = 'admin_of_OTHER_org';
+  SELECT uid INTO u_staff FROM t_actor WHERE name = 'staff'; SELECT uid INTO u_prac FROM t_actor WHERE name = 'practitioner';
+  SELECT v INTO bk_bd FROM t_prac WHERE k = 'bk_mine_bd'; SELECT v INTO bk_none FROM t_prac WHERE k = 'bk_nobody'; SELECT v INTO bk_col FROM t_prac WHERE k = 'bk_mine_col';
+  SELECT v INTO d1 FROM t_prac WHERE k = 'd_a1'; SELECT v INTO d2 FROM t_prac WHERE k = 'd_a2'; SELECT v INTO db FROM t_prac WHERE k = 'd_b';
+  SELECT v INTO c1 FROM t_prac WHERE k = 'c_a1'; SELECT v INTO bk_b FROM t_prac WHERE k = 'bk_b';
+
+  -- (1) money: the practitioner reads NO rows, while staff (control) reads some. Not vacuous: staff must see > 0.
+  FOR t IN SELECT unnest(ARRAY['payments', 'payment_refunds', 'payroll_runs', 'payroll_items', 'staff_compensation', 'daily_reports', 'audit_logs']) AS tbl LOOP
+    r := pg_temp.fn_try('practitioner', format('SELECT 1 FROM %I', t.tbl));
+    INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'cannot read ' || t.tbl, CASE WHEN r = 'ok:0' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  END LOOP;
+  FOR t IN SELECT unnest(ARRAY['payments', 'payment_refunds']) AS tbl LOOP
+    r := pg_temp.fn_try('staff', format('SELECT 1 FROM %I', t.tbl));
+    INSERT INTO t_res VALUES ('PRACT', 'staff', 'control: staff still reads ' || t.tbl, CASE WHEN r LIKE 'ok:%' AND r <> 'ok:0' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  END LOOP;
+  r := pg_temp.fn_try('practitioner', format('INSERT INTO payments (booking_id, amount, payment_mode, recorded_by) VALUES (%L, 1, ''Cash'', %L)', bk_bd, u_prac));
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'cannot record a payment', CASE WHEN r = 'denied' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('staff', format('INSERT INTO payments (booking_id, amount, payment_mode, recorded_by) VALUES (%L, 1, ''Cash'', %L)', bk_bd, u_staff));
+  INSERT INTO t_res VALUES ('PRACT', 'staff', 'control: staff can still record a payment', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+
+  -- (2) the restrictive deny exists on every money/marketing table named in the approved table (some are empty in the seed, so check the policy)
+  FOR t IN SELECT unnest(ARRAY['payments', 'payment_refunds', 'memberships', 'membership_transactions', 'vouchers', 'voucher_claims', 'voucher_types',
+                               'membership_tiers', 'reward_catalog', 'outreach_rules', 'outreach_templates', 'daily_reports', 'customer_referrals',
+                               'customer_referral_credits', 'customer_referral_debits']) AS tbl LOOP
+    INSERT INTO t_res VALUES ('PRACT', '-', 'restrictive deny exists on ' || t.tbl,
+      CASE WHEN EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = t.tbl AND permissive = 'RESTRICTIVE' AND qual ~ 'practitioner') THEN 'PASS' ELSE 'FAIL' END, 'pg_policies');
+  END LOOP;
+
+  -- (3) what a practitioner CAN read (same as front desk for their branch)
+  FOR t IN SELECT unnest(ARRAY['bookings', 'customers', 'dentists', 'chairs', 'treatments']) AS tbl LOOP
+    r := pg_temp.fn_try('practitioner', format('SELECT 1 FROM %I', t.tbl));
+    INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'can read ' || t.tbl, CASE WHEN r LIKE 'ok:%' AND r <> 'ok:0' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  END LOOP;
+  r := pg_temp.fn_try('practitioner', 'SELECT 1 FROM users');
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'reads only their own users row', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('practitioner', 'SELECT 1 FROM user_branches');
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'cannot read org branch grants', CASE WHEN r IN ('ok:0', 'denied') THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+
+  -- (4) bookings: no INSERT / DELETE; UPDATE only own; cannot hand a booking to someone else
+  r := pg_temp.fn_try('practitioner', format('INSERT INTO bookings SELECT * FROM jsonb_populate_record(NULL::bookings, jsonb_set(jsonb_set((SELECT to_jsonb(b) FROM bookings b WHERE id = %L), ''{id}'', to_jsonb(gen_random_uuid())), ''{booking_number}'', ''null''))', bk_none));
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'cannot create a booking', CASE WHEN r = 'denied' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('practitioner', format('DELETE FROM bookings WHERE id IN (%L, %L, %L)', bk_bd, bk_col, bk_none));
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'cannot delete bookings', CASE WHEN r IN ('ok:0', 'denied') THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('practitioner', format('UPDATE bookings SET status = status WHERE id = %L', bk_bd));
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'can update own booking (via booking_dentists)', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('practitioner', format('UPDATE bookings SET status = status WHERE id = %L', bk_col));
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'can update own booking (via bookings.dentist_id)', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('practitioner', format('UPDATE bookings SET status = status WHERE id = %L', bk_none));
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'cannot update a booking that is not theirs', CASE WHEN r IN ('ok:0', 'denied') THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('staff', format('UPDATE bookings SET status = status WHERE id = %L', bk_none));
+  INSERT INTO t_res VALUES ('PRACT', 'staff', 'control: staff can update that same booking', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('practitioner', format('UPDATE bookings SET dentist_id = %L WHERE id = %L', d2, bk_col));
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'cannot hand a booking to another dentist', CASE WHEN r = 'denied' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('practitioner_no_profile', format('UPDATE bookings SET status = status WHERE id = %L', bk_bd));
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner_no_profile', 'a practitioner with no profile owns no bookings', CASE WHEN r IN ('ok:0', 'denied') THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('practitioner', format('INSERT INTO booking_dentists (booking_id, dentist_id) VALUES (%L, %L)', bk_none, d1));
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'cannot assign themselves to a booking (booking_dentists)', CASE WHEN r = 'denied' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+
+  -- (5) customers: read + UPDATE yes (medical alerts, CMD-56); INSERT / DELETE no
+  r := pg_temp.fn_try('practitioner', format('UPDATE customers SET full_name = full_name WHERE id = %L', c1));
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'can update a patient', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('practitioner', format('INSERT INTO customers (branch_id, full_name, org_id) SELECT branch_id, ''New'', org_id FROM customers WHERE id = %L', c1));
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'cannot create a patient', CASE WHEN r = 'denied' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('staff', format('INSERT INTO customers (branch_id, full_name, org_id) SELECT branch_id, ''New'', org_id FROM customers WHERE id = %L', c1));
+  INSERT INTO t_res VALUES ('PRACT', 'staff', 'control: staff can still create a patient', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('practitioner', format('DELETE FROM customers WHERE id = %L', c1));
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'cannot delete a patient', CASE WHEN r IN ('ok:0', 'denied') THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+
+  -- (6) treatment notes and consultations: own bookings only
+  r := pg_temp.fn_try('practitioner', format('INSERT INTO treatment_notes (note, booking_id, customer_id, dentist_id) VALUES (''n'', %L, %L, %L)', bk_col, c1, d1));
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'can write a note on their own booking', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('practitioner', format('INSERT INTO treatment_notes (note, booking_id, customer_id, dentist_id) VALUES (''n'', %L, %L, %L)', bk_none, c1, d1));
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'cannot write a note on another booking', CASE WHEN r = 'denied' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('practitioner', format('INSERT INTO consultations (org_id, branch_id, booking_id, patient_name, customer_id, dentist_id) SELECT org_id, branch_id, id, ''P'', customer_id, %L FROM bookings_org WHERE id = %L', d1, bk_col));
+  IF r LIKE 'raised:42P01' THEN  -- no helper view: read org/branch via the bookings table
+    r := pg_temp.fn_try('practitioner', format('INSERT INTO consultations (org_id, branch_id, booking_id, patient_name, customer_id, dentist_id) SELECT %L, branch_id, id, ''P'', customer_id, %L FROM bookings WHERE id = %L', oa, d1, bk_col));
+  END IF;
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'can create a consultation on their own booking', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('practitioner', format('INSERT INTO consultations (org_id, branch_id, booking_id, patient_name, customer_id, dentist_id) SELECT %L, branch_id, id, ''P'', customer_id, %L FROM bookings WHERE id = %L', oa, d1, bk_none));
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'cannot create a consultation on another booking', CASE WHEN r = 'denied' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+
+  -- (7) linking: set_user_access is admin-only, same org, and a dentist links to one login
+  r := pg_temp.fn_try('admin', format('SELECT set_user_access(%L, ''practitioner'', %L)', u_staff, d2));
+  INSERT INTO t_res VALUES ('PRACT', 'admin', 'set_user_access links a same-org user to a same-org dentist', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('admin', format('SELECT set_user_access(%L, ''manager'', %L)', (SELECT uid FROM t_actor WHERE name = 'manager_2_branches'), d2));
+  INSERT INTO t_res VALUES ('PRACT', 'admin', 'an admin can link another login (a manager) to a profile and keep the manager role', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('admin', format('SELECT set_user_access(%L, ''staff'', NULL)', (SELECT uid FROM t_actor WHERE name = 'admin')));
+  INSERT INTO t_res VALUES ('PRACT', 'admin', 'an admin cannot change their OWN role (no demoting the last admin)', CASE WHEN r LIKE 'raised:%' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('admin', format('SELECT set_user_access(%L, ''admin'', %L)', (SELECT uid FROM t_actor WHERE name = 'admin'), d2));
+  INSERT INTO t_res VALUES ('PRACT', 'admin', 'an admin cannot link their OWN login to a profile either', CASE WHEN r LIKE 'raised:%' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('admin', format('SELECT set_user_access(%L, ''practitioner'', %L)', u_staff, db));
+  INSERT INTO t_res VALUES ('PRACT', 'admin', 'cannot link a user to ANOTHER org''s dentist', CASE WHEN r LIKE 'raised:%' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('admin', format('SELECT set_user_access(%L, ''practitioner'', %L)', (SELECT uid FROM t_actor WHERE name = 'admin_of_OTHER_org'), d1));
+  INSERT INTO t_res VALUES ('PRACT', 'admin', 'cannot change a user of ANOTHER org', CASE WHEN r LIKE 'raised:%' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('admin_of_OTHER_org', format('SELECT set_user_access(%L, ''practitioner'', NULL)', u_staff));
+  INSERT INTO t_res VALUES ('PRACT', 'admin_of_OTHER_org', 'an admin of another org cannot change my user', CASE WHEN r LIKE 'raised:%' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  FOR r IN SELECT unnest(ARRAY['manager_2_branches', 'staff', 'practitioner', 'admin_viewer']) LOOP
+    INSERT INTO t_res VALUES ('PRACT', r, 'set_user_access refused', CASE WHEN pg_temp.fn_try(r, format('SELECT set_user_access(%L, ''practitioner'', %L)', u_staff, d2)) LIKE 'raised:%' THEN 'PASS' ELSE 'FAIL' END,
+                              'got ' || pg_temp.fn_try(r, format('SELECT set_user_access(%L, ''admin'', NULL)', u_staff)));
+  END LOOP;
+  -- one dentist cannot be linked to two logins (Dr A1 is already the practitioner's)
+  r := pg_temp.fn_try('admin', format('SELECT set_user_access(%L, ''practitioner'', %L)', u_staff, d1));
+  INSERT INTO t_res VALUES ('PRACT', 'admin', 'one dentist cannot be linked to two logins', CASE WHEN r = 'raised:23505' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+
+  -- (8) anon cannot run the new functions; the helper returns the link for the practitioner and NULL otherwise
+  FOR t IN SELECT * FROM (VALUES ('get_user_dentist_id()', 'SELECT get_user_dentist_id()'),
+                                 ('is_my_booking(uuid)', format('SELECT is_my_booking(%L)', bk_bd)),
+                                 ('set_user_access(...)', format('SELECT set_user_access(%L, ''staff'', NULL)', u_staff))) v(label, q) LOOP
+    INSERT INTO t_res VALUES ('PRACT', 'anon', t.label || ' not executable', CASE WHEN pg_temp.fn_try('anon', t.q) = 'denied' THEN 'PASS' ELSE 'FAIL' END, 'got ' || pg_temp.fn_try('anon', t.q));
+  END LOOP;
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'get_user_dentist_id() is their dentist', CASE WHEN pg_temp.fn_try('practitioner', format('SELECT 1 WHERE get_user_dentist_id() = %L', d1)) = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'Dr A1');
+  INSERT INTO t_res VALUES ('PRACT', 'staff', 'get_user_dentist_id() is NULL without a link', CASE WHEN pg_temp.fn_try('staff', 'SELECT 1 WHERE get_user_dentist_id() IS NULL') = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'staff');
+  INSERT INTO t_res VALUES ('PRACT', 'practitioner', 'is_my_booking true for own, false for others',
+    CASE WHEN pg_temp.fn_try('practitioner', format('SELECT 1 WHERE is_my_booking(%L) AND is_my_booking(%L) AND NOT is_my_booking(%L) AND NOT is_my_booking(%L)', bk_bd, bk_col, bk_none, bk_b)) = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'bd / col / nobody / other org');
+
+  -- (9) a signed-in patient has NO users row (get_user_role() IS NULL): the new RESTRICTIVE policies must NOT block them
+  INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'NULL role: the restrictive test passes (IS DISTINCT FROM)',
+    CASE WHEN pg_temp.fn_try('customer_no_staff_row', 'SELECT 1 WHERE get_user_role() IS NULL AND get_user_role()::text IS DISTINCT FROM ''practitioner''') = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'NULL IS DISTINCT FROM x is true');
+  r := pg_temp.fn_try('customer_no_staff_row', 'SELECT 1 FROM bookings');
+  INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient still reads their own booking', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('customer_no_staff_row', 'SELECT 1 FROM voucher_types');
+  INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient still reads their org''s voucher types (table has a restrictive policy)', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('customer_no_staff_row', 'SELECT 1 FROM payments');
+  INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient on payments: unchanged (0 rows, no error)', CASE WHEN r = 'ok:0' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  r := pg_temp.fn_try('customer_no_staff_row', format('UPDATE bookings SET status = status WHERE id = %L', bk_none));
+  INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient booking UPDATE not newly blocked by an error', CASE WHEN r IN ('ok:0', 'ok:1', 'denied') THEN 'PASS' ELSE 'FAIL' END, 'got ' || r || ' (same as before: patients have no UPDATE policy)');
+END $prac$;
 
 -- COVERAGE: RLS tables that this test does not seed (static checks above still apply)
 INSERT INTO t_res

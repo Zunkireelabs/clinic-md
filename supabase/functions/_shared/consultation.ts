@@ -23,7 +23,7 @@ export interface AuthedRequest {
 }
 
 export interface AuthOptions {
-  /** Require an active users row with role staff / manager / admin (patients and self-registered customers are rejected). */
+  /** Require an active users row with role staff / manager / admin / practitioner (patients and self-registered customers are rejected). */
   requireStaff?: boolean;
   /** Require this caller's clinic to have the AI switch on (organizations.ai_consultation_enabled). Checked BEFORE the quota is consumed; fails closed. */
   requireAiEnabled?: boolean;
@@ -55,7 +55,7 @@ export const authenticate = async (req: Request, opts: AuthOptions = {}): Promis
 
   if (opts.requireStaff) {
     const { data: profile } = await supabase.from('users').select('role, is_active').eq('id', data.user.id).maybeSingle();
-    if (!profile || profile.is_active === false || !['staff', 'manager', 'admin'].includes(profile.role)) {
+    if (!profile || profile.is_active === false || !['staff', 'manager', 'admin', 'practitioner'].includes(profile.role)) {
       return json({ error: 'FORBIDDEN', message: 'Your account can’t use this feature.' }, 403); // generic: also returned by phone-pair and consultation-push
     }
   }
