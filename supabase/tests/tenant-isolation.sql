@@ -130,7 +130,8 @@ BEGIN
   INSERT INTO dentists (branch_id, name, gender, org_id) VALUES (a2, 'Dr A2', 'Male', oa) RETURNING id INTO d_a2;
   INSERT INTO dentists (branch_id, name, gender, org_id) VALUES (b1, 'Dr B', 'Male', ob) RETURNING id INTO d_b;
   PERFORM pg_temp.sd('dentists', 'id', d_a1::text, oa); PERFORM pg_temp.sd('dentists', 'id', d_a2::text, oa); PERFORM pg_temp.sd('dentists', 'id', d_b::text, ob);
-  IF has011 THEN UPDATE public.users SET dentist_id = d_a1 WHERE id = u_prac; END IF;   -- the practitioner is Dr A1 (migration-011)
+  -- the 'practitioner' actor is linked to Dr A1 at the start of section 3h, not here: sections 3b/3b2/3c seed their own Dr A1 practitioner
+  -- and users.dentist_id is unique.
   INSERT INTO customers (branch_id, full_name, org_id) VALUES (a1, 'Cust A1', oa) RETURNING id INTO c_a1;
   INSERT INTO customers (branch_id, full_name, org_id) VALUES (a2, 'Cust A2', oa) RETURNING id INTO c_a2;
   INSERT INTO customers (branch_id, full_name, org_id) VALUES (b1, 'Cust B', ob) RETURNING id INTO c_b;
@@ -2649,6 +2650,9 @@ BEGIN
   SELECT v INTO bk_bd FROM t_prac WHERE k = 'bk_mine_bd'; SELECT v INTO bk_none FROM t_prac WHERE k = 'bk_nobody'; SELECT v INTO bk_col FROM t_prac WHERE k = 'bk_mine_col';
   SELECT v INTO d1 FROM t_prac WHERE k = 'd_a1'; SELECT v INTO d2 FROM t_prac WHERE k = 'd_a2'; SELECT v INTO db FROM t_prac WHERE k = 'd_b';
   SELECT v INTO c1 FROM t_prac WHERE k = 'c_a1'; SELECT v INTO bk_b FROM t_prac WHERE k = 'bk_b';
+  -- link the 'practitioner' actor to Dr A1 now (earlier sections may have left their own practitioner on Dr A1; users.dentist_id is unique)
+  UPDATE public.users SET dentist_id = NULL WHERE dentist_id = d1 AND id <> u_prac;
+  UPDATE public.users SET dentist_id = d1 WHERE id = u_prac;
 
   -- (1) money: the practitioner reads NO rows, while staff (control) reads some. Not vacuous: staff must see > 0.
   FOR t IN SELECT unnest(ARRAY['payments', 'payment_refunds', 'payroll_runs', 'payroll_items', 'staff_compensation', 'daily_reports', 'audit_logs']) AS tbl LOOP
@@ -2765,7 +2769,7 @@ BEGIN
   r := pg_temp.fn_try('customer_no_staff_row', 'SELECT 1 FROM bookings');
   INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient still reads their own booking', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
   r := pg_temp.fn_try('customer_no_staff_row', 'SELECT 1 FROM voucher_types');
-  INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient still reads their org''s voucher types (table has a restrictive policy)', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient still reads their org''s voucher types (table has a restrictive policy)', CASE WHEN r LIKE 'ok:%' AND r <> 'ok:0' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r || ' (>= 1: section 3c adds a second voucher type to org A)');
   r := pg_temp.fn_try('customer_no_staff_row', 'SELECT 1 FROM payments');
   INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient on payments: unchanged (0 rows, no error)', CASE WHEN r = 'ok:0' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
   r := pg_temp.fn_try('customer_no_staff_row', format('UPDATE bookings SET status = status WHERE id = %L', bk_none));
