@@ -26,6 +26,8 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SUPABASE_DIR="$REPO_ROOT/supabase"
+# shellcheck source=lib/local-db-url.sh
+. "$REPO_ROOT/scripts/lib/local-db-url.sh"
 
 usage() { sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 die() { echo "local-db-bootstrap: $*" >&2; exit 1; }
@@ -52,33 +54,18 @@ if [ -n "$FROM" ] && [ -n "$TO" ] && [ $((10#$FROM)) -gt $((10#$TO)) ]; then die
 if [ "$DB_URL_GIVEN" = 1 ]; then
   [ -n "$DB_URL" ] || die "--db-url was given but is empty; refusing to guess a URL"
 else
-  DB_URL="$(cd "$REPO_ROOT" && supabase status -o env 2>/dev/null | grep '^DB_URL=' | cut -d= -f2- | tr -d '"' || true)"
+  DB_URL="$(local_status_value "$(local_status_env "$REPO_ROOT")" DB_URL)"
   [ -n "$DB_URL" ] || die "could not read DB_URL from 'supabase status' in $REPO_ROOT. Is the local stack running? Try 'supabase start'."
 fi
 
-# ── 2. the host must be local (parsed) ──
+# ── 2. the host must be local (parsed; scripts/lib/local-db-url.sh) ──
 case "$DB_URL" in
   postgres://*|postgresql://*) ;;
   *) die "refusing to run: the DB URL must be a postgres:// or postgresql:// URL" ;;
 esac
-# Fail closed wherever this parse and libpq could disagree: libpq has no '#' fragment, splits user@host at the FIRST '@',
-# percent-decodes query keywords ("?h%6fst=remote" is host=remote), and a comma in host:port means several hosts.
-case "$DB_URL" in *'#'*) die "refusing to run: '#' is not accepted in the DB URL" ;; esac
-rest="${DB_URL#*://}"
-authority="${rest%%[/?]*}"
-query=""; case "$rest" in *\?*) query="${rest#*\?}" ;; esac
-case "$authority" in *@*@*) die "refusing to run: more than one '@' in the DB URL's host part" ;; esac
-hostport="${authority##*@}"
-case "$hostport" in \[*) die "refusing to run: bracketed (IPv6) hosts are not accepted; use 127.0.0.1 or localhost" ;; esac
-case "$hostport" in *,*) die "refusing to run: more than one host in the DB URL ($hostport)" ;; esac
-host="${hostport%%:*}"
-case "$query" in *%*) die "refusing to run: percent-encoding in the DB URL's query is not accepted" ;; esac
-case "&$query" in *'&host='*|*'&hostaddr='*|*'&service='*) die "refusing to run: the DB URL's query sets host, hostaddr or service, which can redirect the connection" ;; esac
-case "$host" in
-  127.0.0.1|localhost) ;;
-  *) die "refusing to run: the DB host is '${host:-<empty>}', not 127.0.0.1 or localhost" ;;
-esac
-unset PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER PGSERVICE PGSERVICEFILE PGOPTIONS PGSSLMODE 2>/dev/null || true
+local_require_local "DB URL" "$DB_URL" 2>&1 | sed 's/^/local-db-bootstrap: /' >&2 || exit 1   # pipefail: the check's status
+host="$(local_url_host "$DB_URL")"
+local_clear_pg_env
 
 # ── 3. the plan ──
 PLAN=()
