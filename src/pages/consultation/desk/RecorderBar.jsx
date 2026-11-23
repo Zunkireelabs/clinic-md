@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Icon from '../../../components/AppIcon';
 import LevelMeter from './LevelMeter';
+import ConsentCheck from './ConsentCheck';
 import { getConsultationFileUrl } from '../../../services/api';
 
 const mmss = (s) => `${String(Math.floor((s || 0) / 60)).padStart(2, '0')}:${String(s % 60 || 0).padStart(2, '0')}`;
@@ -22,7 +23,7 @@ const Recording = ({ path, index }) => {
 
 // The compact recorder: ready (consent first), recording, and the "recordings so far" summary. Phone recordings show their own state.
 const RecorderBar = ({
-  firstName, consent, onConsent, locked, recorder, remote, remotePhoneLabel, phones, processing,
+  firstName, consent, consentAt, consentBusy, onConsent, locked, recorder, remote, remotePhoneLabel, phones, processing,
   audioPaths, durationSeconds, onStart, onStop, onRecordOnPhone, onStopRemote, onContinueOnPhone, errorText,
 }) => {
   const [listen, setListen] = useState(false);
@@ -74,7 +75,7 @@ const RecorderBar = ({
           <button type="button" onClick={() => setListen((l) => !l)} aria-expanded={listen} className="h-8 px-3 rounded-md border border-border bg-white text-[13px] font-medium inline-flex items-center gap-1.5"><Icon name="Play" size={13} />{listen ? 'Hide' : 'Play'}</button>
         </div>
         {!busy && !locked && (
-          <label className="mt-3 flex items-center gap-2 text-[13px] text-[#515152] cursor-pointer"><input type="checkbox" className="w-4 h-4 rounded-[4px] border-[#C9C9CF] text-[#0E0D0C] accent-[#0E0D0C] focus:ring-1 focus:ring-[#0E0D0C] focus:ring-offset-0" checked={consent} onChange={(e) => onConsent(e.target.checked)} />{firstName} has agreed to this visit being recorded</label>
+          <ConsentCheck className="mt-3" firstName={firstName} consent={consent} consentAt={consentAt} busy={consentBusy} onConsent={onConsent} />
         )}
         {listen && <div className="mt-3 space-y-2">{audioPaths.map((p, i) => <Recording key={p} path={p} index={i} />)}</div>}
         {errorText && <p role="alert" className="mt-3 text-[13px] text-[#B42318]">{errorText}</p>}
@@ -90,7 +91,7 @@ const RecorderBar = ({
         <div className="min-w-0">
           <p className="text-[15px] font-semibold">Record the consultation</p>
           <p className="text-[12.5px] text-[#8A8A90]">Uses this computer’s mic · or <button type="button" onClick={onContinueOnPhone} className="text-text-primary font-medium underline">continue on phone</button></p>
-          <label className="mt-2.5 flex items-center gap-2 text-[13px] text-[#515152] cursor-pointer"><input type="checkbox" className="w-4 h-4 rounded-[4px] border-[#C9C9CF] text-[#0E0D0C] accent-[#0E0D0C] focus:ring-1 focus:ring-[#0E0D0C] focus:ring-offset-0" checked={consent} onChange={(e) => onConsent(e.target.checked)} />{firstName} has agreed to this visit being recorded</label>
+          <ConsentCheck firstName={firstName} consent={consent} consentAt={consentAt} busy={consentBusy} onConsent={onConsent} />
           {phones.length > 0 && (
             <button type="button" onClick={onRecordOnPhone} disabled={!consent} className="mt-2.5 h-8 px-3 rounded-md border border-border bg-white text-[13px] font-medium inline-flex items-center gap-1.5 disabled:opacity-50"><Icon name="Smartphone" size={14} />Record on {phones[0].label || 'phone'}</button>
           )}

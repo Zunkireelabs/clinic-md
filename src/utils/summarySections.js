@@ -23,20 +23,28 @@ const HEADING = /^\s*(?:#{1,6}\s+(.+?)|\*\*(.+?)\*\*:?)\s*:?\s*$/;
 // New-format notes (written by the consultation page) have the six exact "## " headings. In that format ONLY those lines are
 // section boundaries: a bold line like "**Phase 1**" or a "### Sub" line inside a section is plain body text. Older free-form
 // summaries (no exact headings) keep the lenient parsing above.
-const STRICT = { 'chief complaint': 'complaint', history: 'history', findings: 'findings', assessment: 'diagnosis', plan: 'plan', 'follow-up': 'followup' };
-const STRICT_LINE = /^##\s+(Chief complaint|History|Findings|Assessment|Plan|Follow-up)\s*$/;
+// Per note template (consultations.note_template, migration 020). Only dental-v1 exists; an unknown template is read as dental-v1.
+const STRICT_BY_TEMPLATE = {
+  'dental-v1': {
+    map: { 'chief complaint': 'complaint', history: 'history', findings: 'findings', assessment: 'diagnosis', plan: 'plan', 'follow-up': 'followup' },
+    line: /^##\s+(Chief complaint|History|Findings|Assessment|Plan|Follow-up)\s*$/,
+  },
+};
+const strictFor = (template) => STRICT_BY_TEMPLATE[template] || STRICT_BY_TEMPLATE['dental-v1'];
 // Structured = it has canonical headings and EVERY markdown heading line in it is one of them (the writer escapes "#" body lines, so a
 // raw "## Something else" or "### Sub" means an older free-form summary). Bold-only lines never count as headings here.
-export const isStructuredNote = (text = '') => {
+export const isStructuredNote = (text = '', template) => {
+  const { line } = strictFor(template);
   const heads = (text || '').split('\n').filter((l) => /^\s*#{1,6}\s+\S/.test(l));
-  return heads.length > 0 && heads.every((l) => STRICT_LINE.test(l));
+  return heads.length > 0 && heads.every((l) => line.test(l));
 };
 
 /** Returns { complaint, history, findings, xray, photo, diagnosis, plan, followup, other } (strings, empty when absent). */
-export const parseSummarySections = (text = '') => {
+export const parseSummarySections = (text = '', template) => {
+  const { map: STRICT, line: STRICT_LINE } = strictFor(template);
   const out = { complaint: '', history: '', findings: '', xray: '', photo: '', diagnosis: '', plan: '', followup: '', other: '' };
   let current = 'other';
-  const strict = isStructuredNote(text);
+  const strict = isStructuredNote(text, template);
   (text || '').split('\n').forEach((line) => {
     if (strict) {
       const sm = line.match(STRICT_LINE);

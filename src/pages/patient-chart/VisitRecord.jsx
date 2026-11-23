@@ -40,7 +40,7 @@ const VisitRecord = ({ visit, consultation: c0, customerName, notes }) => {
   const c = c0 || {};
   const hasConsultation = !!c.id;
 
-  const sec = parseSummarySections(c.final_summary || c.preliminary_summary || '');
+  const sec = parseSummarySections(c.final_summary || c.preliminary_summary || '', c.note_template);
   const xrays = c.xray_image_paths || [];
   const photos = c.photo_image_paths || [];
   const doctors = attendedByText(c) || visit.dentistName;

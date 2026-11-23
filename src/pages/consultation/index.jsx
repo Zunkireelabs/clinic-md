@@ -20,12 +20,15 @@ import useDoctorPhoneLink from '../../hooks/useDoctorPhoneLink';
 import { recorderDevices } from '../../utils/remoteDevices';
 import DeskHeader from './desk/DeskHeader';
 import RecorderBar from './desk/RecorderBar';
+import ConsentCheck from './desk/ConsentCheck';
 import NoteCard from './desk/NoteCard';
 import ConsultationRail from './desk/ConsultationRail';
 import useLeaveGuard from './desk/useLeaveGuard';
 import { flowReducer, initialFlow, deriveStage, showNoAiBanner, draftingSteps, draftInputsKey, draftIsStale } from '../../utils/consultationFlow';
 import { markdownToNote, noteToMarkdown, normalizeNote, isNoteEmpty, sameNote, emptyNote } from '../../utils/consultationNote';
 import { parseSummarySections } from '../../utils/summarySections';
+import { CURRENT_CONSENT_SCRIPT } from '../../utils/consentScripts';
+import { EMPTY_META, metaFromRow, canUnsign, provenanceLine } from '../../utils/consultationMeta';
 import { resizeImageFile } from '../../utils/imageResize';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -42,6 +45,8 @@ import {
   transcribeConsultationAudio,
   summarizeConsultation,
   analyzeConsultationImages,
+  recordConsultationConsent,
+  unsignConsultation,
   getPatientRecord,
   updateBookingStatus,
 } from '../../services/api';
@@ -121,6 +126,15 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   const [form, setForm] = useState(EMPTY_FORM);
   const [consultationId, setConsultationId] = useState(null);
   const [dbStatus, setDbStatus] = useState(null);
+  // Migration 020 (CMD-54/55): what the server stored about consent, the AI draft and the signature. Read from the row, never set by hand.
+  const [meta, setMeta] = useState(EMPTY_META);
+  const metaRef = useRef(meta);
+  metaRef.current = meta;
+  const consent = meta.recording_consent === 'agreed';
+  const consentRef = useRef(consent);
+  consentRef.current = consent;
+  const consultationIdRef = useRef(null);
+  const [consentBusy, setConsentBusy] = useState(false);
   const [sessionDate, setSessionDate] = useState(todayIso());
   const [phase, setPhase] = useState('active'); // 'active' | 'review'
   const [finalProcessing, setProcessing] = useState(null); // 'final': the phone's "generate final summary" call
@@ -201,7 +215,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     syncedRef.current = next;
     setForm(next);
     setConsultationId(row.id);
+    consultationIdRef.current = row.id;
     setDbStatus(row.status);
+    setMeta(metaFromRow(row));
     setSessionDate(row.session_date);
     setAttendedBy(row.attended_by_names || []);
     setLastSavedJson(row.status === 'completed' ? JSON.stringify(allColumns(next)) : null);
@@ -277,6 +293,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       syncedRef.current = merged.synced;
       setForm(merged.form);
       setDbStatus(row.status);
+      setMeta(metaFromRow(row));
       setAttendedBy(row.attended_by_names || []);
       // Tell the doctor when something arrives from the other device.
       if ((row.xray_image_paths || []).length > before.xrayPaths.length) setReceived('X-ray photo received from the phone');
@@ -338,8 +355,10 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
 
   // Recording pipeline (upload → transcribe, queued and retryable) is shared by the computer and the phone: see runQueueItem below.
 
+  // Recording needs stored consent (migration 020), on the computer and on the phone alike.
   const handleStart = async () => {
     setNotice(null);
+    if (!consentRef.current) { setNotice('Tick that the patient has agreed to the recording first.'); return; }
     await recorder.start();
   };
 
@@ -352,6 +371,8 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   commandRef.current = async (cmd) => {
     if (cmd.target && cmd.target !== deviceId) return;
     if (cmd.action === 'start' && !recorder.isRecording && processing === null) {
+      // The computer only offers "Record on phone" after consent, but the phone checks the STORED value itself: no consent, no microphone.
+      if (!consentRef.current) { setNotice('Tick that the patient has agreed to the recording first.'); return; }
       const started = await recorder.start();
       // Some phones refuse to open the microphone without a tap on the page.
       setPendingRemoteStart(!started);
@@ -378,10 +399,11 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     setError(null);
     setProcessing('final');
     const f = formRef.current;
-    const { note: aiNote, error: aiError } = await summarizeConsultation({
-      mode: 'note', transcript: f.transcript, xrayAnalysis: f.xrayAnalysis, photoAnalysis: f.photoAnalysis,
+    const { note: aiNote, provenance, error: aiError } = await summarizeConsultation({
+      mode: 'note', transcript: f.transcript, xrayAnalysis: f.xrayAnalysis, photoAnalysis: f.photoAnalysis, consultationId: consultationIdRef.current,
     });
     setProcessing(null);
+    if (provenance) setMeta((m) => ({ ...m, ai_drafted_at: provenance.drafted_at, has_ai_draft: true }));
     const drafted = aiNote ? normalizeNote(aiNote) : null;
     if (aiError || !drafted || isNoteEmpty(drafted)) {
       setError(aiError?.message || "The AI didn't return a note. Try again, or write it yourself.");
@@ -414,16 +436,18 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     setSaving(true);
     setError(null);
     setNotice(null);
-    const { data, error: saveError, noteError } = await saveConsultation({
+    const { data, error: saveError, noteError, signError } = await saveConsultation({
       booking,
       consultationId,
       fields: { ...allColumns(form), session_date: sessionDate },
       status: 'completed',
+      expectedDraftedAt: metaRef.current.ai_drafted_at,
     });
     savingRef.current = false;
     setSaving(false);
     if (saveError) {
-      setError(`Could not save the consultation: ${saveError.message}`);
+      if (signError && data) { setConsultationId(data.id); consultationIdRef.current = data.id; setDbStatus(data.status); setMeta(metaFromRow(data)); }
+      setError(signError ? `Saved, but not signed: ${saveError.message}` : `Could not save the consultation: ${saveError.message}`);
       return false;
     }
     const savedForm = formFromRow(data);
@@ -431,7 +455,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     setForm(mergeAfterSave(sentForm, formRef.current, savedForm)); // never wipe edits typed while the request was in flight
     setLastSavedJson(JSON.stringify(allColumns(savedForm)));
     setConsultationId(data.id);
+    consultationIdRef.current = data.id;
     setDbStatus(data.status);
+    setMeta(metaFromRow(data));
     setAttendedBy(data.attended_by_names || []);
     setSyncState('synced');
     setNotice(noteError
@@ -444,7 +470,15 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
 
   // ───────────────────────── Desktop consultation page (one page, six stages) ─────────────────────────
   const [flow, dispatchFlow] = useReducer(flowReducer, initialFlow);
-  const [consent, setConsent] = useState(false); // UI only, per consultation. It is deliberately not stored (that needs a DB column).
+  // Recording consent is stored once per consultation by the server (migration 020); the other device sees it through the live sync.
+  const recordConsent = async () => {
+    if (!consultationIdRef.current || consentRef.current) return;
+    setConsentBusy(true);
+    const { data, error: cError } = await recordConsultationConsent(consultationIdRef.current, 'agreed', phoneView ? 'phone' : 'computer', CURRENT_CONSENT_SCRIPT);
+    setConsentBusy(false);
+    if (cError) { setError(`Could not record consent: ${cError.message}`); return; }
+    setMeta((m) => ({ ...m, recording_consent: data?.answer || 'agreed', recording_consent_at: data?.at || m.recording_consent_at }));
+  };
   const [noteView, setNoteView] = useState('note');
   const [note, setNote] = useState(emptyNote);
   const noteRef = useRef(note);
@@ -479,7 +513,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   const lastPlan = useMemo(() => {
     const prev = (record?.consultations || []).find((c) => c.id !== consultationId && (c.final_summary || '').trim());
     if (!prev) return '';
-    const plan = parseSummarySections(prev.final_summary).plan;
+    const plan = parseSummarySections(prev.final_summary, prev.note_template).plan;
     return plan.split('\n').map((l) => l.replace(/^\s*[-*•]\s*/, '').trim()).filter(Boolean).join('; ');
   }, [record, consultationId]);
 
@@ -495,8 +529,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   const runDraft = useCallback(async () => {
     dispatchFlow({ type: 'DRAFT_START' });
     const f = formRef.current;
-    const { note: aiNote, error: aiError } = await summarizeConsultation({
+    const { note: aiNote, provenance, error: aiError } = await summarizeConsultation({
       mode: 'note', transcript: f.transcript, xrayAnalysis: f.xrayAnalysis, photoAnalysis: f.photoAnalysis, previousPlan: lastPlan,
+      consultationId: consultationIdRef.current,
     });
     const drafted = aiNote ? normalizeNote(aiNote) : null;
     if (aiError || !drafted || isNoteEmpty(drafted)) {
@@ -508,6 +543,8 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       setToast({ msg: 'A new AI draft arrived after you saved, so it was not applied. Press Edit note, then Redraft, to use it.' });
       return false;
     }
+    // the server stored this draft (ai_drafted_at): signing will compare against exactly this one
+    if (provenance) setMeta((m) => ({ ...m, ai_drafted_at: provenance.drafted_at, has_ai_draft: true }));
     const md = noteToMarkdown(drafted);
     draftMdRef.current = md;
     setNote(drafted);
@@ -551,7 +588,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       dispatchFlow({ type: 'TRANSCRIBE_START' });
       dispatchFlow({ type: 'UPLOADED', seconds: item.durationSeconds ?? formRef.current.durationSeconds });
     }
-    const { text, language, error: tError } = await transcribeConsultationAudio(audioPath);
+    const { text, language, error: tError } = await transcribeConsultationAudio(audioPath, consultationIdRef.current);
     if (tError) {
       patchItem({ status: 'failed-transcribe', error: tError.message });
       dispatchFlow({ type: 'FAILED', at: 'transcribing', error: tError });
@@ -641,7 +678,21 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   };
 
   // Edit note: the row goes back to 'draft' so edits are drafts until Save (an abandoned edit never silently changes a saved note's status).
+  // Migration 020: a signed note is locked. Its signer may undo the signature within 15 minutes; after that, corrections need an addendum
+  // (not built yet). A completed note from before 020 has no signature and reopens exactly as before.
   const editSavedNote = async () => {
+    if (consultationId && metaRef.current.signed_at) {
+      if (!canUnsign(metaRef.current, profile?.id)) {
+        setError("Signed notes can't be changed. Corrections need an addendum (coming).");
+        return;
+      }
+      const { error: uError } = await unsignConsultation(consultationId);
+      if (uError) { setError(uError.message || 'Could not reopen the note for editing. Try again.'); return; }
+      setMeta((m) => ({ ...m, signed_at: null, signed_by: null, signed_by_name: null }));
+      setDbStatus('draft');
+      dispatchFlow({ type: 'EDIT_NOTE' });
+      return;
+    }
     if (consultationId) {
       const { error: draftError } = await updateConsultationColumns(consultationId, { status: 'draft' });
       if (draftError) { setError('Could not reopen the note for editing. Try again.'); return; }
@@ -712,6 +763,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   };
 
   if (phoneView) {
+    const phoneFirst = (booking?.customer_name || 'The patient').trim().split(/\s+/)[0];
     return (
       <div className="h-[100dvh] flex flex-col bg-gradient-to-b from-primary/15 via-background to-background overflow-hidden">
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-6">
@@ -814,17 +866,19 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
               {pendingRemoteStart && !recorder.isRecording && (
                 <div className="mb-4 p-4 bg-primary/10 border border-primary/30 rounded-lg text-center">
                   <p className="text-sm text-text-primary mb-3">Ready to record. Tap the button to start with this phone's microphone.</p>
-                  <Button variant="primary" size="lg" fullWidth iconName="Mic" iconPosition="left" onClick={handleStart}>Tap to start recording</Button>
+                  <Button variant="primary" size="lg" fullWidth iconName="Mic" iconPosition="left" onClick={handleStart} disabled={!consent}>Tap to start recording</Button>
                 </div>
               )}
 
               {!recorder.isRecording ? (
                 <div className="flex flex-col items-center gap-2 py-2">
-                  <button type="button" disabled={processing !== null} onClick={handleStart} aria-label="Start recording"
+                  <button type="button" disabled={processing !== null || !consent} onClick={handleStart} aria-label="Start recording"
                           className="w-24 h-24 rounded-full bg-primary text-white flex items-center justify-center shadow-lg shadow-primary/30 active:scale-95 transition disabled:opacity-50">
                     <Icon name="Mic" size={40} />
                   </button>
-                  <p className="text-sm text-text-secondary">{form.audioPaths.length ? 'Tap to record more' : 'Tap to start recording'}</p>
+                  <p className="text-sm text-text-secondary">{!consent ? `Tick that ${phoneFirst} has agreed to record` : form.audioPaths.length ? 'Tap to record more' : 'Tap to start recording'}</p>
+                  {/* the same consent control as the computer (migration 020): recorded on the server, once per consultation */}
+                  <ConsentCheck className="mt-1" firstName={phoneFirst} consent={consent} consentAt={meta.recording_consent_at} busy={consentBusy} onConsent={recordConsent} />
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -1089,7 +1143,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
                 </section>
               ) : (
                 <RecorderBar
-                  firstName={patientFirst} consent={consent} onConsent={setConsent} recorder={recorder} remote={remote} remotePhoneLabel={remotePhone?.label}
+                  firstName={patientFirst} consent={consent} consentAt={meta.recording_consent_at} consentBusy={consentBusy} onConsent={recordConsent} recorder={recorder} remote={remote} remotePhoneLabel={remotePhone?.label}
                   locked={stage === 'saved'} phones={phones} processing={processing} audioPaths={form.audioPaths} durationSeconds={form.durationSeconds}
                   onStart={handleStart} onStop={handleStopDesk} onRecordOnPhone={() => sendCommand({ action: 'start', target: phones[0]?.deviceId })}
                   onStopRemote={() => sendCommand({ action: 'stop', target: remote?.from })} onContinueOnPhone={() => setShowPhone(true)} errorText={recorderError}
@@ -1114,6 +1168,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
                 onWriteMyself={() => dispatchFlow({ type: 'WRITE_MYSELF' })} earlierDoctorNotes={form.doctorNotes.trim() ? form.doctorNotes : ''}
                 onDraftNow={showDraftNow ? retryDraft : null}
               />
+              {provenanceLine(meta) && (
+                <p className="text-[12.5px] text-[#8A8A90] -mt-2">{provenanceLine(meta)}</p>
+              )}
             </div>
             <ConsultationRail
               booking={booking} record={record} lastPlan={lastPlan} xrayPaths={form.xrayPaths} photoPaths={form.photoPaths}
