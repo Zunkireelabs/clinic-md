@@ -1,0 +1,51 @@
+[
+  {
+    "name": "all six sections, written by noteToMarkdown",
+    "md": "## Chief complaint\nPain lower left\n\n## History\nRCT 2024\n\n## Findings\nCaries 36\n\n## Assessment\nIrreversible pulpitis\n\n## Plan\n- RCT 36\n- Crown\n\n## Follow-up\n2 weeks",
+    "sections": { "chief_complaint": "Pain lower left", "history": "RCT 2024", "findings": "Caries 36", "assessment": "Irreversible pulpitis", "plan": "- RCT 36\n- Crown", "follow_up": "2 weeks" },
+    "ai": { "chief_complaint": "Pain lower left", "history": "RCT 2024", "findings": "Caries 36", "assessment": "Irreversible pulpitis", "plan": "- RCT 36", "follow_up": "2 weeks" },
+    "edited": ["plan"]
+  },
+  {
+    "name": "empty sections omitted; AI had text the doctor removed",
+    "md": "## Chief complaint\nSensitivity\n\n## Plan\n- Fluoride varnish",
+    "sections": { "chief_complaint": "Sensitivity", "history": "", "findings": "", "assessment": "", "plan": "- Fluoride varnish", "follow_up": "" },
+    "ai": { "chief_complaint": "Sensitivity", "history": "Smoker", "findings": "", "assessment": "", "plan": "- Fluoride varnish", "follow_up": "" },
+    "edited": ["history"]
+  },
+  {
+    "name": "escaped heading in a body line stays body text",
+    "md": "## Findings\nCaries 36\n\\## not a heading\n\n## Plan\n- RCT",
+    "sections": { "chief_complaint": "", "history": "", "findings": "Caries 36\n## not a heading", "assessment": "", "plan": "- RCT", "follow_up": "" },
+    "ai": { "findings": "Caries 36\n## not a heading", "plan": "- RCT" },
+    "edited": []
+  },
+  {
+    "name": "text before the first heading goes to findings",
+    "md": "Seen with mother.\n## Findings\nCaries 36",
+    "sections": { "chief_complaint": "", "history": "", "findings": "Caries 36\nSeen with mother.", "assessment": "", "plan": "", "follow_up": "" },
+    "ai": { "findings": "Caries 36" },
+    "edited": ["findings"]
+  },
+  {
+    "name": "whitespace differences are not edits",
+    "md": "## Chief complaint\n  Pain  \n\n## Plan\n- RCT\n",
+    "sections": { "chief_complaint": "Pain", "history": "", "findings": "", "assessment": "", "plan": "- RCT", "follow_up": "" },
+    "ai": { "chief_complaint": "Pain\n", "plan": " - RCT" },
+    "edited": []
+  },
+  {
+    "name": "legacy free-form summary (other headings): SQL gives null, JS reads it leniently",
+    "md": "### Clinical Findings\nCaries\n\n### Treatment Plan\nRCT",
+    "sections": null,
+    "ai": { "findings": "Caries", "plan": "RCT" },
+    "edited": null
+  },
+  {
+    "name": "no AI draft: edited is null (Written by)",
+    "md": "## Plan\n- Scaling",
+    "sections": { "chief_complaint": "", "history": "", "findings": "", "assessment": "", "plan": "- Scaling", "follow_up": "" },
+    "ai": null,
+    "edited": null
+  }
+]
