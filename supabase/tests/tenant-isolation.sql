@@ -420,7 +420,7 @@ DO $act$
 DECLARE
   oa uuid; ob uuid; a1 uuid; tr uuid; cu uuid; d1 uuid; d1b uuid; cz uuid; bk record;
   u_prac uuid := gen_random_uuid(); u_staff uuid; u_adm uuid; u_adminb uuid; u_mgr uuid; sfx text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
-  b1 uuid; b2 uuid; b3 uuid; b4 uuid; b5 uuid; bR1 uuid; bR2 uuid; bR3 uuid; bD uuid; bPaid uuid; bX uuid;
+  b1 uuid; b2 uuid; b3 uuid; b4 uuid; b5 uuid; bR1 uuid; bR2 uuid; bR3 uuid; bD uuid; bPaid uuid; bX uuid; aCancelX uuid;
   r jsonb; r2 jsonb; l record; x_id uuid; tot bigint;
 BEGIN
   IF to_regprocedure('public.act_undo(uuid,text,jsonb)') IS NULL OR to_regprocedure('public.is_my_booking_row(uuid,uuid)') IS NULL THEN
@@ -514,7 +514,7 @@ BEGIN
 
   -- ── agent rules (set_status) ──
   UPDATE bookings SET status = 'Confirmed' WHERE id = bX;   -- as owner, so the agent tests below start from a clean state
-  UPDATE bookings SET status = 'Pending' WHERE id = bX;
+  UPDATE bookings SET status = 'Pending', cancellation_reason = NULL WHERE id = bX;   -- clear the 'no' left by the cancel above
   FOR l IN SELECT * FROM (VALUES ('No Show'), ('In-Progress'), ('Completed')) v(s) LOOP
     r2 := pg_temp.act_run('service', format('SELECT public.act_booking_set_status(%L, %L, ''x'', %L::jsonb)', bX, l.s, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa, 'approved_by', u_adm)));
     PERFORM pg_temp.act_chk('agent cannot set ' || l.s || ', even with approval (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
@@ -525,6 +525,7 @@ BEGIN
   PERFORM pg_temp.act_chk('agent cannot cancel a PAID / part-paid booking alone, even if the patient said no', pg_temp.act_code(r2) = 'APPROVAL_REQUIRED', 'got ' || coalesce(r2::text, 'null'));
   r2 := pg_temp.act_run('service', format('SELECT public.act_booking_set_status(%L, ''Cancelled'', ''patient said no'', %L::jsonb)', bX, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa, 'reason_source', 'patient_reply')));
   PERFORM pg_temp.act_chk('agent cancels an UNPAID booking without approval when the patient said no', pg_temp.act_code(r2) = 'ok' AND (SELECT status FROM bookings WHERE id = bX) = 'Cancelled', 'got ' || coalesce(r2::text, 'null'));
+  aCancelX := (r2 ->> 'action_id')::uuid;   -- undone below; picked by id because every created_at in this transaction is the same now()
   r := pg_temp.act_run('service', format('SELECT public.act_booking_set_status(%L, ''Cancelled'', ''staff asked'', %L::jsonb)', bPaid, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa, 'approved_by', u_adm)));
   SELECT * INTO l FROM action_log WHERE id = (r ->> 'action_id')::uuid;
   PERFORM pg_temp.act_chk('agent cancel WITH approval works and logs approved_by', pg_temp.act_code(r) = 'ok' AND l.approved_by = u_adm AND l.actor_agent = 'follow_up', 'got ' || coalesce(r::text, 'null'));
@@ -638,7 +639,7 @@ BEGIN
   SELECT jsonb_build_object('action_id', id) INTO r2 FROM action_log WHERE target_id = bPaid AND action = 'booking.set_status' AND ok ORDER BY created_at DESC LIMIT 1;
   r := pg_temp.act_run('staff', format('SELECT public.act_undo(%L)', r2 ->> 'action_id'));
   PERFORM pg_temp.act_chk('cancelling a part-paid booking is NOT undoable (UNDO_NOT_POSSIBLE)', pg_temp.act_code(r) = 'UNDO_NOT_POSSIBLE', 'got ' || coalesce(r::text, 'null'));
-  SELECT jsonb_build_object('action_id', id) INTO r2 FROM action_log WHERE target_id = bX AND action = 'booking.set_status' AND ok ORDER BY created_at DESC LIMIT 1;
+  r2 := jsonb_build_object('action_id', aCancelX);
   r := pg_temp.act_run('staff', format('SELECT public.act_undo(%L, ''patient called back'')', r2 ->> 'action_id'));
   PERFORM pg_temp.act_chk('cancelling an UNPAID booking IS undoable, and the cancellation reason is restored', pg_temp.act_code(r) = 'ok' AND (SELECT status FROM bookings WHERE id = bX) = 'Pending' AND (SELECT cancellation_reason FROM bookings WHERE id = bX) IS NULL, 'got ' || coalesce(r::text, 'null'));
   -- the 24 h window
@@ -1595,6 +1596,7 @@ DECLARE
   pb1 uuid; pb2 uuid; pbb uuid; pb_off uuid; it uuid; it2 uuid; it3 uuid; it_pr uuid; it_exp uuid; it_stop uuid; it_ed uuid; it_st uuid; it_rej uuid;
   r jsonb; r2 jsonb; l record; n bigint; s jsonb; acts_a uuid; acts_b uuid; x text; svc_a text;
   ctx_fu text; ctx_sc text; ctx_b text; okx boolean;
+  e_org uuid; e_br uuid; e_uid uuid := gen_random_uuid(); e_seed timestamptz; e_sfx text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
 BEGIN
   IF to_regprocedure('public.act_work_approve(uuid,jsonb,jsonb)') IS NULL OR to_regclass('public.agent_work_items') IS NULL THEN
     INSERT INTO t_res VALUES ('AGENT', '-', 'migration-016 checks', 'INFO', 'skipped: the agent platform (016) is not present');
@@ -1675,11 +1677,40 @@ BEGIN
     AND NOT has_function_privilege('authenticated', 'public.agent_expire_work_items()', 'EXECUTE')
     AND NOT has_function_privilege('authenticated', 'public.act_work_propose(text,text,uuid,text,text,text,jsonb,uuid,jsonb,uuid,uuid,uuid,boolean,timestamptz,jsonb)', 'EXECUTE')
     AND NOT has_function_privilege('anon', 'public.act_work_approve(uuid,jsonb,jsonb)', 'EXECUTE'), 'grants');
-  PERFORM pg_temp.g_chk('seed (decision f): every organization that existed before the test has a scribe and a follow_up clinic-wide row',
+  -- A seeded row nobody has changed since: every app write sets updated_by and updated_at = now() (an undo restores both exactly), local setup scripts
+  -- bump updated_at, and the seed wrote neither; all seed rows share the 016 transaction's now(), the earliest updated_at of any clinic-wide row.
+  e_seed := (SELECT min(s0.updated_at) FROM agent_settings s0 WHERE s0.branch_id IS NULL AND s0.org_id NOT IN (SELECT org FROM t_seed));
+  PERFORM pg_temp.g_chk('seed (decision f): every organization that existed before the test has a scribe and a follow_up clinic-wide row; every row still as seeded (updated_by NULL, updated_at = the seed time) has the scribe ENABLED (CMD-109: the AI switch alone gates it, as with no row) and follow_up DISABLED, ceiling 1; at least one such row exists',
     NOT EXISTS (SELECT 1 FROM organizations o WHERE o.id NOT IN (SELECT org FROM t_seed)
                 AND (NOT EXISTS (SELECT 1 FROM agent_settings s WHERE s.org_id = o.id AND s.branch_id IS NULL AND s.agent = 'scribe')
-                  OR NOT EXISTS (SELECT 1 FROM agent_settings s WHERE s.org_id = o.id AND s.branch_id IS NULL AND s.agent = 'follow_up' AND NOT s.enabled AND s.max_level = 1))),
+                  OR NOT EXISTS (SELECT 1 FROM agent_settings s WHERE s.org_id = o.id AND s.branch_id IS NULL AND s.agent = 'follow_up')))
+    AND NOT EXISTS (SELECT 1 FROM agent_settings s WHERE s.branch_id IS NULL AND s.org_id NOT IN (SELECT org FROM t_seed) AND s.updated_by IS NULL AND s.updated_at = e_seed
+                      AND ((s.agent = 'scribe' AND (NOT s.enabled OR s.max_level IS DISTINCT FROM 1)) OR (s.agent = 'follow_up' AND (s.enabled OR s.max_level IS DISTINCT FROM 1))))
+    AND EXISTS (SELECT 1 FROM agent_settings s WHERE s.branch_id IS NULL AND s.agent = 'follow_up' AND s.org_id NOT IN (SELECT org FROM t_seed) AND s.updated_by IS NULL AND s.updated_at = e_seed)
+    AND EXISTS (SELECT 1 FROM agent_settings s WHERE s.branch_id IS NULL AND s.agent = 'scribe' AND s.org_id NOT IN (SELECT org FROM t_seed) AND s.updated_by IS NULL AND s.updated_at = e_seed),
     'seed rows');
+  -- CMD-109, end to end on a row 016 really seeded: a clinic whose AI is off switches it on, and its Scribe may run (no AGENT_OFF from the seeded row).
+  -- Picks an organization whose scribe row is still as seeded (a disabled one first); AI is turned off for it inside this rolled-back transaction.
+  SELECT s.org_id INTO e_org FROM agent_settings s WHERE s.branch_id IS NULL AND s.agent = 'scribe' AND s.org_id NOT IN (SELECT org FROM t_seed) AND s.updated_by IS NULL AND s.updated_at = e_seed
+   ORDER BY s.enabled, s.org_id LIMIT 1;
+  IF e_org IS NULL THEN
+    PERFORM pg_temp.g_chk('CMD-109: a clinic switching AI on can run the Scribe (seeded row)', false, 'no organization with a scribe row still as seeded');
+  ELSE
+    SELECT b.id INTO e_br FROM branches b WHERE b.org_id = e_org ORDER BY b.id LIMIT 1;
+    IF e_br IS NULL THEN INSERT INTO branches (name, org_id) VALUES ('CMD-109 test', e_org) RETURNING id INTO e_br; END IF;
+    UPDATE organizations SET ai_consultation_enabled = false WHERE id = e_org;   -- as owner; rolled back with the test
+    INSERT INTO auth.users (id, instance_id, aud, role, email, created_at, updated_at)
+      VALUES (e_uid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-cmd109-' || e_sfx || '@test.invalid', now(), now());
+    INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active) VALUES (e_uid, 'rls-cmd109-' || e_sfx || '@test.invalid', 'RLS admin CMD-109', 'admin', e_br, e_org, true);
+    INSERT INTO t_actor VALUES ('cmd109_admin', e_uid, e_org, 'authenticated');
+    PERFORM pg_temp.g_chk('CMD-109: with the AI switch off, the Scribe is blocked by the switch (AI_OFF)', public._ai_block_reason(e_org, e_br, 'scribe') = 'AI_OFF',
+      coalesce(public._ai_block_reason(e_org, e_br, 'scribe'), 'null'));
+    r := pg_temp.act_run('cmd109_admin', 'SELECT public.act_ai_budget_set(1000)');
+    r := pg_temp.act_run('cmd109_admin', 'SELECT public.act_ai_set_enabled(true)');
+    PERFORM pg_temp.g_chk('CMD-109: after the owner sets a budget and switches AI on, the Scribe may run: the scribe row 016 seeded does not keep it off (no AGENT_OFF)',
+      pg_temp.act_code(r) = 'ok' AND public._ai_block_reason(e_org, e_br, 'scribe') IS NULL AND public.ai_may_run(e_org, e_br, 'scribe'),
+      pg_temp.act_code(r) || ' / block reason ' || coalesce(public._ai_block_reason(e_org, e_br, 'scribe'), 'null') || ' / org ' || e_org);
+  END IF;
   PERFORM pg_temp.g_chk('seed: a Scribe with no row follows the AI switch (on), follow_up with no row is off',
     public._agent_org_enabled(oa, 'scribe') AND NOT public._agent_org_enabled(oa, 'follow_up') AND public._agent_ceiling(oa, 'follow_up') = 1, 'defaults');
 

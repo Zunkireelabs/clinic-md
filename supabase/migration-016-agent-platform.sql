@@ -1030,9 +1030,13 @@ GRANT EXECUTE ON FUNCTION public.act_work_propose(text, text, uuid, text, text, 
   public.agent_expire_work_items() TO service_role;
 -- _act_resolve and act_undo keep the grants 012 gave them (CREATE OR REPLACE does not change them)
 
--- 9. seed (decision f): without these rows ai_may_run would turn the Scribe OFF at clinics that use it today
+-- 9. seed (decision f): an explicit clinic-wide row per organization for each agent.
+--    The scribe row is ENABLED (CMD-109, lead QC 2026-11-23): the AI switch alone keeps the Scribe off (_ai_block_reason returns AI_OFF while
+--    organizations.ai_consultation_enabled is false), exactly as with no row (_agent_org_enabled defaults the Scribe to on). Seeding it = the
+--    AI switch left a clinic with AI off a scribe row that is OFF, and act_ai_set_enabled(true) only updates organizations, so its Scribe stayed
+--    blocked with AGENT_OFF after the owner switched AI on. follow_up starts DISABLED. Migration 018 seeds new organizations the same way.
 INSERT INTO public.agent_settings (org_id, branch_id, agent, enabled, max_level)
-SELECT o.id, NULL, 'scribe', COALESCE(o.ai_consultation_enabled, false), 1 FROM public.organizations o
+SELECT o.id, NULL, 'scribe', true, 1 FROM public.organizations o
 ON CONFLICT ON CONSTRAINT agent_settings_key DO NOTHING;
 INSERT INTO public.agent_settings (org_id, branch_id, agent, enabled, max_level)
 SELECT o.id, NULL, 'follow_up', false, 1 FROM public.organizations o
