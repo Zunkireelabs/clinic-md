@@ -371,9 +371,45 @@ BEGIN
 END $$;
 CREATE TRIGGER messages_block_inactive_patient BEFORE INSERT ON public.messages FOR EACH ROW EXECUTE FUNCTION public._messages_block_inactive_patient();
 
--- 013's conversation access for staff / manager used the patient's HOME branch (migration-013 line 226): one record across branches
--- means the patient's thread is reachable from every branch of the organization. Re-created below only for the patient-linked arm.
--- (Left unchanged here: the function is rewritten in a later 013-era migration; see the design doc §2.2. Tracked for Part 2.)
+-- One record across branches (Sadin): 013 gated a patient's conversation and consent rows by the patient's HOME branch, so a front desk at another
+-- branch could not open that patient's thread. For PATIENT-LINKED rows staff and manager now get organization scope; threads with no patient yet keep
+-- the branch rule (their own branches, plus threads with no branch). Practitioner, admin and agent (service) rules are unchanged.
+CREATE OR REPLACE FUNCTION public.hub_can_read_conversation(p_org uuid, p_branch uuid, p_customer uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+    AS $$
+  SELECT COALESCE(
+    p_org = public.get_user_org_id()
+    AND (
+      public.get_user_role()::text IN ('admin', 'admin_viewer')
+      OR (public.get_user_role()::text IN ('staff', 'manager') AND (p_customer IS NOT NULL OR p_branch IS NULL OR p_branch = ANY (public.get_user_branch_ids())))
+      OR (public.get_user_role()::text = 'practitioner' AND public.is_my_patient(p_customer))
+    ), false);
+$$;
+CREATE OR REPLACE FUNCTION public.hub_can_read_consent(p_org uuid, p_customer uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+    AS $$
+  SELECT COALESCE(
+    p_org = public.get_user_org_id()
+    AND (
+      public.get_user_role()::text IN ('admin', 'admin_viewer')
+      OR (public.get_user_role()::text IN ('staff', 'manager') AND p_customer IS NOT NULL
+          AND EXISTS (SELECT 1 FROM public.customers c WHERE c.id = p_customer AND c.org_id = p_org))
+      OR (public.get_user_role()::text = 'manager' AND p_customer IS NULL)
+      OR (public.get_user_role()::text = 'practitioner' AND public.is_my_patient(p_customer))
+    ), false);
+$$;
+CREATE OR REPLACE FUNCTION public._hub_scope(p_ctx jsonb, p_org uuid, p_branch uuid, p_customer uuid) RETURNS boolean
+    LANGUAGE sql STABLE SET search_path = public
+    AS $$
+  SELECT COALESCE(
+    p_org = (p_ctx ->> 'org_id')::uuid
+    AND CASE
+      WHEN (p_ctx ->> 'service')::boolean THEN (p_ctx ->> 'branch_id') IS NULL OR p_branch IS NULL OR (p_ctx ->> 'branch_id')::uuid = p_branch
+      WHEN p_ctx ->> 'role' IN ('admin', 'admin_viewer') THEN true
+      WHEN p_ctx ->> 'role' = 'practitioner' THEN public.is_my_patient(p_customer)
+      ELSE p_customer IS NOT NULL OR p_branch IS NULL OR COALESCE(p_ctx -> 'branch_ids', '[]'::jsonb) ? p_branch::text   -- a patient's thread: any branch; no patient yet: their branches
+    END, false);
+$$;
 
 -- 5. actions -------------------------------------------------------------------------------------------------------------------
 -- Patient actions are org-wide for every allowed role (one record across branches). The audit branch_id is the actor's first branch.

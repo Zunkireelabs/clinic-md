@@ -1,6 +1,7 @@
 // Integration check of the patient erase flow against the LOCAL Supabase stack (never production).
 //   eval "$(supabase status -o env | sed 's/^/export /')"   # or pass the three values yourself
 //   LOCAL_API_URL=http://127.0.0.1:55321 LOCAL_ANON_KEY=... LOCAL_SERVICE_KEY=... node scripts/test-patient-erase-local.mjs
+// NOTE: service_role has no write grant on the 019 tables (by design), so the erased patient row is left behind; remove it with psql (see test-patient-erase-http-local.mjs).
 // It creates its own org rows (an admin and a front-desk user, a patient with a recording, a login and a written request), runs the real
 // flow (runPatientErase + real Storage API + real act_patient_erase), prints PASS/FAIL, and cleans up what it can (action_log is append-only).
 import { createClient } from '@supabase/supabase-js';

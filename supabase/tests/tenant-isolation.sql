@@ -823,7 +823,7 @@ BEGIN
   r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_template => %L)', pat1, t_bad));
   PERFORM pg_temp.act_chk('send: a placeholder with no value is refused (TEMPLATE_FIELD_MISSING), nothing queued', pg_temp.act_code(r2) = 'TEMPLATE_FIELD_MISSING' AND (SELECT count(*) FROM messages WHERE conversation_id = conv1 AND kind = 'message') = 1, 'got ' || coalesce(r2::text, 'null'));
   r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'')', pat3));
-  PERFORM pg_temp.act_chk('send: another branch''s patient is not found for front desk (PATIENT_NOT_FOUND)', pg_temp.act_code(r2) = 'PATIENT_NOT_FOUND', 'got ' || coalesce(r2::text, 'null'));
+  PERFORM pg_temp.act_chk('send: another branch''s patient is found for front desk (one record across branches); no consent yet (NO_CONSENT)', pg_temp.act_code(r2) = 'NO_CONSENT', 'got ' || coalesce(r2::text, 'null'));
   r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'')', pat3));
   PERFORM pg_temp.act_chk('send: no consent yet is refused (NO_CONSENT)', pg_temp.act_code(r2) = 'NO_CONSENT', 'got ' || coalesce(r2::text, 'null'));
   r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'')', pat4));
@@ -1093,7 +1093,7 @@ BEGIN
   r2 := pg_temp.act_run('staff', format('SELECT public.act_conversation_take_over(%L)', conv1));
   PERFORM pg_temp.act_chk('take over: front desk cannot take it back from a manager (ALREADY_HANDLED)', pg_temp.act_code(r2) = 'ALREADY_HANDLED', 'got ' || coalesce(r2::text, 'null'));
   r2 := pg_temp.act_run('hub_staff_a2', format('SELECT public.act_conversation_take_over(%L)', conv1));
-  PERFORM pg_temp.act_chk('take over: front desk of another branch cannot see it (CONVERSATION_NOT_FOUND)', pg_temp.act_code(r2) = 'CONVERSATION_NOT_FOUND', 'got ' || coalesce(r2::text, 'null'));
+  PERFORM pg_temp.act_chk('take over: front desk of another branch reaches a PATIENT thread (one record across branches, migration-019); it is handled by a manager (ALREADY_HANDLED)', pg_temp.act_code(r2) = 'ALREADY_HANDLED', 'got ' || coalesce(r2::text, 'null'));
   r2 := pg_temp.act_run('admin_viewer', format('SELECT public.act_conversation_take_over(%L)', conv1));
   PERFORM pg_temp.act_chk('take over: admin_viewer is read-only (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
   r2 := pg_temp.act_run('hub_p2', format('SELECT public.act_conversation_take_over(%L)', conv1));
@@ -1176,7 +1176,7 @@ BEGIN
   r2 := pg_temp.act_run('staff', format('SELECT public.act_consent_record(p_customer => %L, p_evidence => '''')', pat3));
   PERFORM pg_temp.act_chk('consent: evidence is required (INVALID_INPUT)', pg_temp.act_code(r2) = 'INVALID_INPUT', 'got ' || coalesce(r2::text, 'null'));
   r2 := pg_temp.act_run('staff', format('SELECT public.act_consent_record(p_customer => %L, p_evidence => ''Agreed at the front desk, 4 Feb'')', pat3));
-  PERFORM pg_temp.act_chk('consent: front desk cannot record for another branch''s patient (PATIENT_NOT_FOUND)', pg_temp.act_code(r2) = 'PATIENT_NOT_FOUND', 'got ' || coalesce(r2::text, 'null'));
+  PERFORM pg_temp.act_chk('consent: front desk can record for another branch''s patient (one record across branches, migration-019)', pg_temp.act_code(r2) = 'ok', 'got ' || coalesce(r2::text, 'null'));
   r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_consent_record(p_customer => %L, p_evidence => ''Agreed at the front desk, 4 Feb'')', pat3));
   PERFORM pg_temp.act_chk('consent: a manager records service consent with its evidence', pg_temp.act_code(r2) = 'ok' AND (SELECT (status, source, recorded_by, evidence) FROM patient_channels WHERE org_id = oa AND address = '+9779801000003' AND channel = 'sms' AND purpose = 'service') = ('agreed'::text, 'front_desk'::text, u_mgr, 'Agreed at the front desk, 4 Feb'::text), 'got ' || coalesce(r2::text, 'null'));
   r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'')', pat3));
@@ -1207,9 +1207,9 @@ BEGIN
     END;
   END LOOP;
   r2 := pg_temp.act_run('hub_staff_a2', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.conversations WHERE id = %L', conv1), 0);
-  PERFORM pg_temp.act_chk('RLS: front desk of branch A2 cannot read a branch A1 thread', (r2 ->> 'n')::int = 0, 'got ' || coalesce(r2::text, 'null'));
+  PERFORM pg_temp.act_chk('RLS: front desk of branch A2 reads a branch A1 PATIENT thread (one record across branches, migration-019)', (r2 ->> 'n')::int = 1, 'got ' || coalesce(r2::text, 'null'));
   r2 := pg_temp.act_run('hub_staff_a2', format('SELECT jsonb_build_object(''n'', (SELECT count(*) FROM public.messages WHERE conversation_id = %L), ''c'', (SELECT count(*) FROM public.patient_channels WHERE customer_id IN (%L, %L))) ', conv1, pat1, pat2), 0);
-  PERFORM pg_temp.act_chk('RLS: ...nor its messages, nor branch A1 patients'' consent rows', (r2 ->> 'n')::int = 0 AND (r2 ->> 'c')::int = 0, 'got ' || coalesce(r2::text, 'null'));
+  PERFORM pg_temp.act_chk('RLS: ...and its messages and branch A1 patients'' consent rows', (r2 ->> 'n')::int > 0 AND (r2 ->> 'c')::int > 0, 'got ' || coalesce(r2::text, 'null'));
   r2 := pg_temp.act_run('staff', format('SELECT jsonb_build_object(''n'', (SELECT count(*) FROM public.conversations WHERE id = %L), ''m'', (SELECT count(*) FROM public.messages WHERE conversation_id = %L), ''c'', (SELECT count(*) FROM public.patient_channels WHERE customer_id = %L))', conv1, conv1, pat1), 0);
   PERFORM pg_temp.act_chk('RLS: front desk of branch A1 reads the thread, its messages and the patient''s consent', (r2 ->> 'n')::int = 1 AND (r2 ->> 'm')::int > 0 AND (r2 ->> 'c')::int > 0, 'got ' || coalesce(r2::text, 'null'));
   r2 := pg_temp.act_run('admin_viewer', format('SELECT jsonb_build_object(''n'', (SELECT count(*) FROM public.conversations WHERE org_id = %L), ''t'', (SELECT count(*) FROM public.conversations))', oa), 0);
@@ -2103,7 +2103,7 @@ BEGIN
     ('g_pr1',               'work_queue',       'title = ''A1 item for practitioner 1''', 1),
     ('g_pr2',               'work_queue',       'title = ''A1 item for practitioner 1''', 0),
     ('staff',               'work_queue',       'source = ''conversation''', 1),
-    ('g_staff_a2',          'work_queue',       'source = ''conversation''', 0),
+    ('g_staff_a2',          'work_queue',       'source = ''conversation''', 1),
     ('admin',               'work_queue',       'source = ''conversation''', 1),
     ('anon',                'agent_work_items', 'true', -1),
     ('anon',                'ai_spend',         'true', -1)
@@ -2790,7 +2790,7 @@ DECLARE
   oa uuid; ob uuid; a1 uuid; a2 uuid; b1 uuid; tr uuid; d1 uuid; bk uuid; c_a1 uuid; u_adm uuid; u_prac uuid;
   p1 uuid; p2 uuid; pb uuid; pdup uuid; pfam uuid; pfam2 uuid; perase uuid; parch uuid; bkf uuid; bkm uuid;
   p1no int; sfx text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 6);
-  r jsonb; r2 jsonb; n bigint; tok text; tok2 text; tmpl uuid; al uuid; al2 uuid; cv uuid; sub uuid; rr record; vv text;
+  r jsonb; r2 jsonb; n bigint; tok text; tok2 text; tmpl uuid; al uuid; al2 uuid; cv uuid; cv2 uuid; sub uuid; rr record; vv text;
   nclin int; fam uuid; fam2 uuid; no_before int; no_after int; snap jsonb; snap2 jsonb;
 BEGIN
   IF to_regprocedure('public.act_patient_create(jsonb,uuid,uuid,jsonb)') IS NULL OR to_regprocedure('public.get_user_dentist_id()') IS NULL THEN
@@ -2924,6 +2924,11 @@ BEGIN
   PERFORM pg_temp.act_chk('ANON BOOKING: the old 3-argument call still works and returns one row', (r ->> 'n')::int = 1, r::text);
   r := pg_temp.pt_q('anon', format('SELECT to_jsonb(public.upsert_customer_for_booking(%L, %L, ''Somebody New'', ''9702000001''))', oa, a1));
   PERFORM pg_temp.act_chk('ANON BOOKING: upsert with a shared phone and a new name does not error and returns the contact', r #>> '{}' = pfam::text, r::text);
+  -- the same number typed three ways resolves to the same patient, through both anon booking functions
+  r := pg_temp.pt_q('anon', format('SELECT jsonb_build_object(''raw'', (SELECT id FROM public.find_customer_for_booking(%L, ''9702000001'', NULL, ''Fam Parent %s'')), ''e164'', (SELECT id FROM public.find_customer_for_booking(%L, ''+9779702000001'', NULL, ''Fam Parent %s'')), ''spaced'', (SELECT id FROM public.find_customer_for_booking(%L, ''+977 970-200-0001'', NULL, ''Fam Parent %s'')))', oa, sfx, oa, sfx, oa, sfx));
+  PERFORM pg_temp.act_chk('PHONE FORMS: raw 97XXXXXXXX, +977-97XXXXXXXX and a spaced form find the same patient (find_customer_for_booking)', r ->> 'raw' = pfam::text AND r ->> 'e164' = pfam::text AND r ->> 'spaced' = pfam::text, r::text);
+  r := pg_temp.pt_q('anon', format('SELECT jsonb_build_object(''a'', public.upsert_customer_for_booking(%L, %L, ''Fam Parent %s'', ''9702000001''), ''b'', public.upsert_customer_for_booking(%L, %L, ''Fam Parent %s'', ''+9779702000001''))', oa, a1, sfx, oa, a1, sfx));
+  PERFORM pg_temp.act_chk('PHONE FORMS: ... and upsert_customer_for_booking returns the same patient for raw and +977 (no new row)', r ->> 'a' = pfam::text AND r ->> 'b' = pfam::text, r::text);
   r := pg_temp.pt_q('admin', format('SELECT to_jsonb(public.upsert_customer_for_booking(%L, %L, ''Somebody New'', ''9702000001''))', oa, a1));
   PERFORM pg_temp.act_chk('STAFF BOOKING: upsert with a shared phone does not rename the contact', (SELECT full_name FROM customers WHERE id = pfam) = 'Fam Parent ' || sfx, 'name kept');
   PERFORM pg_temp.act_chk('DUPLICATES: members of one family are not listed as duplicates',
@@ -3031,6 +3036,24 @@ BEGIN
   PERFORM pg_temp.act_chk('NEEDS ATTENTION: unconfirmed alerts put the patient on the list', r ? 'unconfirmed_alert', coalesce(r::text, 'null'));
   r := pg_temp.pt_q('admin_of_OTHER_org', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.patient_needs_attention() WHERE customer_id = %L', p1));
   PERFORM pg_temp.act_chk('NEEDS ATTENTION: org B never sees org A''s patients', (r ->> 'n')::int = 0, r::text);
+
+  -- ── H2. one record across branches: the hub (migration-013 helpers rewritten by 019) ─────────────────────────────────────────
+  INSERT INTO conversations (org_id, branch_id, channel, address, customer_id) VALUES (oa, a2, 'sms', '9705000001', p2) RETURNING id INTO cv;
+  INSERT INTO messages (org_id, conversation_id, direction, kind, body, author_kind, status) VALUES (oa, cv, 'in', 'message', 'hello from A2 patient', 'patient', 'delivered');
+  INSERT INTO patient_channels (org_id, customer_id, channel, address, purpose, status, source) VALUES (oa, p2, 'sms', '9705000001', 'service', 'agreed', 'booking');
+  INSERT INTO conversations (org_id, branch_id, channel, address, customer_id) VALUES (oa, a2, 'sms', '9705000002', NULL) RETURNING id INTO cv2;
+  PERFORM pg_temp.act_chk('HUB: front desk at A1 opens the thread of a patient whose home branch is A2', pg_temp.fn_try('staff', format('SELECT * FROM conversations WHERE id = %L', cv)) = 'ok:1', 'staff A1 / patient A2');
+  PERFORM pg_temp.act_chk('HUB: ... and its messages', pg_temp.fn_try('staff', format('SELECT * FROM messages WHERE conversation_id = %L', cv)) = 'ok:1', 'messages');
+  PERFORM pg_temp.act_chk('HUB: ... and the patient''s consent rows', pg_temp.fn_try('staff', format('SELECT * FROM patient_channels WHERE customer_id = %L', p2)) = 'ok:1', 'consent');
+  PERFORM pg_temp.act_chk('HUB: an UNLINKED thread at another branch keeps the branch rule (front desk at A1 cannot see it)', pg_temp.fn_try('staff', format('SELECT * FROM conversations WHERE id = %L', cv2)) = 'ok:0', 'unlinked');
+  PERFORM pg_temp.act_chk('HUB: another organization still sees none of it', pg_temp.fn_try('admin_of_OTHER_org', format('SELECT * FROM conversations WHERE id IN (%L, %L)', cv, cv2)) = 'ok:0'
+    AND pg_temp.fn_try('admin_of_OTHER_org', format('SELECT * FROM messages WHERE conversation_id = %L', cv)) = 'ok:0' AND pg_temp.fn_try('admin_of_OTHER_org', format('SELECT * FROM patient_channels WHERE customer_id = %L', p2)) = 'ok:0', 'org B');
+  r := pg_temp.pt_a('staff', format('SELECT public.act_conversation_take_over(%L)', cv));
+  PERFORM pg_temp.act_chk('HUB: front desk at A1 can act on (take over) that patient''s thread', pg_temp.pt_ok(r), r::text);
+  r := pg_temp.pt_a('staff', format('SELECT public.act_conversation_take_over(%L)', cv2));
+  PERFORM pg_temp.act_chk('HUB: ... but not on the unlinked thread at A2', NOT pg_temp.pt_ok(r), r::text);
+  r := pg_temp.pt_a('admin_of_OTHER_org', format('SELECT public.act_conversation_take_over(%L)', cv));
+  PERFORM pg_temp.act_chk('HUB: another organization cannot act on it', NOT pg_temp.pt_ok(r), r::text);
 
   -- ── I. archive and restore ────────────────────────────────────────────────────────────────────────────────────────────────
   INSERT INTO customers (branch_id, org_id, full_name, phone) VALUES (a1, oa, 'Archive Me ' || sfx, '9703000001') RETURNING id INTO parch;

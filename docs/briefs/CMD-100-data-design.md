@@ -37,8 +37,13 @@ stored, 3 days, one submission, `public_get_form` returns title/body/first name/
 - **Erase order** in the edge function: ask the database first (it checks role, request file, typed name); only `AUDIO_FILES_REMAIN` triggers deletion of the recordings, then the
   database step again. A bad request therefore never deletes a file. It also removes the patient's login (auth user).
 - **`patient.erase` in the client** calls the edge function (`runAction` gained an `fn` kind), not an RPC.
-- Not changed: migration-013 line 226 (staff/manager reach a patient's conversation only by the patient's HOME branch). Under "one record across branches" a front desk at another branch cannot open that
-  patient's thread. Proposed follow-up ticket, not scope creep here.
+- **013 hub scope changed (QC 1):** `hub_can_read_conversation`, `hub_can_read_consent` (the line-226 rule) and `_hub_scope` (used by every conversation / consent action) gave staff and manager a patient's thread only by the patient's HOME
+  branch. In 019 they are rewritten: **patient-linked** conversations and consent rows are org-scope for staff and manager; unlinked threads keep the branch rule (their branches, or no branch). Admin, viewer, practitioner and agent (service) rules unchanged. Six old
+  test:rls assertions that pinned the home-branch rule were updated to the new rule (take over, consent record, send, thread read, messages/consent read, work_queue); the rollback restores the 013 bodies.
+- **`findOrCreateCustomer`** (api.js) is family-aware: several rows can share a phone; it picks the member by name, else the family contact, and never renames a family member. The booking flow passes the typed name to `find_customer_for_booking`.
+  Deploy note: that 4-argument call needs 019 applied first (apply order already requires it).
+
+**QC 1 results (local):** edge function run over HTTP (no JWT 401, garbage token 401, manager 403, other org's admin 404, wrong name / missing file 409 with the recording intact, valid request 200 and erased, repeat 409). Realtime: manager receives a consultations UPDATE, front desk receives none; **a DELETE event does reach front desk (Supabase does not apply RLS to DELETE events; payload is the primary key only, no content)**. Raw and +977 forms of one phone resolve to the same patient through both booking functions and `findOrCreateCustomer`.
 
 **Known gap:** `action_log` is append-only, so personal words recorded by EARLIER actions (013 consent `evidence` text) stay in the log after an erase. 019's own actions log no values.
 

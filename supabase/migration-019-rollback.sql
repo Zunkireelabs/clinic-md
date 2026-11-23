@@ -22,6 +22,44 @@ BEGIN
   END IF;
 END $$;
 
+-- 013 conversation / consent scope as it was (home-branch rule)
+CREATE OR REPLACE FUNCTION public.hub_can_read_conversation(p_org uuid, p_branch uuid, p_customer uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+    AS $$
+  SELECT COALESCE(
+    p_org = public.get_user_org_id()
+    AND (
+      public.get_user_role()::text IN ('admin', 'admin_viewer')
+      OR (public.get_user_role()::text IN ('staff', 'manager') AND (p_branch IS NULL OR p_branch = ANY (public.get_user_branch_ids())))
+      OR (public.get_user_role()::text = 'practitioner' AND public.is_my_patient(p_customer))
+    ), false);
+$$;
+CREATE OR REPLACE FUNCTION public.hub_can_read_consent(p_org uuid, p_customer uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+    AS $$
+  SELECT COALESCE(
+    p_org = public.get_user_org_id()
+    AND (
+      public.get_user_role()::text IN ('admin', 'admin_viewer')
+      OR (public.get_user_role()::text IN ('staff', 'manager') AND p_customer IS NOT NULL
+          AND (SELECT c.branch_id FROM public.customers c WHERE c.id = p_customer) = ANY (public.get_user_branch_ids()))
+      OR (public.get_user_role()::text = 'manager' AND p_customer IS NULL)
+      OR (public.get_user_role()::text = 'practitioner' AND public.is_my_patient(p_customer))
+    ), false);
+$$;
+CREATE OR REPLACE FUNCTION public._hub_scope(p_ctx jsonb, p_org uuid, p_branch uuid, p_customer uuid) RETURNS boolean
+    LANGUAGE sql STABLE SET search_path = public
+    AS $$
+  SELECT COALESCE(
+    p_org = (p_ctx ->> 'org_id')::uuid
+    AND CASE
+      WHEN (p_ctx ->> 'service')::boolean THEN (p_ctx ->> 'branch_id') IS NULL OR p_branch IS NULL OR (p_ctx ->> 'branch_id')::uuid = p_branch
+      WHEN p_ctx ->> 'role' IN ('admin', 'admin_viewer') THEN true
+      WHEN p_ctx ->> 'role' = 'practitioner' THEN public.is_my_patient(p_customer)
+      ELSE p_branch IS NULL OR COALESCE(p_ctx -> 'branch_ids', '[]'::jsonb) ? p_branch::text   -- no branch yet: any front desk may triage
+    END, false);
+$$;
+
 -- the wall
 DROP POLICY IF EXISTS frontdesk_no_clinical_notes ON public.treatment_notes;
 DROP POLICY IF EXISTS frontdesk_no_consultations ON public.consultations;
