@@ -109,7 +109,7 @@ const CustomerHeader = () => {
             {/* Support Button */}
             <button className="flex items-center justify-center space-x-2 sm:w-auto sm:h-auto px-0 py-0 sm:px-4 sm:py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-spa spa-transition-fast spa-touch-target shrink-0">
               <Icon name="MessageCircle" size={14} className="sm:hidden" />
-              <Icon name="MessageCircle" size={16} className="hidden sm:block" />
+              <Icon name="MessageCircle" size={16} className="hidden sm:block sm:ml-2" />
               <span className="hidden sm:inline font-body font-body-medium text-sm">Support</span>
             </button>
           </div>
