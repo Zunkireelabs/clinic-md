@@ -61,13 +61,18 @@ case "$DB_URL" in
   postgres://*|postgresql://*) ;;
   *) die "refusing to run: the DB URL must be a postgres:// or postgresql:// URL" ;;
 esac
+# Fail closed wherever this parse and libpq could disagree: libpq has no '#' fragment, splits user@host at the FIRST '@',
+# percent-decodes query keywords ("?h%6fst=remote" is host=remote), and a comma in host:port means several hosts.
+case "$DB_URL" in *'#'*) die "refusing to run: '#' is not accepted in the DB URL" ;; esac
 rest="${DB_URL#*://}"
 authority="${rest%%[/?]*}"
 query=""; case "$rest" in *\?*) query="${rest#*\?}" ;; esac
+case "$authority" in *@*@*) die "refusing to run: more than one '@' in the DB URL's host part" ;; esac
 hostport="${authority##*@}"
 case "$hostport" in \[*) die "refusing to run: bracketed (IPv6) hosts are not accepted; use 127.0.0.1 or localhost" ;; esac
+case "$hostport" in *,*) die "refusing to run: more than one host in the DB URL ($hostport)" ;; esac
 host="${hostport%%:*}"
-case "$host" in *,*) die "refusing to run: more than one host in the DB URL ($host)" ;; esac
+case "$query" in *%*) die "refusing to run: percent-encoding in the DB URL's query is not accepted" ;; esac
 case "&$query" in *'&host='*|*'&hostaddr='*|*'&service='*) die "refusing to run: the DB URL's query sets host, hostaddr or service, which can redirect the connection" ;; esac
 case "$host" in
   127.0.0.1|localhost) ;;
