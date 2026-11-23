@@ -71,6 +71,10 @@ phase once Phase 2 is live.
 | Medical alerts (2026-11-22) | Anyone who can edit a patient, and the intake form, can add an alert. It shows as "Not confirmed" until a practitioner confirms it. Only practitioners change or remove a confirmed alert. Every change is logged. |
 | Bulk messages (2026-11-22) | Managers and owners can select patients in the list and send a service notice from a template. Marketing goes only to patients with marketing consent, and the send screen shows who is skipped and why. Recalls stay with the agents' playbooks. |
 | Patient number (2026-11-22) | Every patient gets an automatic number (P-01234), shown in the header and searchable. An optional "Old file number" keeps the clinic's paper number and is searchable too. |
+| Bills (2026-11-23) | A numbered receipt by default (clinic PAN, no VAT line, sent by chat or SMS, or printed). A clinic setting turns on IRD-compliant PAN bill mode for registered clinics. |
+| Memberships, vouchers, referrals (2026-11-23) | Left out of the Money design for now; Money shows packages only. Ship or remove stays open (CMD-14). |
+| Payment links (2026-11-23) | Fonepay dynamic QR first, on screen and in links; eSewa and Khalti later. |
+| Refunds and closed days (2026-11-23) | Front desk cannot refund. A manager refunds with a reason, logged. Only the owner reopens a closed day, with a reason. |
 | Archive and erase (2026-11-22) | Managers and owners archive a record: it's hidden from lists, agents stop messaging the patient, and it can be restored. Only the owner can erase personal details, on a written request. Clinical and money records are kept as the law requires, and the erasure is logged. |
 
 ## 3. Where the product is today
