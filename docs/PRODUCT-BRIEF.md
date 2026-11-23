@@ -64,6 +64,14 @@ phase once Phase 2 is live.
 | Who edits messaging (2026-11-22) | Owner and managers edit templates, sending rules and consent wording. Front desk and practitioners pick templates in the Inbox. Only the owner turns AI on or off. |
 | AI providers shown (2026-11-22) | Settings › AI and privacy names each provider, what it is used for, what it receives, where, and how long it keeps data (today OpenAI: whisper-1 and gpt-4o). |
 | Defaults (2026-11-22) | Consultation recordings are deleted 30 days after the note is signed. Quiet hours 8:00 pm to 8:00 am, Nepal time; messages due then wait until 8:00 am. An undelivered message moves to the next channel after 10 minutes. |
+| Patients across branches (2026-11-22) | One patient record for the whole clinic, shared by every branch. The list opens on the current branch and has an All branches view; each visit shows its branch. |
+| Front desk and clinical content (2026-11-22) | Front desk sees medical alerts, visits, messages, payments and forms, but not consultation notes, X-rays or clinical photos. Those show who wrote them, with no content. Practitioners, managers and owners see everything; read-only sees what its access allows. |
+| Families (2026-11-22) | Every person has their own record. Records can be linked as a family that shares one contact phone. Messages go to the contact phone and name the patient. Family members are not flagged as duplicates. |
+| Forms and consents (2026-11-22) | Intake forms and consents are sent as a link before the visit. Anyone who hasn't filled one in does it on a clinic tablet or phone at the desk, or staff type the answers in. Signed forms are saved to the record. |
+| Medical alerts (2026-11-22) | Anyone who can edit a patient, and the intake form, can add an alert. It shows as "Not confirmed" until a practitioner confirms it. Only practitioners change or remove a confirmed alert. Every change is logged. |
+| Bulk messages (2026-11-22) | Managers and owners can select patients in the list and send a service notice from a template. Marketing goes only to patients with marketing consent, and the send screen shows who is skipped and why. Recalls stay with the agents' playbooks. |
+| Patient number (2026-11-22) | Every patient gets an automatic number (P-01234), shown in the header and searchable. An optional "Old file number" keeps the clinic's paper number and is searchable too. |
+| Archive and erase (2026-11-22) | Managers and owners archive a record: it's hidden from lists, agents stop messaging the patient, and it can be restored. Only the owner can erase personal details, on a written request. Clinical and money records are kept as the law requires, and the erasure is logged. |
 
 ## 3. Where the product is today
 
