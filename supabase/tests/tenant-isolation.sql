@@ -2524,11 +2524,24 @@ BEGIN
     AND NOT EXISTS (SELECT 1 FROM playbooks WHERE org_id = n1 AND (branch_id IS NOT NULL OR agent <> 'follow_up' OR enabled OR level <> 1 OR template_id IS NOT NULL
                                                                 OR created_by IS NOT NULL OR updated_by IS NOT NULL)),
     (SELECT coalesce(jsonb_agg(jsonb_build_object('key', key, 'enabled', enabled, 'level', level, 'template', template_id)), '[]')::text FROM playbooks WHERE org_id = n1));
-  PERFORM pg_temp.n_chk('the scribe row is ENABLED whether the AI switch is on or off (NOT 016''s rule, scribe = the switch, which leaves the Scribe stuck off after AI is switched on)',
+  PERFORM pg_temp.n_chk('the scribe row is ENABLED whether the AI switch is on or off, as 016 seeds it since CMD-109 (scribe = the switch left the Scribe stuck off after AI was switched on)',
     EXISTS (SELECT 1 FROM agent_settings WHERE org_id = n2 AND branch_id IS NULL AND agent = 'scribe' AND enabled AND max_level = 1)
     AND EXISTS (SELECT 1 FROM agent_settings WHERE org_id = n2 AND branch_id IS NULL AND agent = 'follow_up' AND NOT enabled AND max_level = 1)
     AND (SELECT count(*) FROM playbooks WHERE org_id = n2 AND NOT enabled AND level = 1) = 5, 'scribe');
 
+  -- the same settings as 016's own seed (since CMD-109): compare with a pre-existing organization whose two rows nobody has changed
+  SELECT o.id INTO ref FROM organizations o
+   WHERE o.id NOT IN (SELECT org FROM t_seed) AND o.id NOT IN (n1, n2)
+     AND (SELECT count(*) FROM agent_settings s WHERE s.org_id = o.id AND s.branch_id IS NULL AND s.agent IN ('scribe', 'follow_up') AND s.updated_by IS NULL
+            AND s.updated_at = (SELECT min(s0.updated_at) FROM agent_settings s0 WHERE s0.branch_id IS NULL AND s0.org_id NOT IN (SELECT org FROM t_seed))) = 2
+   ORDER BY o.id LIMIT 1;
+  PERFORM pg_temp.n_chk('the new organization''s settings rows equal 016''s seed value by value (agent, branch, enabled, ceiling), compared with an untouched 016-seeded organization',
+    ref IS NOT NULL
+    AND NOT EXISTS ((SELECT agent, branch_id, enabled, max_level FROM agent_settings WHERE org_id = n1)
+                    EXCEPT (SELECT agent, branch_id, enabled, max_level FROM agent_settings WHERE org_id = ref AND branch_id IS NULL AND agent IN ('scribe', 'follow_up')))
+    AND NOT EXISTS ((SELECT agent, branch_id, enabled, max_level FROM agent_settings WHERE org_id = ref AND branch_id IS NULL AND agent IN ('scribe', 'follow_up'))
+                    EXCEPT (SELECT agent, branch_id, enabled, max_level FROM agent_settings WHERE org_id = n1)),
+    'reference org ' || coalesce(ref::text, 'none (no untouched 016-seeded organization)'));
   -- the same values as 017's own seed: compare with a pre-existing organization whose five playbooks nobody has changed
   SELECT o.id INTO ref FROM organizations o
    WHERE o.id NOT IN (SELECT org FROM t_seed) AND o.id NOT IN (n1, n2)
