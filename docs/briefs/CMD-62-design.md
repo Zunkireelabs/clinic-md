@@ -149,3 +149,11 @@ Also: `npm test` (I will report the Test Files line), `npm run build`, and an ed
 - Production: the deployed `pin-login` version, the column grants on `users`, whether any clinic logs in with a PIN, and what writes `users.pin`.
 - The behaviour of 022 itself (no SQL written yet).
 - Whether `crypt(..., gen_salt('bf', 10))` cost is fine on the production host (about 50-100 ms per check expected; not measured).
+
+## 8. Build notes (2026-11-24, after approval; D1-D4 approved as written)
+- Files: `supabase/migration-022-staff-pin.sql`, `-preflight.sql`, `-rollback.sql`; section 3i of `supabase/tests/tenant-isolation.sql` (161 checks); `supabase/tests/migration-022-roundtrip.sh`; `supabase/functions/pin-login/index.ts` (byte-identical copy of the bookX file).
+- `CREATE TABLE IF NOT EXISTS user_pins`: the rollback keeps the table on purpose, so rolling forward again after a rollback has to work. The round trip proves it.
+- Wrong organization slug now counts as a failure even with the right PIN (as agreed). An inactive user and a user with no hash get the same generic answer and cost one bcrypt compare against a dummy hash.
+- Admin may reset another admin; never themselves (`INVALID_INPUT`, use `set_my_pin`). The temporary PIN is added to the returned object AFTER `_act_finish` wrote the log row; the five PIN functions contain no `RAISE`; the test greps every `action_log` column for the PIN (quoted value and key names).
+- Authenticated users, any role, cannot write `users.pin` (RLS: no UPDATE/INSERT policy). The tests try an UPDATE of a colleague's and of their own row and an INSERT with a `pin`, for every role.
+- Not done as written in section 7: the `pin-login` edge test. `supabase functions serve` talks to the API on 55321, which is backed by the shared `postgres` DB, not the private clone, and the brief says not to use the shared DB. The function only calls `login_with_pin` and `generateLink`; `login_with_pin` is tested at SQL level (service_role can call it; anon, authenticated cannot). An end-to-end run needs 022 on the shared DB (or a second stack) and the lead's go-ahead.
