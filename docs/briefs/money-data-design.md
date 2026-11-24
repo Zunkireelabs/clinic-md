@@ -99,13 +99,14 @@ Rows 4, 6, 8, 10, 11 depend on the true month lengths (29-32 days), which is exa
 
 ### 5.1 Time cannot be chosen by the client (C2)
 BEFORE INSERT triggers on `payments`, `payment_refunds`, `money_documents` **set `NEW.created_at` / `issued_at := now()`**, overriding whatever was sent. BEFORE UPDATE refuses any change to `created_at` / `issued_at` (`TIME_IMMUTABLE`). So a future or past stamp cannot dodge the lock, and an old row cannot be moved to an open day.
-UPDATE/DELETE checks the day of **OLD and NEW** (for rows that carry an amount): both days must be open. DELETE of refunds and documents is refused outright; payments DELETE stays as today (booking lock) plus the day check.
+UPDATE/DELETE checks the day of **OLD and NEW** (for rows that carry an amount): both days must be open. DELETE of refunds and documents is refused outright; payments DELETE stays as today (booking lock) plus the day check, except rows with a `document_id`, which refuse it (D2, §5.2).
 
 ### 5.2 Per table
 | Table | Today | Part 0 |
 |---|---|---|
 | `bookings` | any change refused when `is_locked` | unchanged, plus the single narrow exception in 5.4 |
 | `payments` | refused when booking `is_locked` | direct client INSERT: still refused when the booking is locked (acceptance 5), plus refused when today's day is closed for the branch. `money_collect` path: allowed on a locked booking **when today is open** (5.3) |
+| `payments` with `document_id` (D2) | n/a | **immutable for everyone**: UPDATE of `amount`, `payment_mode`, `booking_id`, `document_id` and DELETE refused (`DOC_PAYMENT_IMMUTABLE`), including definer code and the owner. Corrected only by a refund plus a refund note/credit note, like the document. Legacy rows (`document_id IS NULL`) keep today's behaviour plus the day check |
 | `payment_refunds` | none | refused when the event day is closed (INSERT: today; UPDATE: OLD and NEW day) |
 | `money_documents` | none | INSERT refused when today is closed (`issued_at = now()`); UPDATE/DELETE per 1.4; cancel of a PAN bill refused when today is closed (reopen first) |
 | `daily_reports` | none | rows written only by the day functions |
@@ -116,8 +117,9 @@ Side effect to confirm: cancelling an **unlocked** older booking (not paid on a 
 A SECURITY DEFINER trigger function can't tell: `current_user` inside it is always the function owner. So the check is in a **separate BEFORE INSERT trigger, SECURITY INVOKER** (`trg_payments_guard`), where `current_user` is the role that ran the INSERT:
 - client direct INSERT: `current_user = 'authenticated'`;
 - `money_collect` (definer): `current_user` = the function owner.
-Rule: if `NEW.document_id IS NOT NULL` and `current_user` is not the owner role of `money_collect` → `RAISE 'DOC_PAYMENT_FORBIDDEN'`. So only `money_collect` can ever create a payment with a `document_id`. The AFTER (definer) trigger then skips the booking-`is_locked` refusal **only when `NEW.document_id IS NOT NULL`** (and still requires today open). A client cannot set `current_user` (it cannot `SET ROLE` to the owner), and a GUC is not used for this decision. A forged `document_id` is also useless: the BEFORE trigger refuses it first, and the document row can't be created by a client.
-Tests (local, must pass before I rely on it): client INSERT with `document_id` → refused; client INSERT on a locked booking → DAY_LOCKED as today; `money_collect` on a locked booking, today open → ok; same with today closed → DAY_LOCKED; a client that `SET ROLE` / `set_config('money.collect', ...)` still fails. Not proven yet; CMD-54's proof was not readable to me.
+The trigger is `BEFORE INSERT OR UPDATE OF document_id` (round 3, D1). Rule: if `NEW.document_id IS NOT NULL` (INSERT) or `NEW.document_id IS DISTINCT FROM OLD.document_id` (UPDATE) and `current_user` is not the owner role → `RAISE 'DOC_PAYMENT_FORBIDDEN'`. So a client can never set or change `document_id`. Every SECURITY DEFINER function shares that owner, so `current_user` alone does not single out `money_collect`: the AFTER (definer) trigger therefore skips the booking-`is_locked` refusal **only when `NEW.document_id IS NOT NULL` AND `NEW.document_id::text = current_setting('money.doc', true)`** (the GUC `money_collect` sets in step 7, after the document exists) and today is open. Another definer function has no such document and no such GUC.
+`current_user` mechanism: CMD-54 proved it on local (its `tenant-isolation.sql` §3i first check: `authenticated` for a direct write, the function owner inside a SECURITY DEFINER function, `service_role` for a service write; lead re-ran 2349 PASS). I did not read or touch that worktree. My own tests below must still prove it on this branch. A client cannot set `current_user` (it cannot `SET ROLE` to the owner), and a GUC is not used for this decision. A forged `document_id` is also useless: the BEFORE trigger refuses it first, and the document row can't be created by a client.
+Tests (local, must pass before I rely on it): client INSERT with `document_id` → refused; client UPDATE of `document_id` → refused; **another definer function (e.g. `record_membership_payment`) on a locked booking still cannot change `payment_status`** (no matching `money.doc`); a definer insert with a `document_id` but no matching GUC on a locked booking → DAY_LOCKED; client INSERT on a locked booking → DAY_LOCKED as today; `money_collect` on a locked booking, today open → ok; same with today closed → DAY_LOCKED; a client that `SET ROLE` / `set_config('money.collect', ...)` still fails. Not proven yet; CMD-54's proof was not readable to me.
 
 ### 5.4 Narrow exception on `bookings` for `payment_status`
 `enforce_booking_immutability` gets one added branch at the top of its `is_locked` check:
@@ -131,7 +133,7 @@ Today (all client-side, `src/services/api.js`): `recordPayment` (~413) per booki
 Signature: `money_collect(p_lines jsonb, p_tenders jsonb, p_customer uuid, p_buyer_name text, p_buyer_pan text, p_ctx jsonb)` via `act_money_collect`.
 - `p_lines`: `[{booking_id, amount}]`, explicit allocation. `p_tenders`: `[{mode, amount, package_id?}]`; **sum(tenders) must equal sum(lines)** (`TENDER_MISMATCH`).
 - Tender modes: `cash`, `card`, `fonepay`, `other`, and `session_package` (calls `redeem_package_session` + residual row as today). **Any wallet tender (membership, voucher, referral) → `UNSUPPORTED_TENDER`**; the existing wallet RPCs stay untouched (C3).
-- Order, all in one transaction: (1) 014 check; (2) load all bookings `FOR UPDATE`, same org; (3) `MIXED_BRANCH`, `MIXED_CUSTOMER`, `OVERPAY` (a line above that booking's due = `final_amount − paid`) checks; (4) **`DAY_LOCKED` if today is closed for the branch (before any number is taken, C9)**; (5) create the payment rows; (6) take the number and insert the document with one line per booking (`label, amount, ref`); (7) set `payments.document_id`. A refusal at any step rolls back, so no number is used.
+- Order, all in one transaction (round 3, D1): (1) 014 check; (2) load all bookings `FOR UPDATE`, same org; (3) `MIXED_BRANCH`, `MIXED_CUSTOMER`, `OVERPAY` (a line above that booking's due = `final_amount − paid`) checks; (4) **`DAY_LOCKED` if today is closed for the branch (before any number is taken, C9)**; (5) compute the document's lines (one per booking: `label, amount, ref`), total and method summary from `p_lines`/`p_tenders`, no insert yet; (6) take the number and **insert the document**; (7) `set_config('money.doc', <document id>, true)`; (8) **insert the payments rows WITH `document_id`** (and run the package redemption). No UPDATE of `payments` ever follows, so `document_id` is set at INSERT time and the §5.3/§5.4 conditions can see it. A refusal at any step rolls back, so no number is used.
 - Locked booking and today open: allowed (R1). The payment, the receipt and the drawer are dated today; the booking keeps its old day and old closing.
 - One receipt per call. Several bookings = one receipt, one line each (accepted).
 
@@ -151,20 +153,21 @@ For the manager/admin path (as accepted): when the booking already has a `money_
 Proof on local: (a) `pg_dump --schema-only` diff before 021 vs after rollback is empty; (b) row counts **and** an `md5` over ordered rows of `payments`, `payment_refunds`, `daily_reports` (old columns only) before 021 and after rollback are equal. Rows created after 021 lose their `document_id` and extra data on rollback: stated, rehearsal-only; on prod after real receipts exist, a rollback needs a lead decision.
 
 ## 10. Tests
-- test:rls: other org sees nothing; practitioner and admin_viewer can't call any write; staff can't refund, close or reopen, and never receives expected amounts (before or after submit); a closed day refuses each write kind (payment, refund, document, cancel of a PAN bill); documents can't be updated outside the allowed columns or deleted; client INSERT with a future `created_at` is forced to now(); `created_at` UPDATE refused; §5.3 and §5.4 tests.
+- test:rls: other org sees nothing; practitioner and admin_viewer can't call any write; staff can't refund, close or reopen, and never receives expected amounts (before or after submit); a closed day refuses each write kind (payment, refund, document, cancel of a PAN bill); documents can't be updated outside the allowed columns or deleted; client INSERT with a future `created_at` is forced to now(); a payment with `document_id` refuses UPDATE (each of the four columns) and DELETE for client, definer and owner (D2); legacy payment rows (NULL `document_id`) behave as today; `created_at` UPDATE refused; §5.3 and §5.4 tests.
 - Numbering: the §2 harness (20 concurrent, rollback gapless), 1 Shrawan turnover.
 - `money_collect`: OVERPAY, MIXED_BRANCH, MIXED_CUSTOMER, TENDER_MISMATCH, UNSUPPORTED_TENDER, DAY_LOCKED without number consumed, old due on a locked booking paid today.
 - Vitest: action mapping, number formatting per mode, parity.
 - Merge glue: copy the fix from PR #27 (search "merge glue") when step 2 starts (the 78/79 seeds clash on `users.dentist_id`).
 
-## 11. Questions for the lead
-1. Cancelling an unlocked older booking while today is closed: refuse (DAY_LOCKED) until reopen? (§5.2, my default: yes.)
-2. "Leave as due" on a locked booking (`due_holder_name`): stays refused in Part 0; Part 1 decides. OK?
-3. Sadin must type the npm install approval here; pairs are yours/his to sign off.
+## 11. Decided (lead, round 3) and PM follow-up list
+1. Cancelling an unlocked older booking while today is closed: **refused with DAY_LOCKED until reopen** (a closed day means the clinic stopped taking money for it). Part 1 follow-up: the cancel screen must show this refusal plainly.
+2. "Leave as due" on a locked booking (`due_holder_name`): **stays refused in Part 0**; Part 1 decides.
+3. Sadin signs off the pairs; the npm install approval must be typed in this session.
+PM follow-ups (Part 1): collectable locked-day dues (§5.4); front desk cancel creates a refund request (§7); items 1 and 2 above.
 
 ## 12. Not verified
 - BS converter data, its range, and every pair in §4 (not installed; the expected AD values are from memory).
-- The `current_user` approach in §5.3 and the booking exception in §5.4: not run (no SQL); CMD-54's proof was not readable.
+- The `current_user` approach in §5.3 and the booking exception in §5.4: not run (no SQL); CMD-54 proved the `current_user` idea on its branch (per the lead), mine is still to be proven.
 - IRD rules (general knowledge only).
 - Prod matches `schema.sql` for `daily_reports`, locks and payment triggers (CMD-11).
 - `api.js` line numbers (carried from the earlier session).
