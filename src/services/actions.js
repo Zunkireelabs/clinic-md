@@ -24,6 +24,56 @@ const ACTIONS = {
     rpc: 'act_booking_flag_not_confirmed',
     args: ({ bookingId, reason }) => ({ p_booking: bookingId, p_reason: reason ?? null }),
   },
+  // Money (migration-021, CMD-115). Part 0 only maps them; the screens that call them come in later parts. `lines` is
+  // [{ booking_id, amount }] and `tenders` [{ mode, amount, package_id? }]; the tenders must add up to the lines.
+  'money.collect': {
+    rpc: 'act_money_collect',
+    args: ({ lines, tenders, customerId, buyerName, buyerPan }) => ({ p_lines: lines, p_tenders: tenders, p_customer: customerId ?? null, p_buyer_name: buyerName ?? null, p_buyer_pan: buyerPan ?? null }),
+  },
+  'money.refund': {
+    rpc: 'act_money_refund',
+    args: ({ bookingId, amount, reason, paidBackBy, requestId }) => ({ p_booking: bookingId, p_amount: amount, p_reason: reason, p_paid_back_by: paidBackBy, p_request: requestId ?? null }),
+  },
+  'money.request_refund': {
+    rpc: 'act_money_request_refund',
+    args: ({ documentId, bookingId, amount, note }) => ({ p_document: documentId, p_booking: bookingId, p_amount: amount, p_note: note ?? null }),
+  },
+  'money.request_decline': {
+    rpc: 'act_money_request_decline',
+    args: ({ requestId, note }) => ({ p_request: requestId, p_note: note ?? null }),
+  },
+  'bill.cancel': {
+    rpc: 'act_bill_cancel',
+    args: ({ documentId, reason }) => ({ p_document: documentId, p_reason: reason }),
+  },
+  'document.print': {
+    rpc: 'act_document_print',
+    args: ({ documentId }) => ({ p_document: documentId }),
+  },
+  'document.send': {
+    rpc: 'act_document_send',
+    args: ({ documentId, channel, to }) => ({ p_document: documentId, p_channel: channel, p_to: to }),
+  },
+  'day.submit_count': {
+    rpc: 'act_day_submit_count',
+    args: ({ branchId, date, counts }) => ({ p_branch: branchId, p_date: date, p_counts: counts }),
+  },
+  'day.expected': {
+    rpc: 'act_day_expected',
+    args: ({ branchId, date }) => ({ p_branch: branchId, p_date: date }),
+  },
+  'day.close': {
+    rpc: 'act_day_close',
+    args: ({ branchId, date, differenceReason }) => ({ p_branch: branchId, p_date: date, p_difference_reason: differenceReason ?? null }),
+  },
+  'day.reopen': {
+    rpc: 'act_day_reopen',
+    args: ({ branchId, date, reason }) => ({ p_branch: branchId, p_date: date, p_reason: reason }),
+  },
+  'billing.set_mode': {
+    rpc: 'act_billing_set_mode',
+    args: ({ pan, panBillMode }) => ({ p_pan: pan ?? null, p_mode: panBillMode }),
+  },
   undo: {
     rpc: 'act_undo',
     args: ({ actionId, reason }) => ({ p_action_id: actionId, p_reason: reason ?? null }),

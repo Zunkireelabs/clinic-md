@@ -2858,7 +2858,7 @@ BEGIN
   PERFORM pg_temp.mo_chk('fiscal year formula: month 3 day 31 and month 4 day 1 are different years (fixture days)', fiscal_year(date '1999-07-15') = '2998/99' AND fiscal_year(date '1999-07-16') = '2999/00' AND fiscal_year(date '1999-04-14') = '2998/99', fiscal_year(date '1999-07-15') || ' / ' || fiscal_year(date '1999-07-16'));
   PERFORM pg_temp.mo_chk('fiscal year outside the table raises BS_OUT_OF_RANGE (never guesses)', pg_temp.mo_owner('SELECT fiscal_year(date ''1800-01-01'')') LIKE 'raised:BS_OUT_OF_RANGE%', pg_temp.mo_owner('SELECT fiscal_year(date ''1800-01-01'')'));
   PERFORM pg_temp.mo_chk('number formats: receipt, refund note, PAN bill, credit note', money_format_number('receipt', '2083/84', 1189) = '2083/84-1189' AND money_format_number('refund_note', '2083/84', 7) = '2083/84-7'
-     AND money_format_number('pan_bill', '2083/84', 1189) = '1189' AND money_format_number('credit_note', '2083/84', 14) = 'CN-14', 'formats');
+     AND money_format_number('pan_bill', '2083/84', 1189) = '1189' AND money_format_number('credit_note', '2083/84', 14) = 'CN-14' AND money_format_number('receipt', '2083/84', 1) = '2083/84-1' AND money_format_number('pan_bill', '2084/85', 5) = money_format_number('pan_bill', '2083/84', 5), 'formats (same cases as src/utils/moneyNumber.test.js)');
   PERFORM pg_temp.mo_owner(format('SELECT public._money_next_number(%L, ''receipt'', ''2998/99'')', ob));
   PERFORM pg_temp.mo_chk('counter: first number of a fiscal year is 1 and the next fiscal year restarts at 1',
     public._money_next_number(ob, 'receipt', '2998/99') = 2 AND public._money_next_number(ob, 'receipt', '2999/00') = 1, 'counter');
