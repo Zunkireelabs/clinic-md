@@ -29,6 +29,7 @@
         "build": "vite build",
         "serve": "vite preview",
         "test": "vitest run",
+        "test:edge": "node --test supabase/tests/edge/consultation-edge.edge.mjs",
         "test:rls": "psql \"${RLS_DB_URL:-postgresql://postgres:postgres@127.0.0.1:55322/postgres}\" -v ON_ERROR_STOP=1 -v verbose=off -f supabase/tests/tenant-isolation.sql | grep -E '^(FAIL|SUMMARY|COVERAGE)'; exit ${PIPESTATUS[0]}"
     },
     "eslintConfig": {

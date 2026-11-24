@@ -1,7 +1,7 @@
 // Edge-function tests for CMD-54/55 against the FAKE OpenAI. LOCAL ONLY (refuses any non-127.0.0.1 URL).
 // Needs: local Supabase with migration 020 applied, `supabase functions serve --env-file <env>` running, fake-openai.mjs running.
 // Env: API_URL, ANON_KEY, SERVICE_ROLE_KEY (from `supabase status -o env`), optional FN_FLAG_ON=1 for the consent-required run,
-//      PGPASSWORD (default postgres). Run: node --test supabase/tests/edge/consultation-edge.test.mjs
+//      PGPASSWORD (default postgres). Run: npm run test:edge
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
