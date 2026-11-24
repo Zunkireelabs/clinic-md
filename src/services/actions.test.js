@@ -20,8 +20,42 @@ const refused = (code, message, action_id = 'act-2') => ({ data: { ok: false, ac
 beforeEach(() => { rpc.mockReset(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
 
 describe('runAction', () => {
-  it('knows the four slice-1 actions', () => {
-    expect(ACTION_NAMES.sort()).toEqual(['booking.flag_not_confirmed', 'booking.reschedule', 'booking.set_status', 'undo']);
+  it('knows the slice-1 actions and the twelve money actions', () => {
+    expect(ACTION_NAMES.sort()).toEqual(['billing.set_mode', 'bill.cancel', 'booking.flag_not_confirmed', 'booking.reschedule', 'booking.set_status', 'day.close', 'day.expected', 'day.reopen', 'day.submit_count', 'document.print', 'document.send', 'money.collect', 'money.refund', 'money.request_decline', 'money.request_refund', 'undo'].sort());
+  });
+
+  it('maps each money action to its RPC and named arguments', async () => {
+    rpc.mockResolvedValue(ok({}));
+    const lines = [{ booking_id: 'b1', amount: 100 }]; const tenders = [{ mode: 'Cash', amount: 100 }];
+    const cases = [
+      ['money.collect', { lines, tenders, customerId: 'c1', buyerName: 'N', buyerPan: '123' }, 'act_money_collect', { p_lines: lines, p_tenders: tenders, p_customer: 'c1', p_buyer_name: 'N', p_buyer_pan: '123' }],
+      ['money.collect', { lines, tenders }, 'act_money_collect', { p_lines: lines, p_tenders: tenders, p_customer: null, p_buyer_name: null, p_buyer_pan: null }],
+      ['money.refund', { bookingId: 'b1', amount: 50, reason: 'r', paidBackBy: 'cash', requestId: 'q1' }, 'act_money_refund', { p_booking: 'b1', p_amount: 50, p_reason: 'r', p_paid_back_by: 'cash', p_request: 'q1' }],
+      ['money.refund', { bookingId: 'b1', amount: 50, reason: 'r', paidBackBy: 'cash' }, 'act_money_refund', { p_booking: 'b1', p_amount: 50, p_reason: 'r', p_paid_back_by: 'cash', p_request: null }],
+      ['money.request_refund', { documentId: 'd1', bookingId: 'b1', amount: 10 }, 'act_money_request_refund', { p_document: 'd1', p_booking: 'b1', p_amount: 10, p_note: null }],
+      ['money.request_decline', { requestId: 'q1', note: 'no' }, 'act_money_request_decline', { p_request: 'q1', p_note: 'no' }],
+      ['bill.cancel', { documentId: 'd1', reason: 'wrong patient' }, 'act_bill_cancel', { p_document: 'd1', p_reason: 'wrong patient' }],
+      ['document.print', { documentId: 'd1' }, 'act_document_print', { p_document: 'd1' }],
+      ['document.send', { documentId: 'd1', channel: 'sms', to: '+977' }, 'act_document_send', { p_document: 'd1', p_channel: 'sms', p_to: '+977' }],
+      ['day.submit_count', { branchId: 'br', date: '2031-01-02', counts: { cash: 100 } }, 'act_day_submit_count', { p_branch: 'br', p_date: '2031-01-02', p_counts: { cash: 100 } }],
+      ['day.expected', { branchId: 'br', date: '2031-01-02' }, 'act_day_expected', { p_branch: 'br', p_date: '2031-01-02' }],
+      ['day.close', { branchId: 'br', date: '2031-01-02', differenceReason: 'short' }, 'act_day_close', { p_branch: 'br', p_date: '2031-01-02', p_difference_reason: 'short' }],
+      ['day.close', { branchId: 'br', date: '2031-01-02' }, 'act_day_close', { p_branch: 'br', p_date: '2031-01-02', p_difference_reason: null }],
+      ['day.reopen', { branchId: 'br', date: '2031-01-02', reason: 'missed' }, 'act_day_reopen', { p_branch: 'br', p_date: '2031-01-02', p_reason: 'missed' }],
+      ['billing.set_mode', { pan: '123', panBillMode: true }, 'act_billing_set_mode', { p_pan: '123', p_mode: true }],
+    ];
+    for (const [name, inputs, fn, args] of cases) {
+      await runAction(name, inputs);
+      expect(rpc).toHaveBeenLastCalledWith(fn, args);
+    }
+  });
+
+  it('hands a money refusal (with its data, e.g. the close blockers) back as ok:false', async () => {
+    rpc.mockResolvedValue({ data: { ok: false, action_id: 'a9', data: [{ code: 'IN_CHAIR', booking_id: 'b1' }], error: { code: 'BLOCKERS', message: 'The day cannot be closed yet.' } }, error: null });
+    const r = await runAction('day.close', { branchId: 'br', date: '2031-01-02' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toEqual({ code: 'BLOCKERS', message: 'The day cannot be closed yet.' });
+    expect(r.data).toEqual([{ code: 'IN_CHAIR', booking_id: 'b1' }]);
   });
 
   it('calls the matching RPC with named p_ arguments and maps a success', async () => {
