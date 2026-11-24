@@ -2778,6 +2778,349 @@ BEGIN
   INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient booking UPDATE not newly blocked by an error', CASE WHEN r IN ('ok:0', 'ok:1', 'denied') THEN 'PASS' ELSE 'FAIL' END, 'got ' || r || ' (same as before: patients have no UPDATE policy)');
 END $prac$;
 
+-- ───────────────────────────── 3j. MONEY PART 0 (migration-021, CMD-115) ─────────────────────────────
+-- Receipts and bills, numbering, refunds and requests, the day lock by money-event date, blind count and closing, immutability.
+-- Seeds what it needs on org A / B (rolled back with the test). Skipped if 021 is absent.
+-- BS CALENDAR FIXTURES: the real bs_calendar rows are not in the migration yet (needs-verification, CMD-115). Until they are, this section inserts a
+-- few THROWAWAY rows with bs_year 2999 (marked FIXTURE-NOT-CALENDAR-DATA) so the NUMBERING logic can run. They test numbering, never the
+-- calendar: no check below claims any AD<->BS mapping is true. They are removed by the final ROLLBACK, and the first check fails if a row with
+-- bs_year 2999 is already committed (a leak from another run). The 12 official pairs are separate tests, added with the real data.
+CREATE FUNCTION pg_temp.mo_chk(p_label text, p_ok boolean, p_detail text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO t_res VALUES ('MONEY', '-', p_label, CASE WHEN COALESCE(p_ok, false) THEN 'PASS' ELSE 'FAIL' END, p_detail);
+  IF NOT COALESCE(p_ok, false) THEN RAISE NOTICE 'FAILED CHECK: % -- %', p_label, left(p_detail, 300); END IF;
+END $$;
+-- runs one statement as an actor and keeps its effects (the next call builds on it); returns the jsonb of a SELECT, or {raised: sqlstate, msg}
+CREATE FUNCTION pg_temp.mo_run(p_actor text, p_sql text) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE r jsonb; a record; claims text; dbrole text;
+BEGIN
+  EXECUTE 'RESET ROLE';
+  SELECT * INTO a FROM t_actor WHERE name = p_actor; dbrole := a.db_role;
+  claims := CASE WHEN a.uid IS NULL THEN '{"role":"anon"}' ELSE json_build_object('sub', a.uid, 'role', 'authenticated')::text END;
+  EXECUTE format('SET LOCAL ROLE %I', dbrole);
+  PERFORM set_config('request.jwt.claims', claims, true);
+  BEGIN EXECUTE p_sql INTO r; EXCEPTION WHEN OTHERS THEN r := jsonb_build_object('raised', SQLSTATE, 'msg', SQLERRM); END;
+  EXECUTE 'RESET ROLE';
+  RETURN r;
+END $$;
+-- same, but as the owner (migration/definer context), keeping effects
+CREATE FUNCTION pg_temp.mo_owner(p_sql text) RETURNS text LANGUAGE plpgsql AS $$
+BEGIN
+  EXECUTE 'RESET ROLE';
+  BEGIN EXECUTE p_sql; RETURN 'ok'; EXCEPTION WHEN OTHERS THEN RETURN 'raised:' || SQLERRM; END;
+END $$;
+CREATE FUNCTION pg_temp.mo_book(p_branch uuid, p_tr uuid, p_cust uuid, p_name text, p_status text, p_amount numeric, p_date date, p_n int) RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE i uuid := gen_random_uuid(); s timestamptz := ((p_date::timestamp + time '08:00' + (p_n * interval '10 minutes')) AT TIME ZONE 'Asia/Kathmandu');
+BEGIN
+  INSERT INTO bookings (id, branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status, payment_status, dentist_id)
+    VALUES (i, p_branch, p_tr, p_cust, p_name, p_date, (s AT TIME ZONE 'Asia/Kathmandu')::time, ((s + interval '5 minutes') AT TIME ZONE 'Asia/Kathmandu')::time, s, s + interval '5 minutes', p_amount, p_amount, p_status::booking_status, 'unpaid', (SELECT id FROM dentists WHERE branch_id = p_branch ORDER BY id LIMIT 1));
+  RETURN i;
+END $$;
+CREATE FUNCTION pg_temp.mo_coll(p_actor text, p_lines text, p_tenders text) RETURNS jsonb LANGUAGE sql AS
+$$ SELECT pg_temp.mo_run(p_actor, format('SELECT public.act_money_collect(%L::jsonb, %L::jsonb)', p_lines, p_tenders)) $$;
+
+DO $money$
+DECLARE
+  oa uuid; ob uuid; a1 uuid; a2 uuid; b1 uuid; tr uuid; trb uuid; cu uuid; cu2 uuid; cua2 uuid; cub uuid; u_staff uuid; u_adm uuid; u_mgr uuid; u_adminb uuid;
+  today date := public._money_day(now()); yday date := public._money_day(now()) - 1;
+  fx_today boolean := false; fy text; n int; r jsonb; r2 jsonb; s text;
+  b1k uuid; b2k uuid; b3k uuid; b4k uuid; bl uuid; bq uuid; bm1 uuid; bm2 uuid; bx uuid; bA2 uuid; bcu2 uuid; bb1 uuid; bb2 uuid; bb3 uuid;
+  d1 uuid; d2 uuid; d3 uuid; seq0 int; rid uuid; reqid uuid; k int := 0; cnt int; v_cash numeric; v_exp jsonb;
+  u_def uuid;
+BEGIN
+  IF to_regprocedure('public.act_money_collect(jsonb,jsonb,uuid,text,text,jsonb)') IS NULL THEN
+    INSERT INTO t_res VALUES ('MONEY', '-', 'migration-021 checks', 'INFO', 'skipped: migration-021 (money data) not present');
+    RETURN;
+  END IF;
+  SELECT org, uid INTO oa, u_staff FROM t_actor WHERE name = 'staff';
+  SELECT uid INTO u_adm FROM t_actor WHERE name = 'admin'; SELECT uid INTO u_mgr FROM t_actor WHERE name = 'manager_2_branches';
+  SELECT org, uid INTO ob, u_adminb FROM t_actor WHERE name = 'admin_of_OTHER_org';
+  SELECT s2.pk::uuid INTO a1 FROM t_seed s2 JOIN branches b ON b.id = s2.pk::uuid WHERE s2.tbl = 'branches' AND s2.org = oa AND b.name = 'A1';
+  SELECT s2.pk::uuid INTO a2 FROM t_seed s2 JOIN branches b ON b.id = s2.pk::uuid WHERE s2.tbl = 'branches' AND s2.org = oa AND b.name = 'A2';
+  SELECT s2.pk::uuid INTO b1 FROM t_seed s2 JOIN branches b ON b.id = s2.pk::uuid WHERE s2.tbl = 'branches' AND s2.org = ob;
+  SELECT s2.pk::uuid INTO tr FROM t_seed s2 WHERE s2.tbl = 'treatments' AND s2.org = oa LIMIT 1;
+  SELECT s2.pk::uuid INTO trb FROM t_seed s2 WHERE s2.tbl = 'treatments' AND s2.org = ob LIMIT 1;
+  SELECT s2.pk::uuid INTO cu FROM t_seed s2 JOIN customers c ON c.id = s2.pk::uuid WHERE s2.tbl = 'customers' AND s2.org = oa AND c.branch_id = a1 LIMIT 1;
+  SELECT s2.pk::uuid INTO cua2 FROM t_seed s2 JOIN customers c ON c.id = s2.pk::uuid WHERE s2.tbl = 'customers' AND s2.org = oa AND c.branch_id = a2 LIMIT 1;
+  INSERT INTO customers (branch_id, full_name, org_id) VALUES (a1, 'Money second patient', oa) RETURNING id INTO cu2;
+  INSERT INTO customers (branch_id, full_name, org_id) VALUES (b1, 'Money patient B', ob) RETURNING id INTO cub;
+
+  -- FIXTURE-NOT-CALENDAR-DATA: a leak check first, then throwaway rows (bs_year 2999) for today and for a fake month-3/month-4 pair
+  PERFORM pg_temp.mo_chk('fixture hygiene: no committed bs_calendar row has the fake year 2999', NOT EXISTS (SELECT 1 FROM bs_calendar WHERE bs_year = 2999), 'leak from another run');
+  IF NOT EXISTS (SELECT 1 FROM bs_calendar WHERE ad_date = today) THEN
+    INSERT INTO bs_calendar VALUES (today, 2999, 5, 10); fx_today := true;   -- FIXTURE-NOT-CALENDAR-DATA
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM bs_calendar WHERE ad_date = yday) THEN INSERT INTO bs_calendar VALUES (yday, 2999, 5, 9); END IF;   -- FIXTURE-NOT-CALENDAR-DATA
+  INSERT INTO bs_calendar VALUES (date '1999-07-15', 2999, 3, 31), (date '1999-07-16', 2999, 4, 1), (date '1999-04-14', 2999, 1, 1);   -- FIXTURE-NOT-CALENDAR-DATA
+  fy := fiscal_year(today);
+
+  -- numbering logic on the fixtures (formula only, not the calendar)
+  PERFORM pg_temp.mo_chk('fiscal year formula: month 3 day 31 and month 4 day 1 are different years (fixture days)', fiscal_year(date '1999-07-15') = '2998/99' AND fiscal_year(date '1999-07-16') = '2999/00' AND fiscal_year(date '1999-04-14') = '2998/99', fiscal_year(date '1999-07-15') || ' / ' || fiscal_year(date '1999-07-16'));
+  PERFORM pg_temp.mo_chk('fiscal year outside the table raises BS_OUT_OF_RANGE (never guesses)', pg_temp.mo_owner('SELECT fiscal_year(date ''1800-01-01'')') LIKE 'raised:BS_OUT_OF_RANGE%', pg_temp.mo_owner('SELECT fiscal_year(date ''1800-01-01'')'));
+  PERFORM pg_temp.mo_chk('number formats: receipt, refund note, PAN bill, credit note', money_format_number('receipt', '2083/84', 1189) = '2083/84-1189' AND money_format_number('refund_note', '2083/84', 7) = '2083/84-7'
+     AND money_format_number('pan_bill', '2083/84', 1189) = '1189' AND money_format_number('credit_note', '2083/84', 14) = 'CN-14', 'formats');
+  PERFORM pg_temp.mo_owner(format('SELECT public._money_next_number(%L, ''receipt'', ''2998/99'')', ob));
+  PERFORM pg_temp.mo_chk('counter: first number of a fiscal year is 1 and the next fiscal year restarts at 1',
+    public._money_next_number(ob, 'receipt', '2998/99') = 2 AND public._money_next_number(ob, 'receipt', '2999/00') = 1, 'counter');
+  DELETE FROM money_counters WHERE org_id = ob;
+
+  -- bookings (org A, branch A1, today): paid-by-split, partial, locked old due, multi-booking, over-pay
+  b1k := pg_temp.mo_book(a1, tr, cu, 'Pat One', 'Completed', 1000, today, 1);
+  b2k := pg_temp.mo_book(a1, tr, cu, 'Pat One', 'Completed', 500, today, 2);
+  b3k := pg_temp.mo_book(a1, tr, cu2, 'Pat Two', 'Confirmed', 800, today, 3);
+  bA2 := pg_temp.mo_book(a2, tr, cua2, 'Pat A2', 'Confirmed', 300, today, 4);
+  bl  := pg_temp.mo_book(a1, tr, cu2, 'Pat Locked', 'Completed', 700, yday, 5);
+  UPDATE bookings SET is_locked = true WHERE id = bl;   -- yesterday's day was closed
+  SELECT count(*) INTO cnt FROM money_counters WHERE org_id = oa;
+  PERFORM pg_temp.mo_chk('no document or counter exists for org A before the first collect', cnt = 0 AND NOT EXISTS (SELECT 1 FROM money_documents WHERE org_id = oa), 'start state');
+
+  -- ── roles on collect
+  r := pg_temp.mo_coll('practitioner', format('[{"booking_id":"%s","amount":100}]', b1k), '[{"mode":"Cash","amount":100}]');
+  PERFORM pg_temp.mo_chk('practitioner cannot collect (FORBIDDEN)', pg_temp.act_code(r) = 'FORBIDDEN', coalesce(r::text, 'null'));
+  r := pg_temp.mo_coll('admin_viewer', format('[{"booking_id":"%s","amount":100}]', b1k), '[{"mode":"Cash","amount":100}]');
+  PERFORM pg_temp.mo_chk('admin_viewer cannot collect (FORBIDDEN)', pg_temp.act_code(r) = 'FORBIDDEN', coalesce(r::text, 'null'));
+  r := pg_temp.mo_coll('anon', format('[{"booking_id":"%s","amount":100}]', b1k), '[{"mode":"Cash","amount":100}]');
+  PERFORM pg_temp.mo_chk('anonymous cannot call act_money_collect', pg_temp.act_code(r) IN ('raised:42501', 'FORBIDDEN'), coalesce(r::text, 'null'));
+  r := pg_temp.mo_coll('admin_of_OTHER_org', format('[{"booking_id":"%s","amount":100}]', b1k), '[{"mode":"Cash","amount":100}]');
+  PERFORM pg_temp.mo_chk('another organisation''s admin cannot collect on org A''s booking (BOOKING_NOT_FOUND)', pg_temp.act_code(r) = 'BOOKING_NOT_FOUND', coalesce(r::text, 'null'));
+  PERFORM pg_temp.mo_chk('no number was taken by the refused calls', NOT EXISTS (SELECT 1 FROM money_counters WHERE org_id = oa), 'counter');
+
+  -- ── validation (each refusal leaves no number)
+  r := pg_temp.mo_coll('staff', format('[{"booking_id":"%s","amount":1500}]', b1k), '[{"mode":"Cash","amount":1500}]');
+  PERFORM pg_temp.mo_chk('a line above the booking''s due is refused (OVERPAY)', pg_temp.act_code(r) = 'OVERPAY', coalesce(r::text, 'null'));
+  r := pg_temp.mo_coll('staff', format('[{"booking_id":"%s","amount":1000}]', b1k), '[{"mode":"Cash","amount":900}]');
+  PERFORM pg_temp.mo_chk('tenders that do not add up to the lines are refused (TENDER_MISMATCH)', pg_temp.act_code(r) = 'TENDER_MISMATCH', coalesce(r::text, 'null'));
+  r := pg_temp.mo_coll('staff', format('[{"booking_id":"%s","amount":100}]', b1k), '[{"mode":"Membership","amount":100}]');
+  PERFORM pg_temp.mo_chk('a wallet tender is refused (UNSUPPORTED_TENDER)', pg_temp.act_code(r) = 'UNSUPPORTED_TENDER', coalesce(r::text, 'null'));
+  r := pg_temp.mo_coll('staff', format('[{"booking_id":"%s","amount":100}]', b1k), '[{"mode":"VoucherWallet","amount":100}]');
+  PERFORM pg_temp.mo_chk('a voucher wallet tender is refused (UNSUPPORTED_TENDER)', pg_temp.act_code(r) = 'UNSUPPORTED_TENDER', coalesce(r::text, 'null'));
+  r := pg_temp.mo_coll('manager_2_branches', format('[{"booking_id":"%s","amount":100},{"booking_id":"%s","amount":100}]', b1k, bA2), '[{"mode":"Cash","amount":200}]');
+  PERFORM pg_temp.mo_chk('bookings of two branches in one call are refused (MIXED_BRANCH)', pg_temp.act_code(r) = 'MIXED_BRANCH', coalesce(r::text, 'null'));
+  r := pg_temp.mo_coll('staff', format('[{"booking_id":"%s","amount":100},{"booking_id":"%s","amount":100}]', b1k, b3k), '[{"mode":"Cash","amount":200}]');
+  PERFORM pg_temp.mo_chk('bookings of two patients in one call are refused (MIXED_CUSTOMER)', pg_temp.act_code(r) = 'MIXED_CUSTOMER', coalesce(r::text, 'null'));
+  r := pg_temp.mo_coll('staff', format('[{"booking_id":"%s","amount":100}]', b1k), '[{"mode":"Cash","amount":-100}]');
+  PERFORM pg_temp.mo_chk('a negative tender is refused (INVALID_INPUT)', pg_temp.act_code(r) = 'INVALID_INPUT', coalesce(r::text, 'null'));
+  PERFORM pg_temp.mo_chk('none of the refusals took a number or wrote a payment', NOT EXISTS (SELECT 1 FROM money_counters WHERE org_id = oa) AND NOT EXISTS (SELECT 1 FROM payments WHERE booking_id IN (b1k, b2k, b3k)), 'state');
+
+  -- ── a split-tender collect: one receipt, right lines and total
+  r := pg_temp.mo_coll('staff', format('[{"booking_id":"%s","amount":1000}]', b1k), '[{"mode":"Cash","amount":600},{"mode":"Esewa","amount":400}]');
+  PERFORM pg_temp.mo_chk('staff split-tender collect succeeds', pg_temp.act_code(r) = 'ok', coalesce(r::text, 'null'));
+  s := r #>> '{data,number}';
+  PERFORM pg_temp.mo_chk('receipt number is fiscal-year-seq (first of the year = 1)', s = money_format_number('receipt', fy, 1), coalesce(s, 'null'));
+  SELECT count(*) INTO cnt FROM money_documents WHERE id = (r #>> '{data,document_id}')::uuid AND kind = 'receipt' AND total = 1000 AND jsonb_array_length(lines) = 1 AND (lines #>> '{0,amount}')::numeric = 1000
+     AND issued_by = u_staff AND issued_by_name = 'RLS staff A' AND status = 'issued' AND print_count = 0 AND fiscal_year = fy AND seq = 1 AND bs_date IS NOT NULL;
+  PERFORM pg_temp.mo_chk('the receipt row: kind, total, one line, issuer, fiscal year, seq, BS date', cnt = 1, 'rows ' || cnt);
+  SELECT count(*) INTO cnt FROM payments WHERE booking_id = b1k AND document_id = (r #>> '{data,document_id}')::uuid AND created_at >= now() - interval '1 minute';
+  PERFORM pg_temp.mo_chk('two payment rows carry the receipt id and are dated now', cnt = 2, 'rows ' || cnt);
+  PERFORM pg_temp.mo_chk('the booking is paid', (SELECT payment_status FROM bookings WHERE id = b1k) = 'paid', (SELECT payment_status FROM bookings WHERE id = b1k));
+  PERFORM pg_temp.mo_chk('the audit row carries ids, not amounts', EXISTS (SELECT 1 FROM action_log WHERE action = 'money.collect' AND ok AND target_id = (r #>> '{data,document_id}')::uuid AND NOT (inputs::text ~ '1000|600|400')), 'inputs');
+
+  -- gapless: the next successful collect is 2, and a collect that fails AFTER the number is taken (package redemption of a missing package) leaves no gap
+  r := pg_temp.mo_coll('staff', format('[{"booking_id":"%s","amount":500}]', b2k), '[{"mode":"SessionPackage","amount":500,"package_id":"%s"}]'::text);
+  r := pg_temp.mo_coll('staff', format('[{"booking_id":"%s","amount":500}]', b2k), format('[{"mode":"SessionPackage","amount":500,"package_id":"%s"}]', gen_random_uuid()));
+  PERFORM pg_temp.mo_chk('a collect that fails after the number was taken is refused', pg_temp.act_code(r) IS DISTINCT FROM 'ok', coalesce(r::text, 'null'));
+  PERFORM pg_temp.mo_chk('...and used no number and no payment (rolled back with the document)', (SELECT last_seq FROM money_counters WHERE org_id = oa AND series = 'receipt' AND fiscal_year = fy) = 1
+     AND NOT EXISTS (SELECT 1 FROM payments WHERE booking_id = b2k) AND (SELECT count(*) FROM money_documents WHERE org_id = oa) = 1, 'counter ' || coalesce((SELECT last_seq::text FROM money_counters WHERE org_id = oa AND series = 'receipt' AND fiscal_year = fy), 'none'));
+  r := pg_temp.mo_coll('staff', format('[{"booking_id":"%s","amount":300}]', b2k), '[{"mode":"Cash","amount":300}]');
+  PERFORM pg_temp.mo_chk('the next collect gets number 2 (gapless)', r #>> '{data,number}' = money_format_number('receipt', fy, 2), coalesce(r::text, 'null'));
+  PERFORM pg_temp.mo_chk('a partial collect leaves the booking partial', (SELECT payment_status FROM bookings WHERE id = b2k) = 'partial', (SELECT payment_status FROM bookings WHERE id = b2k));
+
+  -- several bookings, one patient: one receipt, one line each, a tender split across them
+  bm1 := pg_temp.mo_book(a1, tr, cu2, 'Pat Two', 'Confirmed', 200, today, 6); bm2 := pg_temp.mo_book(a1, tr, cu2, 'Pat Two', 'Confirmed', 300, today, 7);
+  r := pg_temp.mo_coll('manager_2_branches', format('[{"booking_id":"%s","amount":200},{"booking_id":"%s","amount":150}]', bm1, bm2), '[{"mode":"Cash","amount":250},{"mode":"Card","amount":100}]');
+  PERFORM pg_temp.mo_chk('manager collects for two bookings: one receipt number 3', pg_temp.act_code(r) = 'ok' AND r #>> '{data,number}' = money_format_number('receipt', fy, 3), coalesce(r::text, 'null'));
+  SELECT count(*) INTO cnt FROM money_documents WHERE id = (r #>> '{data,document_id}')::uuid AND jsonb_array_length(lines) = 2 AND total = 350 AND array_length(booking_ids, 1) = 2;
+  PERFORM pg_temp.mo_chk('the receipt has one line per booking and the sum', cnt = 1, 'rows ' || cnt);
+  PERFORM pg_temp.mo_chk('each booking got exactly its allocation', (SELECT SUM(amount) FROM payments WHERE booking_id = bm1) = 200 AND (SELECT SUM(amount) FROM payments WHERE booking_id = bm2) = 150
+     AND (SELECT payment_status FROM bookings WHERE id = bm1) = 'paid' AND (SELECT payment_status FROM bookings WHERE id = bm2) = 'partial', 'allocation');
+
+  -- ── R1: an old due on a locked booking is collected today, in today's day; the closed day's closing is untouched
+  INSERT INTO daily_reports (branch_id, report_date, closed_by) VALUES (a1, yday, u_adm);   -- yesterday was closed the old way
+  r := pg_temp.mo_coll('staff', format('[{"booking_id":"%s","amount":700}]', bl), '[{"mode":"Cash","amount":700}]');
+  PERFORM pg_temp.mo_chk('an old due on a LOCKED booking is collected today (R1)', pg_temp.act_code(r) = 'ok', coalesce(r::text, 'null'));
+  PERFORM pg_temp.mo_chk('...the booking is paid, still locked, and no other column changed', (SELECT payment_status FROM bookings WHERE id = bl) = 'paid' AND (SELECT is_locked FROM bookings WHERE id = bl) AND (SELECT final_amount FROM bookings WHERE id = bl) = 700 AND (SELECT date FROM bookings WHERE id = bl) = yday, 'locked booking');
+  PERFORM pg_temp.mo_chk('...the payment is dated today and the closed day''s closing row is unchanged', (SELECT public._money_day(created_at) FROM payments WHERE booking_id = bl) = today
+     AND (SELECT count(*) FROM daily_reports WHERE branch_id = a1 AND report_date = yday AND status = 'closed' AND superseded_by IS NULL) = 1, 'dates');
+
+  -- ── §5.3 / §5.4: only money_collect can add a payment to a locked booking, or change payment_status on one
+  bq := pg_temp.mo_book(a1, tr, cu2, 'Pat Locked 2', 'Completed', 400, yday, 8); UPDATE bookings SET is_locked = true WHERE id = bq;
+  r := pg_temp.mo_run('staff', format('INSERT INTO payments (booking_id, amount, payment_mode, recorded_by) VALUES (%L, 100, ''Cash'', %L) RETURNING to_jsonb(payments)', bq, u_staff));
+  PERFORM pg_temp.mo_chk('a client INSERT on a locked booking is still refused (DAY_LOCKED, as today)', r ->> 'msg' LIKE 'DAY_LOCKED%', coalesce(r::text, 'null'));
+  r := pg_temp.mo_run('staff', format('INSERT INTO payments (booking_id, amount, payment_mode, recorded_by, document_id) VALUES (%L, 100, ''Cash'', %L, (SELECT id FROM money_documents WHERE org_id = %L LIMIT 1)) RETURNING to_jsonb(payments)', bq, u_staff, oa));
+  PERFORM pg_temp.mo_chk('a client cannot set document_id on a payment (DOC_PAYMENT_FORBIDDEN)', r ->> 'msg' LIKE 'DOC_PAYMENT_FORBIDDEN%', coalesce(r::text, 'null'));
+  r := pg_temp.mo_run('staff', format('SELECT set_config(''money.doc'', (SELECT id::text FROM money_documents WHERE org_id = %L LIMIT 1), true), (SELECT 1 FROM (INSERT INTO payments (booking_id, amount, payment_mode, recorded_by) VALUES (%L, 100, ''Cash'', %L) RETURNING 1) q)::text', oa, bq, u_staff));
+  r := pg_temp.mo_run('staff', format('WITH g AS (SELECT set_config(''money.doc'', (SELECT id::text FROM money_documents WHERE org_id = %L LIMIT 1), true)), i AS (INSERT INTO payments (booking_id, amount, payment_mode, recorded_by, document_id) SELECT %L, 100, ''Cash'', %L, (SELECT id FROM money_documents WHERE org_id = %L LIMIT 1) FROM g RETURNING 1) SELECT to_jsonb(count(*)) FROM i', oa, bq, u_staff, oa));
+  PERFORM pg_temp.mo_chk('a client that sets money.doc itself still cannot link a payment (DOC_PAYMENT_FORBIDDEN)', r ->> 'msg' LIKE 'DOC_PAYMENT_FORBIDDEN%', coalesce(r::text, 'null'));
+  r := pg_temp.mo_run('staff', format('UPDATE bookings SET payment_status = ''paid'' WHERE id = %L RETURNING to_jsonb(bookings.id)', bq));
+  PERFORM pg_temp.mo_chk('a client cannot change payment_status on a locked booking (DAY_LOCKED)', r ->> 'msg' LIKE 'DAY_LOCKED%', coalesce(r::text, 'null'));
+  EXECUTE 'CREATE FUNCTION pg_temp.def_status(p uuid) RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $f$ BEGIN UPDATE bookings SET payment_status = ''paid'' WHERE id = p; RETURN ''ok''; EXCEPTION WHEN OTHERS THEN RETURN SQLERRM; END $f$';
+  PERFORM pg_temp.mo_chk('another definer function cannot change payment_status on a locked booking (no money.doc)', pg_temp.def_status(bq) LIKE 'DAY_LOCKED%', pg_temp.def_status(bq));
+  EXECUTE 'CREATE FUNCTION pg_temp.def_pay(p uuid, d uuid, u uuid) RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $f$ BEGIN PERFORM set_config(''money.doc'', '''', true); INSERT INTO payments (booking_id, amount, payment_mode, recorded_by, document_id) VALUES (p, 100, ''Cash'', u, d); RETURN ''ok''; EXCEPTION WHEN OTHERS THEN RETURN SQLERRM; END $f$';
+  PERFORM pg_temp.mo_chk('a definer insert WITH a document_id but no matching money.doc is refused on a locked booking', pg_temp.def_pay(bq, (SELECT id FROM money_documents WHERE org_id = oa LIMIT 1), u_staff) LIKE 'DAY_LOCKED%', pg_temp.def_pay(bq, (SELECT id FROM money_documents WHERE org_id = oa LIMIT 1), u_staff));
+  r := pg_temp.mo_run('staff', format('SELECT to_jsonb(public.record_membership_payment(%L, 10, NULL))', bq));
+  PERFORM pg_temp.mo_chk('record_membership_payment on a locked booking cannot change it either', (r ? 'raised') AND (SELECT payment_status FROM bookings WHERE id = bq) = 'unpaid', coalesce(r::text, 'null'));
+  PERFORM pg_temp.mo_chk('...and the locked booking stayed unpaid through all of the above', (SELECT payment_status FROM bookings WHERE id = bq) = 'unpaid' AND NOT EXISTS (SELECT 1 FROM payments WHERE booking_id = bq), 'state');
+
+  -- ── immutability of a payment on a receipt (D2): nobody, including the owner and definer code
+  SELECT id INTO rid FROM payments WHERE document_id IS NOT NULL AND booking_id = b1k ORDER BY amount LIMIT 1;
+  PERFORM pg_temp.mo_chk('owner cannot change the amount of a receipt payment', pg_temp.mo_owner(format('UPDATE payments SET amount = 1 WHERE id = %L', rid)) LIKE 'raised:DOC_PAYMENT_IMMUTABLE%', pg_temp.mo_owner(format('UPDATE payments SET amount = 1 WHERE id = %L', rid)));
+  PERFORM pg_temp.mo_chk('...nor its method', pg_temp.mo_owner(format('UPDATE payments SET payment_mode = ''Card'' WHERE id = %L', rid)) LIKE 'raised:DOC_PAYMENT_IMMUTABLE%', 'mode');
+  PERFORM pg_temp.mo_chk('...nor its booking', pg_temp.mo_owner(format('UPDATE payments SET booking_id = %L WHERE id = %L', b3k, rid)) LIKE 'raised:DOC_PAYMENT_IMMUTABLE%', 'booking');
+  PERFORM pg_temp.mo_chk('...nor its document_id', pg_temp.mo_owner(format('UPDATE payments SET document_id = NULL WHERE id = %L', rid)) LIKE 'raised:DOC_PAYMENT_IMMUTABLE%', 'document');
+  PERFORM pg_temp.mo_chk('...nor delete it', pg_temp.mo_owner(format('DELETE FROM payments WHERE id = %L', rid)) LIKE 'raised:DOC_PAYMENT_IMMUTABLE%', 'delete');
+  PERFORM pg_temp.mo_chk('...nor its time', pg_temp.mo_owner(format('UPDATE payments SET created_at = created_at + interval ''1 day'' WHERE id = %L', rid)) LIKE 'raised:TIME_IMMUTABLE%', 'time');
+  PERFORM pg_temp.mo_chk('deleting a booking that has receipt payments is refused (no way round D2 through the booking or a cascade)', pg_temp.mo_owner(format('DELETE FROM bookings WHERE id = %L', b1k)) LIKE 'raised:%' AND EXISTS (SELECT 1 FROM payments WHERE id = rid), pg_temp.mo_owner(format('DELETE FROM bookings WHERE id = %L', b1k)));
+  PERFORM pg_temp.mo_chk('deleting the branch or the organisation is refused too (no ON DELETE CASCADE reaches the payment)', pg_temp.mo_owner(format('DELETE FROM branches WHERE id = %L', a1)) LIKE 'raised:%' AND pg_temp.mo_owner(format('DELETE FROM organizations WHERE id = %L', oa)) LIKE 'raised:%' AND EXISTS (SELECT 1 FROM payments WHERE id = rid), 'cascade');
+  -- legacy payments (no document) keep today's behaviour; a client's time is forced to now
+  r := pg_temp.mo_run('staff', format('INSERT INTO payments (booking_id, amount, payment_mode, recorded_by, created_at) VALUES (%L, 10, ''Cash'', %L, now() + interval ''40 days'') RETURNING to_jsonb(payments)', b3k, u_staff));
+  PERFORM pg_temp.mo_chk('a client payment with a future created_at is stamped now (cannot dodge the lock)', r ->> 'created_at' IS NOT NULL AND (r ->> 'created_at')::timestamptz < now() + interval '1 minute' AND r ->> 'document_id' IS NULL, coalesce(r::text, 'null'));
+  PERFORM pg_temp.mo_chk('a legacy payment (no document) can still be corrected, as today', pg_temp.mo_owner(format('UPDATE payments SET amount = 11 WHERE booking_id = %L AND document_id IS NULL', b3k)) = 'ok', 'legacy');
+
+  -- ── documents: immutable except print count, sent and the cancel columns (PAN bill only)
+  SELECT id INTO d1 FROM money_documents WHERE org_id = oa ORDER BY seq LIMIT 1;
+  PERFORM pg_temp.mo_chk('a document''s total cannot be changed', pg_temp.mo_owner(format('UPDATE money_documents SET total = 1 WHERE id = %L', d1)) LIKE 'raised:DOC_IMMUTABLE%', 'total');
+  PERFORM pg_temp.mo_chk('a document cannot be deleted', pg_temp.mo_owner(format('DELETE FROM money_documents WHERE id = %L', d1)) LIKE 'raised:DOC_IMMUTABLE%', 'delete');
+  PERFORM pg_temp.mo_chk('a receipt can never be cancelled', pg_temp.mo_owner(format('UPDATE money_documents SET status = ''cancelled'', cancel_reason = ''x'', cancelled_by = %L, cancelled_at = now() WHERE id = %L', u_adm, d1)) LIKE 'raised:DOC_IMMUTABLE%', 'cancel');
+  PERFORM pg_temp.mo_chk('a client cannot write money_documents at all', pg_temp.mo_run('staff', format('UPDATE money_documents SET print_count = 5 WHERE id = %L RETURNING to_jsonb(1)', d1)) ->> 'raised' = '42501', 'grant');
+  PERFORM pg_temp.mo_chk('the issue time cannot be changed', pg_temp.mo_owner(format('UPDATE money_documents SET issued_at = issued_at + interval ''1 day'' WHERE id = %L', d1)) LIKE 'raised:DOC_IMMUTABLE%', 'time');
+  r := pg_temp.mo_run('staff', format('SELECT public.act_document_print(%L)', d1)); r2 := pg_temp.mo_run('staff', format('SELECT public.act_document_print(%L)', d1));
+  PERFORM pg_temp.mo_chk('print: first Original, then Copy', r #>> '{data,label}' = 'Original' AND r2 #>> '{data,label}' = 'Copy' AND (SELECT print_count FROM money_documents WHERE id = d1) = 2, coalesce(r::text, '') || coalesce(r2::text, ''));
+  PERFORM pg_temp.mo_chk('admin_viewer cannot print (a print is a write)', pg_temp.act_code(pg_temp.mo_run('admin_viewer', format('SELECT public.act_document_print(%L)', d1))) = 'FORBIDDEN', 'viewer');
+  PERFORM pg_temp.mo_chk('practitioner cannot print', pg_temp.act_code(pg_temp.mo_run('practitioner', format('SELECT public.act_document_print(%L)', d1))) = 'FORBIDDEN', 'practitioner');
+  r := pg_temp.mo_run('staff', format('SELECT public.act_document_send(%L, ''sms'', ''+9779800000000'')', d1));
+  PERFORM pg_temp.mo_chk('send is recorded on the document', pg_temp.act_code(r) = 'ok' AND jsonb_array_length((SELECT sent FROM money_documents WHERE id = d1)) = 1, coalesce(r::text, 'null'));
+  PERFORM pg_temp.mo_chk('another organisation''s admin cannot print org A''s document (DOCUMENT_NOT_FOUND)', pg_temp.act_code(pg_temp.mo_run('admin_of_OTHER_org', format('SELECT public.act_document_print(%L)', d1))) = 'DOCUMENT_NOT_FOUND', 'org');
+
+  -- ── tenant isolation of the new tables
+  PERFORM pg_temp.mo_chk('another organisation sees none of org A''s documents, requests, closings', (pg_temp.mo_run('admin_of_OTHER_org', 'SELECT to_jsonb(count(*)) FROM money_documents')) = '0'::jsonb
+     AND (pg_temp.mo_run('admin_of_OTHER_org', 'SELECT to_jsonb(count(*)) FROM money_requests')) = '0'::jsonb AND (pg_temp.mo_run('admin_of_OTHER_org', format('SELECT to_jsonb(count(*)) FROM daily_reports WHERE branch_id = %L', a1))) = '0'::jsonb, 'cross-org');
+  PERFORM pg_temp.mo_chk('nobody reads or writes money_counters directly', pg_temp.mo_run('admin', 'SELECT to_jsonb(count(*)) FROM money_counters') ->> 'raised' = '42501', 'counters');
+  PERFORM pg_temp.mo_chk('practitioner and anonymous read no documents', (pg_temp.mo_run('practitioner', 'SELECT to_jsonb(count(*)) FROM money_documents')) = '0'::jsonb AND coalesce(pg_temp.mo_run('anon', 'SELECT to_jsonb(count(*)) FROM money_documents') ->> 'raised', '42501') = '42501', 'practitioner');
+  PERFORM pg_temp.mo_chk('staff and admin_viewer read org A''s documents (own branch)', (pg_temp.mo_run('staff', 'SELECT to_jsonb(count(*)) FROM money_documents') #>> '{}')::int > 0 AND (pg_temp.mo_run('admin_viewer', 'SELECT to_jsonb(count(*)) FROM money_documents') #>> '{}')::int > 0, 'reads');
+
+  -- ── refunds and requests
+  r := pg_temp.mo_run('staff', format('SELECT public.act_money_refund(%L, 100, ''x'', ''cash'')', b1k));
+  PERFORM pg_temp.mo_chk('front desk cannot refund (FORBIDDEN)', pg_temp.act_code(r) = 'FORBIDDEN', coalesce(r::text, 'null'));
+  PERFORM pg_temp.mo_chk('admin_viewer and practitioner cannot refund', pg_temp.act_code(pg_temp.mo_run('admin_viewer', format('SELECT public.act_money_refund(%L, 100, ''x'', ''cash'')', b1k))) = 'FORBIDDEN' AND pg_temp.act_code(pg_temp.mo_run('practitioner', format('SELECT public.act_money_refund(%L, 100, ''x'', ''cash'')', b1k))) = 'FORBIDDEN', 'roles');
+  r := pg_temp.mo_run('manager_2_branches', format('SELECT public.act_money_refund(%L, 100, '''', ''cash'')', b1k));
+  PERFORM pg_temp.mo_chk('a refund needs a reason (REASON_REQUIRED)', pg_temp.act_code(r) = 'REASON_REQUIRED', coalesce(r::text, 'null'));
+  r := pg_temp.mo_run('manager_2_branches', format('SELECT public.act_money_refund(%L, 1200, ''too much'', ''cash'')', b1k));
+  PERFORM pg_temp.mo_chk('never more than paid (OVERREFUND)', pg_temp.act_code(r) = 'OVERREFUND', coalesce(r::text, 'null'));
+  r := pg_temp.mo_run('manager_2_branches', format('SELECT public.act_money_refund(%L, 300, ''wrong treatment'', ''cash'')', b1k));
+  PERFORM pg_temp.mo_chk('manager refunds 300 of 1000: a refund note in the receipt series, number 5', pg_temp.act_code(r) = 'ok' AND r #>> '{data,kind}' = 'refund_note' AND r #>> '{data,number}' = money_format_number('refund_note', fy, 5), coalesce(r::text, 'null'));
+  SELECT count(*) INTO cnt FROM money_documents n JOIN money_documents o ON o.id = n.related_document_id JOIN payment_refunds pr ON pr.document_id = n.id
+   WHERE n.id = (r #>> '{data,document_id}')::uuid AND o.kind = 'receipt' AND n.total = 300 AND pr.amount = 300 AND pr.paid_back_by = 'cash' AND pr.reason = 'wrong treatment';
+  PERFORM pg_temp.mo_chk('the refund note is linked to its receipt and to the refund row', cnt = 1, 'rows ' || cnt);
+  r := pg_temp.mo_run('manager_2_branches', format('SELECT public.act_money_refund(%L, 800, ''again'', ''cash'')', b1k));
+  PERFORM pg_temp.mo_chk('earlier refunds count against the limit (700 left)', pg_temp.act_code(r) = 'OVERREFUND', coalesce(r::text, 'null'));
+  -- requests
+  r := pg_temp.mo_run('staff', format('SELECT public.act_money_request_refund(%L, %L, 100, ''patient asked'')', d1, b1k));
+  PERFORM pg_temp.mo_chk('front desk raises a refund request, assigned to a manager, nothing refunded', pg_temp.act_code(r) = 'ok' AND (r #>> '{data,assigned}')::boolean, coalesce(r::text, 'null'));
+  reqid := (r #>> '{data,request_id}')::uuid;
+  PERFORM pg_temp.mo_chk('...the request is open and the refund total is unchanged', (SELECT status FROM money_requests WHERE id = reqid) = 'open' AND (SELECT SUM(amount) FROM payment_refunds WHERE booking_id = b1k) = 300, 'open');
+  PERFORM pg_temp.mo_chk('front desk cannot decline a request', pg_temp.act_code(pg_temp.mo_run('staff', format('SELECT public.act_money_request_decline(%L)', reqid))) = 'FORBIDDEN', 'decline');
+  r := pg_temp.mo_run('manager_2_branches', format('SELECT public.act_money_refund(%L, 100, ''approved'', ''cash'', %L)', b1k, reqid));
+  PERFORM pg_temp.mo_chk('the manager completes the request with a refund: request becomes done', pg_temp.act_code(r) = 'ok' AND (SELECT status FROM money_requests WHERE id = reqid) = 'done', coalesce(r::text, 'null'));
+  r := pg_temp.mo_run('staff', format('SELECT public.act_money_request_refund(%L, %L, 50)', d1, b1k)); reqid := (r #>> '{data,request_id}')::uuid;
+  r2 := pg_temp.mo_run('manager_2_branches', format('SELECT public.act_money_request_decline(%L, ''no'')', reqid));
+  PERFORM pg_temp.mo_chk('a manager declines a request', pg_temp.act_code(r2) = 'ok' AND (SELECT status FROM money_requests WHERE id = reqid) = 'declined', coalesce(r2::text, 'null') || coalesce((SELECT status FROM money_requests WHERE id = reqid), 'norow') || coalesce(reqid::text, 'noreq') || coalesce(r::text, ''));
+  PERFORM pg_temp.mo_chk('a request cannot ask for more than was paid less refunds', pg_temp.act_code(pg_temp.mo_run('staff', format('SELECT public.act_money_request_refund(%L, %L, 5000)', d1, b1k))) = 'OVERREFUND', 'over');
+  PERFORM pg_temp.mo_chk('another organisation cannot request on org A''s receipt', pg_temp.act_code(pg_temp.mo_run('admin_of_OTHER_org', format('SELECT public.act_money_request_refund(%L, %L, 10)', d1, b1k))) = 'DOCUMENT_NOT_FOUND', 'org');
+
+  -- ── PAN bill mode (org B has no documents yet): billing mode, bills, cancel -> credit note, sales register
+  bb1 := pg_temp.mo_book(b1, trb, cub, 'Pat B', 'Confirmed', 1000, today, 1); bb2 := pg_temp.mo_book(b1, trb, cub, 'Pat B', 'Confirmed', 600, today, 2); bb3 := pg_temp.mo_book(b1, trb, cub, 'Pat B', 'Confirmed', 400, today, 3);
+  PERFORM pg_temp.mo_chk('only the owner changes the billing mode (staff and manager are FORBIDDEN)', pg_temp.act_code(pg_temp.mo_run('staff', 'SELECT public.act_billing_set_mode(''123456789'', true)')) = 'FORBIDDEN'
+     AND pg_temp.act_code(pg_temp.mo_run('manager_2_branches', 'SELECT public.act_billing_set_mode(''123456789'', true)')) = 'FORBIDDEN', 'roles');
+  PERFORM pg_temp.mo_chk('PAN bill mode needs the clinic PAN', pg_temp.act_code(pg_temp.mo_run('admin_of_OTHER_org', 'SELECT public.act_billing_set_mode('''', true)')) = 'PAN_REQUIRED', 'pan');
+  r := pg_temp.mo_run('admin_of_OTHER_org', 'SELECT public.act_billing_set_mode(''123456789'', true)');   -- (the call first: a sub-select inside the same expression would be read before it runs)
+  PERFORM pg_temp.mo_chk('the owner turns PAN bill mode on (audited)', pg_temp.act_code(r) = 'ok'
+     AND (SELECT pan_bill_mode FROM org_billing_settings WHERE org_id = ob) AND (SELECT mode_changed_by FROM org_billing_settings WHERE org_id = ob) = u_adminb
+     AND EXISTS (SELECT 1 FROM action_log WHERE action = 'billing.set_mode' AND org_id = ob AND ok), coalesce(r::text, 'null'));
+  r := pg_temp.mo_coll('admin_of_OTHER_org', format('[{"booking_id":"%s","amount":1000}]', bb1), '[{"mode":"Cash","amount":1000}]');
+  PERFORM pg_temp.mo_chk('in PAN mode a collect issues a PAN bill, numbered 1 (no fiscal-year prefix)', pg_temp.act_code(r) = 'ok' AND r #>> '{data,kind}' = 'pan_bill' AND r #>> '{data,number}' = '1', coalesce(r::text, 'null'));
+  d2 := (r #>> '{data,document_id}')::uuid;
+  r := pg_temp.mo_coll('admin_of_OTHER_org', format('[{"booking_id":"%s","amount":600}]', bb2), '[{"mode":"Cash","amount":600}]');
+  PERFORM pg_temp.mo_chk('the next bill is 2', r #>> '{data,number}' = '2', coalesce(r::text, 'null'));
+  d3 := (r #>> '{data,document_id}')::uuid;
+  PERFORM pg_temp.mo_chk('the mode cannot change once documents exist this fiscal year (MODE_CHANGE_MID_YEAR)', pg_temp.act_code(pg_temp.mo_run('admin_of_OTHER_org', 'SELECT public.act_billing_set_mode(''123456789'', false)')) = 'MODE_CHANGE_MID_YEAR', 'mid-year');
+  PERFORM pg_temp.mo_chk('a receipt cannot be cancelled through bill.cancel (NOT_A_BILL)', pg_temp.act_code(pg_temp.mo_run('manager_2_branches', format('SELECT public.act_bill_cancel(%L, ''x'')', d1))) = 'NOT_A_BILL', 'receipt');
+  PERFORM pg_temp.mo_chk('only manager or owner cancels a bill (admin_viewer FORBIDDEN)', pg_temp.act_code(pg_temp.mo_run('admin_viewer', format('SELECT public.act_bill_cancel(%L, ''x'')', d2))) = 'FORBIDDEN', 'roles');
+  PERFORM pg_temp.mo_chk('a cancel needs a reason', pg_temp.act_code(pg_temp.mo_run('admin_of_OTHER_org', format('SELECT public.act_bill_cancel(%L, '' '')', d2))) = 'REASON_REQUIRED', 'reason');
+  r := pg_temp.mo_run('admin_of_OTHER_org', format('SELECT public.act_bill_cancel(%L, ''issued to the wrong patient'')', d2));
+  PERFORM pg_temp.mo_chk('cancelling bill 1 issues credit note CN-1 in the same transaction', pg_temp.act_code(r) = 'ok' AND r #>> '{data,number}' = 'CN-1' AND (SELECT status FROM money_documents WHERE id = d2) = 'cancelled', coalesce(r::text, 'null'));
+  PERFORM pg_temp.mo_chk('the credit note points at the bill; the bill''s number and total are untouched', (SELECT related_document_id FROM money_documents WHERE id = (r #>> '{data,credit_note_id}')::uuid) = d2 AND (SELECT number FROM money_documents WHERE id = d2) = '1' AND (SELECT total FROM money_documents WHERE id = d2) = 1000, 'link');
+  PERFORM pg_temp.mo_chk('cancelling twice is refused (ALREADY_CANCELLED)', pg_temp.act_code(pg_temp.mo_run('admin_of_OTHER_org', format('SELECT public.act_bill_cancel(%L, ''again'')', d2))) = 'ALREADY_CANCELLED', 'twice');
+  PERFORM pg_temp.mo_chk('the sales register lists the cancelled bill and the credit note, and org A sees none of it',
+     (SELECT count(*) FROM money_sales_register WHERE org_id = ob AND number = '1' AND status = 'cancelled' AND kind = 'pan_bill') = 1 AND (SELECT count(*) FROM money_sales_register WHERE org_id = ob AND number = 'CN-1' AND kind = 'credit_note') = 1
+     AND (pg_temp.mo_run('admin_of_OTHER_org', 'SELECT to_jsonb(count(*)) FROM money_sales_register') #>> '{}')::int = 3 AND (pg_temp.mo_run('admin', 'SELECT to_jsonb(count(*)) FROM money_sales_register') #>> '{}')::int = 0, 'register');
+  r := pg_temp.mo_run('admin_of_OTHER_org', format('SELECT public.act_money_refund(%L, 100, ''partial'', ''cash'')', bb3));
+  PERFORM pg_temp.mo_chk('a refund on a booking with no document is recorded without a note (legacy payments)', pg_temp.act_code(r) = 'OVERREFUND', coalesce(r::text, 'null'));
+  r := pg_temp.mo_run('admin_of_OTHER_org', format('SELECT public.act_money_refund(%L, 100, ''partial'', ''cash'')', bb2));
+  PERFORM pg_temp.mo_chk('a refund on a PAN-billed booking gives a credit note CN-2 linked to the bill', pg_temp.act_code(r) = 'ok' AND r #>> '{data,kind}' = 'credit_note' AND r #>> '{data,number}' = 'CN-2', coalesce(r::text, 'null'));
+
+  -- ── daily closing (org A, branch A1, today): blockers, blind count, difference, lock, reopen
+  -- open items on today: b3k is Confirmed (fine); make a visit still in the chair and a completed unpaid one with no due holder
+  bx := pg_temp.mo_book(a1, tr, cu, 'Pat Chair', 'In-Progress', 100, today, 9); bcu2 := pg_temp.mo_book(a1, tr, cu, 'Pat Unpaid', 'Completed', 100, today, 10);
+  r := pg_temp.mo_run('staff', format('SELECT public.act_day_expected(%L, %L)', a1, today));
+  PERFORM pg_temp.mo_chk('front desk cannot read expected amounts (FORBIDDEN, a fixed message with no figures)', pg_temp.act_code(r) = 'FORBIDDEN' AND r #>> '{error,message}' = 'Your role cannot do this.' AND NOT ((r #>> '{error,message}') ~ '[0-9]') AND (r -> 'data') = 'null'::jsonb, coalesce(r::text, 'null'));
+  PERFORM pg_temp.mo_chk('practitioner cannot read expected amounts', pg_temp.act_code(pg_temp.mo_run('practitioner', format('SELECT public.act_day_expected(%L, %L)', a1, today))) = 'FORBIDDEN', 'practitioner');
+  r := pg_temp.mo_run('staff', format('SELECT public.act_day_submit_count(%L, %L, ''{"Cash": 100}''::jsonb)', a1, today));
+  PERFORM pg_temp.mo_chk('the blind count returns exactly {"submitted": true} to front desk (no expected, no difference)', pg_temp.act_code(r) = 'ok' AND (r -> 'data') = '{"submitted": true}'::jsonb, coalesce(r::text, 'null'));
+  PERFORM pg_temp.mo_chk('...and what the audit row stores has no expected amount either', NOT EXISTS (SELECT 1 FROM action_log WHERE action = 'day.submit_count' AND result::text ~ 'expected'), 'log');
+  r := pg_temp.mo_run('staff', format('SELECT public.act_day_submit_count(%L, %L, ''{"cash": 200}''::jsonb)', a1, today));
+  PERFORM pg_temp.mo_chk('submitting again replaces the count (one counted row, the new value)', pg_temp.act_code(r) = 'ok' AND (SELECT count(*) FROM daily_reports WHERE branch_id = a1 AND report_date = today AND status = 'counted') = 1
+     AND (SELECT (blind_counts ->> 'cash')::numeric FROM daily_reports WHERE branch_id = a1 AND report_date = today AND status = 'counted') = 200, 'one row');
+  PERFORM pg_temp.mo_chk('front desk cannot close or reopen', pg_temp.act_code(pg_temp.mo_run('staff', format('SELECT public.act_day_close(%L, %L)', a1, today))) = 'FORBIDDEN' AND pg_temp.act_code(pg_temp.mo_run('staff', format('SELECT public.act_day_reopen(%L, %L, ''x'')', a1, today))) = 'FORBIDDEN', 'roles');
+  PERFORM pg_temp.mo_chk('practitioner and admin_viewer cannot submit a count', pg_temp.act_code(pg_temp.mo_run('practitioner', format('SELECT public.act_day_submit_count(%L, %L, ''{"cash": 1}''::jsonb)', a1, today))) = 'FORBIDDEN' AND pg_temp.act_code(pg_temp.mo_run('admin_viewer', format('SELECT public.act_day_submit_count(%L, %L, ''{"cash": 1}''::jsonb)', a1, today))) = 'FORBIDDEN', 'roles');
+  PERFORM pg_temp.mo_chk('admin may submit a count too', pg_temp.act_code(pg_temp.mo_run('admin', format('SELECT public.act_day_submit_count(%L, %L, ''{"cash": 200}''::jsonb)', a1, today))) = 'ok', 'admin');
+  r := pg_temp.mo_run('manager_2_branches', format('SELECT public.act_day_close(%L, %L)', a1, today));
+  PERFORM pg_temp.mo_chk('a visit in the chair and completed visits neither paid nor left as due block the close, listed (BLOCKERS)', pg_temp.act_code(r) = 'BLOCKERS' AND jsonb_array_length(r -> 'data') = 3
+     AND (r -> 'data') @> jsonb_build_array(jsonb_build_object('code', 'IN_CHAIR', 'booking_id', bx), jsonb_build_object('code', 'NOT_PAID_OR_DUE', 'booking_id', bcu2), jsonb_build_object('code', 'NOT_PAID_OR_DUE', 'booking_id', b2k)), coalesce(r::text, 'null'));
+  UPDATE bookings SET status = 'Completed' WHERE id = bx;   -- the visit ends
+  UPDATE bookings SET due_holder_name = 'Family member' WHERE id IN (bx, bcu2);   -- both left as due under a named person
+  UPDATE bookings SET status = 'Completed', due_holder_name = 'Family member' WHERE id IN (b2k, bm2, b3k);   -- partial / unpaid visits left as due
+  r := pg_temp.mo_run('manager_2_branches', format('SELECT public.act_day_close(%L, %L)', a1, today));
+  PERFORM pg_temp.mo_chk('with a count that differs from the system, a manager must give a reason (REASON_REQUIRED)', pg_temp.act_code(r) = 'REASON_REQUIRED', coalesce(r::text, 'null'));
+  r := pg_temp.mo_run('manager_2_branches', format('SELECT public.act_day_expected(%L, %L)', a1, today)); v_exp := r #> '{data,expected}';
+  SELECT COALESCE(SUM(p.amount) FILTER (WHERE lower(p.payment_mode) = 'cash'), 0) - COALESCE((SELECT SUM(amount) FROM payment_refunds pr JOIN bookings bb ON bb.id = pr.booking_id WHERE bb.branch_id = a1 AND public._money_day(pr.created_at) = today AND lower(COALESCE(pr.paid_back_by, 'cash')) = 'cash'), 0)   -- a refund with no recorded method (legacy rows, the automatic cancellation refund) is treated as cash
+    INTO v_cash FROM payments p JOIN bookings b ON b.id = p.booking_id WHERE b.branch_id = a1 AND public._money_day(p.created_at) = today;
+  PERFORM pg_temp.mo_chk('the manager sees expected cash = cash taken today less cash refunds today (counted by money-event date)', pg_temp.act_code(r) = 'ok' AND (v_exp ->> 'cash')::numeric = v_cash AND v_cash > 0 AND (r #>> '{data,counted,cash}')::numeric = 200, coalesce(v_exp::text, 'null') || ' vs ' || v_cash );
+  PERFORM pg_temp.mo_chk('admin_viewer can read expected (read only)', pg_temp.act_code(pg_temp.mo_run('admin_viewer', format('SELECT public.act_day_expected(%L, %L)', a1, today))) = 'ok', 'viewer');
+  PERFORM pg_temp.mo_chk('the old due paid today counts today: expected includes the 700 collected on yesterday''s booking', (v_exp ->> 'cash')::numeric >= 700, v_exp::text);
+  r := pg_temp.mo_run('manager_2_branches', format('SELECT public.act_day_close(%L, %L, ''coins short'')', a1, today));
+  PERFORM pg_temp.mo_chk('with a reason, the manager closes the day', pg_temp.act_code(r) = 'ok' AND (SELECT status FROM daily_reports WHERE branch_id = a1 AND report_date = today AND superseded_by IS NULL) = 'closed' AND (SELECT difference_reason FROM daily_reports WHERE branch_id = a1 AND report_date = today AND status = 'closed') = 'coins short', coalesce(r::text, 'null'));
+  PERFORM pg_temp.mo_chk('closing locks the day''s bookings', NOT EXISTS (SELECT 1 FROM bookings WHERE branch_id = a1 AND date = today AND NOT is_locked), 'bookings');
+  -- a closed day refuses each kind of write
+  seq0 := (SELECT last_seq FROM money_counters WHERE org_id = oa AND series = 'receipt' AND fiscal_year = fy);
+  bm1 := pg_temp.mo_book(a1, tr, cu2, 'Pat Late', 'Confirmed', 100, today, 11);
+  r := pg_temp.mo_coll('staff', format('[{"booking_id":"%s","amount":100}]', bm1), '[{"mode":"Cash","amount":100}]');
+  PERFORM pg_temp.mo_chk('a collect on a closed day is refused (DAY_LOCKED) and takes no number', pg_temp.act_code(r) = 'DAY_LOCKED' AND (SELECT last_seq FROM money_counters WHERE org_id = oa AND series = 'receipt' AND fiscal_year = fy) = seq0, coalesce(r::text, 'null'));
+  r := pg_temp.mo_run('manager_2_branches', format('SELECT public.act_money_refund(%L, 50, ''late'', ''cash'')', b1k));
+  PERFORM pg_temp.mo_chk('a refund on a closed day is refused (DAY_LOCKED)', pg_temp.act_code(r) = 'DAY_LOCKED', coalesce(r::text, 'null'));
+  r := pg_temp.mo_run('staff', format('INSERT INTO payments (booking_id, amount, payment_mode, recorded_by, created_at) VALUES (%L, 10, ''Cash'', %L, now() + interval ''2 days'') RETURNING to_jsonb(payments)', bm1, u_staff));
+  PERFORM pg_temp.mo_chk('a client payment on a closed day is refused, even with a future created_at', r ->> 'msg' LIKE 'DAY_LOCKED%', coalesce(r::text, 'null'));
+  PERFORM pg_temp.mo_chk('a payment_refunds row on a closed day is refused (owner too)', pg_temp.mo_owner(format('INSERT INTO payment_refunds (booking_id, org_id, amount, refunded_by, reason) VALUES (%L, %L, 1, %L, ''x'')', b1k, oa, u_adm)) LIKE 'raised:DAY_LOCKED%', 'refund row');
+  PERFORM pg_temp.mo_chk('a document on a closed day is refused (owner too)', pg_temp.mo_owner(format('INSERT INTO money_documents (org_id, branch_id, kind, series, fiscal_year, seq, number, total) VALUES (%L, %L, ''receipt'', ''receipt'', %L, 999, ''x'', 1)', oa, a1, fy)) LIKE 'raised:DAY_LOCKED%', 'document');
+  PERFORM pg_temp.mo_chk('a refund can never be deleted or moved in time', pg_temp.mo_owner(format('DELETE FROM payment_refunds WHERE booking_id = %L', b1k)) LIKE 'raised:REFUND_IMMUTABLE%' AND pg_temp.mo_owner(format('UPDATE payment_refunds SET created_at = created_at - interval ''5 days'' WHERE booking_id = %L', b1k)) LIKE 'raised:TIME_IMMUTABLE%', 'refund immutable');
+  PERFORM pg_temp.mo_chk('today''s other branch is not closed: a branch-A2 collect still works', pg_temp.act_code(pg_temp.mo_coll('manager_2_branches', format('[{"booking_id":"%s","amount":300}]', bA2), '[{"mode":"Cash","amount":300}]')) = 'ok', 'branch A2');
+  PERFORM pg_temp.mo_chk('closing the same day again is refused (ALREADY_CLOSED)', pg_temp.act_code(pg_temp.mo_run('manager_2_branches', format('SELECT public.act_day_close(%L, %L)', a1, today))) = 'ALREADY_CLOSED', 'twice');
+  -- reopen: owner only, reason required, audited, history kept
+  PERFORM pg_temp.mo_chk('a manager cannot reopen (owner only)', pg_temp.act_code(pg_temp.mo_run('manager_2_branches', format('SELECT public.act_day_reopen(%L, %L, ''x'')', a1, today))) = 'FORBIDDEN', 'manager');
+  PERFORM pg_temp.mo_chk('the owner needs a reason to reopen', pg_temp.act_code(pg_temp.mo_run('admin', format('SELECT public.act_day_reopen(%L, %L, '' '')', a1, today))) = 'REASON_REQUIRED', 'reason');
+  r := pg_temp.mo_run('admin', format('SELECT public.act_day_reopen(%L, %L, ''a receipt was missed'')', a1, today));
+  PERFORM pg_temp.mo_chk('the owner reopens the day: audited, old closing kept as history, bookings unlocked', pg_temp.act_code(r) = 'ok'
+     AND EXISTS (SELECT 1 FROM daily_reports WHERE branch_id = a1 AND report_date = today AND status = 'reopened' AND reopened_by = u_adm AND reopen_reason = 'a receipt was missed' AND closed_by = u_mgr)
+     AND NOT EXISTS (SELECT 1 FROM bookings WHERE branch_id = a1 AND date = today AND is_locked) AND EXISTS (SELECT 1 FROM action_log WHERE action = 'day.reopen' AND ok AND actor_user_id = u_adm), coalesce(r::text, 'null'));
+  PERFORM pg_temp.mo_chk('the day is open again: a collect works', pg_temp.act_code(pg_temp.mo_coll('staff', format('[{"booking_id":"%s","amount":100}]', bm1), '[{"mode":"Cash","amount":100}]')) = 'ok', 'collect');
+  PERFORM pg_temp.mo_chk('it must be closed again with a NEW count (NO_COUNT first)', pg_temp.act_code(pg_temp.mo_run('manager_2_branches', format('SELECT public.act_day_close(%L, %L)', a1, today))) = 'NO_COUNT', 'no count');
+  PERFORM pg_temp.mo_run('staff', format('SELECT public.act_day_submit_count(%L, %L, ''{"cash": 400}''::jsonb)', a1, today));
+  r := pg_temp.mo_run('manager_2_branches', format('SELECT public.act_day_close(%L, %L, ''recounted'')', a1, today));
+  PERFORM pg_temp.mo_chk('closing again works; the reopened row is kept as history and marked superseded', pg_temp.act_code(r) = 'ok'
+     AND (SELECT count(*) FROM daily_reports WHERE branch_id = a1 AND report_date = today) = 2 AND (SELECT count(*) FROM daily_reports WHERE branch_id = a1 AND report_date = today AND superseded_by IS NOT NULL AND status = 'reopened') = 1
+     AND public.day_is_closed(a1, today), coalesce(r::text, 'null'));
+  PERFORM pg_temp.mo_chk('no staff-visible failure leaks a figure (checked over every refusal for staff in the audit log)', NOT EXISTS (SELECT 1 FROM action_log WHERE actor_user_id = u_staff AND NOT ok AND (result::text ~ '[0-9]{3}' AND result #>> '{error,message}' ~ '[0-9]')), 'leak');
+END $money$;
+
 -- COVERAGE: RLS tables that this test does not seed (static checks above still apply)
 INSERT INTO t_res
 SELECT 'COVERAGE', '-', c.relname, 'INFO', 'not seeded: dynamic matrix skipped (static policy checks apply)'

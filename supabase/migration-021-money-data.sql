@@ -44,7 +44,7 @@ CREATE TABLE public.bs_calendar (
 );
 CREATE INDEX bs_calendar_bs_idx ON public.bs_calendar (bs_year, bs_month, bs_day);
 ALTER TABLE public.bs_calendar ENABLE ROW LEVEL SECURITY;
-CREATE POLICY bs_calendar_read ON public.bs_calendar FOR SELECT TO authenticated USING (true);
+CREATE POLICY bs_calendar_read ON public.bs_calendar FOR SELECT TO authenticated USING (auth.uid() IS NOT NULL);   -- reference data, no tenant column
 REVOKE ALL ON public.bs_calendar FROM PUBLIC, anon;
 GRANT SELECT ON public.bs_calendar TO authenticated;
 
@@ -912,7 +912,7 @@ BEGIN
     END IF;
     RETURN public._act_finish(ctx, 'money.collect', v_org, NULL, v_inputs, false, CASE WHEN v_code = 'BLOCKERS' THEN v_detail::jsonb END, v_code, v_msg, NULL, NULL, 'money_documents');
   END;
-  RETURN public._act_finish(ctx, 'money.collect', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res, NULL, NULL, (v_res ->> 'document_id')::uuid, NULL, 'money_documents');
+  RETURN public._act_finish(ctx, 'money.collect', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res - 'branch_id', NULL, NULL, (v_res ->> 'document_id')::uuid, NULL, 'money_documents');
 END $$;
 REVOKE ALL ON FUNCTION public.act_money_collect(jsonb, jsonb, uuid, text, text, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.act_money_collect(jsonb, jsonb, uuid, text, text, jsonb) TO authenticated;
@@ -941,7 +941,7 @@ BEGIN
     END IF;
     RETURN public._act_finish(ctx, 'money.refund', v_org, NULL, v_inputs, false, CASE WHEN v_code = 'BLOCKERS' THEN v_detail::jsonb END, v_code, v_msg, NULL, NULL, 'payment_refunds');
   END;
-  RETURN public._act_finish(ctx, 'money.refund', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res, NULL, NULL, (v_res ->> 'refund_id')::uuid, NULL, 'payment_refunds');
+  RETURN public._act_finish(ctx, 'money.refund', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res - 'branch_id', NULL, NULL, (v_res ->> 'refund_id')::uuid, NULL, 'payment_refunds');
 END $$;
 REVOKE ALL ON FUNCTION public.act_money_refund(uuid, numeric, text, text, uuid, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.act_money_refund(uuid, numeric, text, text, uuid, jsonb) TO authenticated;
@@ -970,7 +970,7 @@ BEGIN
     END IF;
     RETURN public._act_finish(ctx, 'money.request_refund', v_org, NULL, v_inputs, false, CASE WHEN v_code = 'BLOCKERS' THEN v_detail::jsonb END, v_code, v_msg, NULL, NULL, 'money_requests');
   END;
-  RETURN public._act_finish(ctx, 'money.request_refund', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res, NULL, NULL, (v_res ->> 'request_id')::uuid, NULL, 'money_requests');
+  RETURN public._act_finish(ctx, 'money.request_refund', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res - 'branch_id', NULL, NULL, (v_res ->> 'request_id')::uuid, NULL, 'money_requests');
 END $$;
 REVOKE ALL ON FUNCTION public.act_money_request_refund(uuid, uuid, numeric, text, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.act_money_request_refund(uuid, uuid, numeric, text, jsonb) TO authenticated;
@@ -999,7 +999,7 @@ BEGIN
     END IF;
     RETURN public._act_finish(ctx, 'money.request_decline', v_org, NULL, v_inputs, false, CASE WHEN v_code = 'BLOCKERS' THEN v_detail::jsonb END, v_code, v_msg, NULL, NULL, 'money_requests');
   END;
-  RETURN public._act_finish(ctx, 'money.request_decline', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res, NULL, NULL, (v_res ->> 'request_id')::uuid, NULL, 'money_requests');
+  RETURN public._act_finish(ctx, 'money.request_decline', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res - 'branch_id', NULL, NULL, (v_res ->> 'request_id')::uuid, NULL, 'money_requests');
 END $$;
 REVOKE ALL ON FUNCTION public.act_money_request_decline(uuid, text, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.act_money_request_decline(uuid, text, jsonb) TO authenticated;
@@ -1028,7 +1028,7 @@ BEGIN
     END IF;
     RETURN public._act_finish(ctx, 'bill.cancel', v_org, NULL, v_inputs, false, CASE WHEN v_code = 'BLOCKERS' THEN v_detail::jsonb END, v_code, v_msg, NULL, NULL, 'money_documents');
   END;
-  RETURN public._act_finish(ctx, 'bill.cancel', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res, NULL, NULL, (v_res ->> 'document_id')::uuid, NULL, 'money_documents');
+  RETURN public._act_finish(ctx, 'bill.cancel', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res - 'branch_id', NULL, NULL, (v_res ->> 'document_id')::uuid, NULL, 'money_documents');
 END $$;
 REVOKE ALL ON FUNCTION public.act_bill_cancel(uuid, text, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.act_bill_cancel(uuid, text, jsonb) TO authenticated;
@@ -1057,7 +1057,7 @@ BEGIN
     END IF;
     RETURN public._act_finish(ctx, 'document.print', v_org, NULL, v_inputs, false, CASE WHEN v_code = 'BLOCKERS' THEN v_detail::jsonb END, v_code, v_msg, NULL, NULL, 'money_documents');
   END;
-  RETURN public._act_finish(ctx, 'document.print', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res, NULL, NULL, (v_res ->> 'document_id')::uuid, NULL, 'money_documents');
+  RETURN public._act_finish(ctx, 'document.print', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res - 'branch_id', NULL, NULL, (v_res ->> 'document_id')::uuid, NULL, 'money_documents');
 END $$;
 REVOKE ALL ON FUNCTION public.act_document_print(uuid, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.act_document_print(uuid, jsonb) TO authenticated;
@@ -1086,7 +1086,7 @@ BEGIN
     END IF;
     RETURN public._act_finish(ctx, 'document.send', v_org, NULL, v_inputs, false, CASE WHEN v_code = 'BLOCKERS' THEN v_detail::jsonb END, v_code, v_msg, NULL, NULL, 'money_documents');
   END;
-  RETURN public._act_finish(ctx, 'document.send', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res, NULL, NULL, (v_res ->> 'document_id')::uuid, NULL, 'money_documents');
+  RETURN public._act_finish(ctx, 'document.send', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res - 'branch_id', NULL, NULL, (v_res ->> 'document_id')::uuid, NULL, 'money_documents');
 END $$;
 REVOKE ALL ON FUNCTION public.act_document_send(uuid, text, text, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.act_document_send(uuid, text, text, jsonb) TO authenticated;
@@ -1115,7 +1115,7 @@ BEGIN
     END IF;
     RETURN public._act_finish(ctx, 'day.submit_count', v_org, NULL, v_inputs, false, CASE WHEN v_code = 'BLOCKERS' THEN v_detail::jsonb END, v_code, v_msg, NULL, NULL, 'daily_reports');
   END;
-  RETURN public._act_finish(ctx, 'day.submit_count', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res, NULL, NULL, NULL::uuid, NULL, 'daily_reports');
+  RETURN public._act_finish(ctx, 'day.submit_count', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res - 'branch_id', NULL, NULL, NULL::uuid, NULL, 'daily_reports');
 END $$;
 REVOKE ALL ON FUNCTION public.act_day_submit_count(uuid, date, jsonb, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.act_day_submit_count(uuid, date, jsonb, jsonb) TO authenticated;
@@ -1144,7 +1144,7 @@ BEGIN
     END IF;
     RETURN public._act_finish(ctx, 'day.expected', v_org, NULL, v_inputs, false, CASE WHEN v_code = 'BLOCKERS' THEN v_detail::jsonb END, v_code, v_msg, NULL, NULL, 'daily_reports');
   END;
-  RETURN public._act_finish(ctx, 'day.expected', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res, NULL, NULL, NULL::uuid, NULL, 'daily_reports');
+  RETURN public._act_finish(ctx, 'day.expected', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res - 'branch_id', NULL, NULL, NULL::uuid, NULL, 'daily_reports');
 END $$;
 REVOKE ALL ON FUNCTION public.act_day_expected(uuid, date, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.act_day_expected(uuid, date, jsonb) TO authenticated;
@@ -1173,7 +1173,7 @@ BEGIN
     END IF;
     RETURN public._act_finish(ctx, 'day.close', v_org, NULL, v_inputs, false, CASE WHEN v_code = 'BLOCKERS' THEN v_detail::jsonb END, v_code, v_msg, NULL, NULL, 'daily_reports');
   END;
-  RETURN public._act_finish(ctx, 'day.close', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res, NULL, NULL, (v_res ->> 'report_id')::uuid, NULL, 'daily_reports');
+  RETURN public._act_finish(ctx, 'day.close', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res - 'branch_id', NULL, NULL, (v_res ->> 'report_id')::uuid, NULL, 'daily_reports');
 END $$;
 REVOKE ALL ON FUNCTION public.act_day_close(uuid, date, text, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.act_day_close(uuid, date, text, jsonb) TO authenticated;
@@ -1202,7 +1202,7 @@ BEGIN
     END IF;
     RETURN public._act_finish(ctx, 'day.reopen', v_org, NULL, v_inputs, false, CASE WHEN v_code = 'BLOCKERS' THEN v_detail::jsonb END, v_code, v_msg, NULL, NULL, 'daily_reports');
   END;
-  RETURN public._act_finish(ctx, 'day.reopen', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res, NULL, NULL, (v_res ->> 'report_id')::uuid, NULL, 'daily_reports');
+  RETURN public._act_finish(ctx, 'day.reopen', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res - 'branch_id', NULL, NULL, (v_res ->> 'report_id')::uuid, NULL, 'daily_reports');
 END $$;
 REVOKE ALL ON FUNCTION public.act_day_reopen(uuid, date, text, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.act_day_reopen(uuid, date, text, jsonb) TO authenticated;
@@ -1231,7 +1231,7 @@ BEGIN
     END IF;
     RETURN public._act_finish(ctx, 'billing.set_mode', v_org, NULL, v_inputs, false, CASE WHEN v_code = 'BLOCKERS' THEN v_detail::jsonb END, v_code, v_msg, NULL, NULL, 'org_billing_settings');
   END;
-  RETURN public._act_finish(ctx, 'billing.set_mode', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res, NULL, NULL, NULL::uuid, NULL, 'org_billing_settings');
+  RETURN public._act_finish(ctx, 'billing.set_mode', v_org, (v_res ->> 'branch_id')::uuid, v_inputs, true, v_res - 'branch_id', NULL, NULL, NULL::uuid, NULL, 'org_billing_settings');
 END $$;
 REVOKE ALL ON FUNCTION public.act_billing_set_mode(text, boolean, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.act_billing_set_mode(text, boolean, jsonb) TO authenticated;
