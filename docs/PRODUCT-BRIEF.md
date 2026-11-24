@@ -75,6 +75,10 @@ phase once Phase 2 is live.
 | Memberships, vouchers, referrals (2026-11-23) | Left out of the Money design for now; Money shows packages only. Ship or remove stays open (CMD-14). |
 | Payment links (2026-11-23) | Fonepay dynamic QR first, on screen and in links; eSewa and Khalti later. |
 | Refunds and closed days (2026-11-23) | Front desk cannot refund. A manager refunds with a reason, logged. Only the owner reopens a closed day, with a reason. |
+| Old dues on a closed day (2026-11-24) | A due on a booking whose day is already closed is paid on the day it's received. The payment and the receipt carry that day's date and count in that day's drawer. The closed day stays untouched. Money locks go by the date the money moved, not the booking date. |
+| Cancelling a paid booking (2026-11-24) | Front desk cancelling a paid booking creates a refund request for a manager and does not refund. A manager or the owner cancelling refunds with a refund note (a credit note in PAN bill mode). Built with Money Part 1 (CMD-126). Until then, today's automatic refund stays. |
+| Nepali dates (2026-11-24) | Sadin checks the AD↔BS test dates against the official Nepal government calendar before the BS calendar is used for receipts. |
+| Dentists' role in production (2026-11-24) | Bright Smile dentists log in today as staff or manager. Staff-role dentists move to practitioner before migrations 019 and 020 go to production. |
 | Archive and erase (2026-11-22) | Managers and owners archive a record: it's hidden from lists, agents stop messaging the patient, and it can be restored. Only the owner can erase personal details, on a written request. Clinical and money records are kept as the law requires, and the erasure is logged. |
 
 ## 3. Where the product is today
