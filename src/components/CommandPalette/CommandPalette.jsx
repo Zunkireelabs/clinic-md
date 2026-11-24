@@ -91,7 +91,7 @@ const CommandPalette = ({ onClose, assistantEnabled }) => {
     if (pages.length) out.push({ id: 'page', items: pages.slice(0, 7) });
     if (actions.length) out.push({ id: 'action', items: actions });
     const showRemote = debounced.length >= 2;
-    if (showRemote && (patients.length || loading.patients) && ['manager', 'admin', 'admin_viewer'].includes(role) && !isOverall) out.push({ id: 'patient', items: patients, loading: loading.patients });
+    if (showRemote && (patients.length || loading.patients) && ['manager', 'admin', 'admin_viewer', 'practitioner'].includes(role) && !isOverall) out.push({ id: 'patient', items: patients, loading: loading.patients });
     if (showRemote && (bookings.length || loading.bookings) && !isOverall) out.push({ id: 'booking', items: bookings, loading: loading.bookings });
     if (assistantEnabled) out.push({ id: 'ask', items: [{ key: 'ask', kind: 'ask', label: `Ask Assistant: “${q}”`, icon: 'Sparkles', prompt: q }] });
     return out;

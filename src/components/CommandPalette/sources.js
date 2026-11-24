@@ -80,7 +80,7 @@ export const matchLocal = (query, ctx) => {
 // Patients: managers / admins only, and only with a concrete branch (the lookup resolves that branch's org). A bounded server-side
 // search (limit 5), same table and RLS as the Customers panel.
 export const searchPatients = async (query, { role, isOverall, branchId, basePath }) => {
-  if (!STAFF_UP.includes(role) || isOverall || !branchId) return [];
+  if (![...STAFF_UP, 'practitioner'].includes(role) || isOverall || !branchId) return [];
   const r = await searchCustomers(branchId, query, 5);
   if (r.error) throw r.error;
   return (r.data || []).map((c) => ({ key: `patient:${c.id}`, kind: 'patient', label: c.full_name || 'Unnamed', secondary: c.phone || '', icon: 'User', href: viewHref(basePath, 'customers', `&customer=${c.id}`) }));

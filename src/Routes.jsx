@@ -77,7 +77,8 @@ const LegacyDashboardRedirect = () => {
 // Unified Dashboard - renders appropriate dashboard based on role
 const UnifiedDashboard = () => {
   const { profile } = useAuth();
-  const isManagerOrAdmin = ['manager', 'admin', 'admin_viewer'].includes(profile?.role);
+  // practitioner (CMD-79) uses the registry-driven shell too, but BranchManagerDashboard limits it to Calendar and Patients.
+  const isManagerOrAdmin = ['manager', 'admin', 'admin_viewer', 'practitioner'].includes(profile?.role);
 
   if (isManagerOrAdmin) {
     return <BranchManagerDashboard />;
@@ -119,7 +120,7 @@ const AppRoutes = () => {
         {/* Org-scoped unified dashboard (role determines view) */}
         <Route path="/:orgSlug/dashboard" element={
           <TenantWrapper>
-            <ProtectedRoute allowedRoles={['staff', 'manager', 'admin', 'admin_viewer']}>
+            <ProtectedRoute allowedRoles={['staff', 'manager', 'admin', 'admin_viewer', 'practitioner']}>
               <UnifiedDashboard />
             </ProtectedRoute>
           </TenantWrapper>
@@ -140,7 +141,7 @@ const AppRoutes = () => {
         {/* Patient chart: full record (visits, treatments, notes, billing) for one patient. */}
         <Route path="/:orgSlug/patients/:customerId" element={
           <TenantWrapper>
-            <ProtectedRoute allowedRoles={['staff', 'manager', 'admin', 'admin_viewer']}>
+            <ProtectedRoute allowedRoles={['staff', 'manager', 'admin', 'admin_viewer', 'practitioner']}>
               <PatientChart />
             </ProtectedRoute>
           </TenantWrapper>
@@ -151,7 +152,7 @@ const AppRoutes = () => {
           <>
             <Route path="/:orgSlug/bookings/:bookingId/consultation" element={
               <TenantWrapper>
-                <ProtectedRoute allowedRoles={['staff', 'manager', 'admin']}>
+                <ProtectedRoute allowedRoles={['staff', 'manager', 'admin', 'practitioner']}>
                   <AiConsultationGate>
                     <ConsultationPage />
                   </AiConsultationGate>

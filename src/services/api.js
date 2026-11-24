@@ -72,6 +72,7 @@ const DISCOUNT_LIMITS = {
   manager:      1.00, // 100%
   admin:        1.00, // 100%
   admin_viewer: 0,    // view-only role — RLS blocks writes regardless, this is just a safe default
+  practitioner: 0,    // CMD-79: no discounts (no money access)
 };
 
 // Staff can request a discount up to this band (above their direct-apply limit).
@@ -11652,7 +11653,7 @@ export async function uploadConsultationFile(bookingId, file, kind) {
   try {
     const { profile, error: authError } = await getAuthenticatedUser();
     if (authError) return { path: null, error: authError };
-    if (!['staff', 'manager', 'admin'].includes(profile.role)) {
+    if (!['staff', 'manager', 'admin', 'practitioner'].includes(profile.role)) {
       return { path: null, error: { code: 'FORBIDDEN', message: 'You do not have permission to upload consultation files.' } };
     }
 
@@ -11759,7 +11760,7 @@ export async function saveConsultation({ booking, consultationId, fields, status
   try {
     const { user, profile, error: authError } = await getAuthenticatedUser();
     if (authError) return { data: null, error: authError };
-    if (!['staff', 'manager', 'admin'].includes(profile.role)) {
+    if (!['staff', 'manager', 'admin', 'practitioner'].includes(profile.role)) {
       return { data: null, error: { code: 'FORBIDDEN', message: 'You do not have permission to save consultations.' } };
     }
 
@@ -11836,7 +11837,7 @@ export async function getOrCreateConsultation(booking) {
 
   const { user, profile, error: authError } = await getAuthenticatedUser();
   if (authError) return { data: null, error: authError };
-  if (!['staff', 'manager', 'admin'].includes(profile.role)) {
+  if (!['staff', 'manager', 'admin', 'practitioner'].includes(profile.role)) {
     return { data: null, error: { code: 'FORBIDDEN', message: 'You do not have permission to start a consultation.' } };
   }
 
@@ -11889,7 +11890,7 @@ export function subscribeToConsultation(consultationId, onRow) {
 export async function createConsultationDraft(booking) {
   const { user, profile, error: authError } = await getAuthenticatedUser();
   if (authError) return { data: null, error: authError };
-  if (!['staff', 'manager', 'admin'].includes(profile.role)) {
+  if (!['staff', 'manager', 'admin', 'practitioner'].includes(profile.role)) {
     return { data: null, error: { code: 'FORBIDDEN', message: 'You do not have permission to start a consultation.' } };
   }
   const { data, error } = await supabase

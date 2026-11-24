@@ -15,7 +15,7 @@ const PhoneGate = () => {
 
   if (!user || !profile) return <ConnectPhone orgSlug={orgSlug} />;
   return (
-    <ProtectedRoute allowedRoles={['staff', 'manager', 'admin']}>
+    <ProtectedRoute allowedRoles={['staff', 'manager', 'admin', 'practitioner']}>
       <DoctorPhone />
     </ProtectedRoute>
   );
