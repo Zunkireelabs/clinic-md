@@ -439,3 +439,8 @@ verify_jwt = false
 # The Follow-up agent's runner is called by pg_cron with the same bearer token (CRON_BEARER_TOKEN), not a Supabase JWT; the function checks it itself.
 [functions.agent-run]
 verify_jwt = false
+
+# Recording retention (CMD-54, migration 020) is called by pg_cron with the same bearer token (CRON_BEARER_TOKEN), not a Supabase JWT; the
+# function checks it itself.
+[functions.consultation-retention]
+verify_jwt = false
