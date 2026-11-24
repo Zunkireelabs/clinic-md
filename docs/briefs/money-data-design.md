@@ -41,7 +41,7 @@ Columns exactly as brief §2.2: `id, org_id, branch_id, kind (receipt|refund_not
 ### 1.6 Additions to existing tables
 - `payments.document_id uuid NULL -> money_documents` (nullable: old rows stay unchanged).
 - `payment_refunds.document_id uuid NULL`, `payment_refunds.paid_back_by text NULL` (method the money went back by: cash, fonepay, card, other, validated against the master-data methods when present).
-- `daily_reports`: `reopened_at, reopened_by, reopen_reason, superseded_by uuid NULL`, plus `status text` (`counted | closed | reopened`) and `blind_counts jsonb` (method -> counted), `difference_reason text`, `submitted_by, submitted_at`. Existing rows backfill as `closed`. Existing `UNIQUE (branch_id, report_date)` (to be confirmed on the file) must be relaxed to "one row where `superseded_by IS NULL`" so reopen can keep history.
+- `daily_reports`: `reopened_at, reopened_by, reopen_reason, superseded_by uuid NULL`, plus `status text` (`counted | closed | reopened`) and `blind_counts jsonb` (method -> counted), `difference_reason text`, `submitted_by, submitted_at`. Existing rows backfill as `closed`. Existing `uq_daily_report_branch_date UNIQUE (branch_id, report_date)` (schema.sql:4650) must be replaced to "one row where `superseded_by IS NULL`" so reopen can keep history.
 
 ## 2. Numbering
 - `money_next_number(org, series, fy)` (internal, definer, no grants): `INSERT INTO money_counters ... ON CONFLICT (org_id, series, fiscal_year) DO UPDATE SET last_seq = money_counters.last_seq + 1 RETURNING last_seq`. The row lock serialises concurrent issuers. Because it runs inside the issuing transaction, a rollback also rolls the counter back: no gap, no reuse (this is what the "rolled-back collect uses no number" test proves).
@@ -146,7 +146,6 @@ Data loss on rollback: documents, counters and requests created after 021 are de
 - BS converter data, its range, and every AD<->BS pair (not installed yet).
 - IRD rules (general knowledge only).
 - That prod has `daily_reports`, the lock trigger and payment triggers exactly as `schema.sql` shows (CMD-11).
-- The `UNIQUE (branch_id, report_date)` constraint on `daily_reports` (I believe it exists; to confirm on the file before SQL).
 - Line numbers in `api.js` (from the earlier session, not re-read now).
 - Receipt layout and VAT wording (Sadin's decision, not legally checked).
 - Local DB behaviour of any of this: nothing was run, no SQL exists.
