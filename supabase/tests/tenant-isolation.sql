@@ -464,6 +464,7 @@ BEGIN
 
   -- a practitioner (Dr A1), a second dentist in the branch, a one-seat chair
   INSERT INTO auth.users (id, instance_id, aud, role, email, created_at, updated_at) VALUES (u_prac, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-actprac-' || sfx || '@test.invalid', now(), now());
+  UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3d
   INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES (u_prac, 'rls-actprac-' || sfx || '@test.invalid', 'RLS act practitioner', 'practitioner', a1, oa, true, d1);
   INSERT INTO t_actor VALUES ('act_practitioner', u_prac, oa, 'authenticated');
   INSERT INTO dentists (branch_id, name, gender, org_id) VALUES (a1, 'Dr A1b', 'Male', oa) RETURNING id INTO d1b;
@@ -763,6 +764,7 @@ BEGIN
     (u_p2, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-hubp2-' || sfx || '@test.invalid', now(), now()),
     (u_prof, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-hubprof-' || sfx || '@test.invalid', now(), now()),
     (u_staff2, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-hubs2-' || sfx || '@test.invalid', now(), now());
+  UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3d
   INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES
     (u_p1, 'rls-hubp1-' || sfx || '@test.invalid', 'Hub Practitioner One', 'practitioner', a1, oa, true, d1),
     (u_p2, 'rls-hubp2-' || sfx || '@test.invalid', 'Hub Practitioner Two', 'practitioner', a1, oa, true, d2),
@@ -1373,6 +1375,7 @@ BEGIN
   SELECT s.pk::uuid INTO bk_b FROM t_seed s WHERE s.tbl = 'bookings' AND s.org = ob LIMIT 1;
 
   INSERT INTO auth.users (id, instance_id, aud, role, email, created_at, updated_at) VALUES (u_prac, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-mprac-' || sfx || '@test.invalid', now(), now());
+  UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3d
   INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES (u_prac, 'rls-mprac-' || sfx || '@test.invalid', 'RLS money practitioner', 'practitioner', a1, oa, true, d1);
   INSERT INTO t_actor VALUES ('money_practitioner', u_prac, oa, 'authenticated');
   INSERT INTO customers (branch_id, full_name, org_id) VALUES (a1, 'Referred Cust', oa) RETURNING id INTO cu2;
@@ -1648,6 +1651,7 @@ BEGIN
     (u_pr1, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-agpr1-' || sfx || '@test.invalid', now(), now()),
     (u_pr2, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-agpr2-' || sfx || '@test.invalid', now(), now()),
     (u_sa2, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-agsa2-' || sfx || '@test.invalid', now(), now());
+  UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3d
   INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES
     (u_pr1, 'rls-agpr1-' || sfx || '@test.invalid', 'Agent Practitioner One', 'practitioner', a1, oa, true, d_pr1),
     (u_pr2, 'rls-agpr2-' || sfx || '@test.invalid', 'Agent Practitioner Two', 'practitioner', a1, oa, true, d_pr2),
@@ -2648,6 +2652,8 @@ BEGIN
   SELECT uid INTO u_staff FROM t_actor WHERE name = 'staff'; SELECT uid INTO u_prac FROM t_actor WHERE name = 'practitioner';
   SELECT v INTO bk_bd FROM t_prac WHERE k = 'bk_mine_bd'; SELECT v INTO bk_none FROM t_prac WHERE k = 'bk_nobody'; SELECT v INTO bk_col FROM t_prac WHERE k = 'bk_mine_col';
   SELECT v INTO d1 FROM t_prac WHERE k = 'd_a1'; SELECT v INTO d2 FROM t_prac WHERE k = 'd_a2'; SELECT v INTO db FROM t_prac WHERE k = 'd_b';
+  UPDATE public.users SET dentist_id = NULL WHERE dentist_id = d1 AND id <> u_prac;
+  UPDATE public.users SET dentist_id = d1 WHERE id = u_prac AND dentist_id IS DISTINCT FROM d1;   -- merge glue: re-link the shared practitioner
   SELECT v INTO c1 FROM t_prac WHERE k = 'c_a1'; SELECT v INTO bk_b FROM t_prac WHERE k = 'bk_b';
 
   -- (1) money: the practitioner reads NO rows, while staff (control) reads some. Not vacuous: staff must see > 0.
@@ -2765,7 +2771,7 @@ BEGIN
   r := pg_temp.fn_try('customer_no_staff_row', 'SELECT 1 FROM bookings');
   INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient still reads their own booking', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
   r := pg_temp.fn_try('customer_no_staff_row', 'SELECT 1 FROM voucher_types');
-  INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient still reads their org''s voucher types (table has a restrictive policy)', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient still reads their org''s voucher types (table has a restrictive policy)', CASE WHEN r LIKE 'ok:%' AND r <> 'ok:0' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r || ' (>= 1: the money section adds a second voucher type to org A)');   -- merge glue: same fix as CMD-54
   r := pg_temp.fn_try('customer_no_staff_row', 'SELECT 1 FROM payments');
   INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient on payments: unchanged (0 rows, no error)', CASE WHEN r = 'ok:0' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
   r := pg_temp.fn_try('customer_no_staff_row', format('UPDATE bookings SET status = status WHERE id = %L', bk_none));
