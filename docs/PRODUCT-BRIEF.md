@@ -94,6 +94,11 @@ phase once Phase 2 is live.
 | Patient side: sign-in (2026-11-25) | Patients sign in with their phone and a 6-digit SMS code; an email code is the fallback. No passwords. |
 | Patient side: language (2026-11-25) | Patient pages open in English with a one-tap switch to Nepali, remembered for next time. |
 | Patient side: deposit (2026-11-25) | No deposit by default. A clinic setting can ask first-time online bookings for a Fonepay deposit that counts against the bill. |
+| Platform: clinic setup (2026-11-25) | Zunkiree staff set up each clinic: create it, pick its pack, connect channels, invite the owner. Self-serve sign-up waits for Phase 7. |
+| Platform: plans (2026-11-25) | Boards show a monthly fee per branch that includes an AI, message and call allowance, with top-ups when it runs out. CMD-61 records the final prices. |
+| Platform: usage (2026-11-25) | The plan sets the allowance. The owner is told at 80% and 100% and can buy a top-up. Zunkiree can raise a clinic's limit by hand. |
+| Platform: agent quality review (2026-11-25) | Zunkiree reviews a weekly random sample of live conversations with patient names and phones masked. Every open is logged, and the clinic can see that a review happened. |
+| Platform: pack updates (2026-11-25) | Zunkiree's parts of a pack (AI prompts, image types) roll out to every clinic on it after the test set passes. Clinic-editable parts (labels, forms, note template) are offered as an update and never overwrite a clinic's edits. |
 | Archive and erase (2026-11-22) | Managers and owners archive a record: it's hidden from lists, agents stop messaging the patient, and it can be restored. Only the owner can erase personal details, on a written request. Clinical and money records are kept as the law requires, and the erasure is logged. |
 
 ## 3. Where the product is today
