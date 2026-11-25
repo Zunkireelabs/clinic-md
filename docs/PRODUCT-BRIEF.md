@@ -83,6 +83,10 @@ phase once Phase 2 is live.
 | Team: shifts (2026-11-24) | Designed now: a weekly working pattern per person per branch, plus one-off changes (swap, extra day, day off). The calendar and the booking agent use it for availability. |
 | Team: leave (2026-11-24) | Staff and practitioners request leave in the app (phone first). A manager approves. Yearly annual and sick balances per person. Approved leave blocks the calendar. |
 | Team: payroll (2026-11-24) | Payslips staff can see now. SSF and TDS come later; no tax rules are built yet. |
+| Reports: who sees it (2026-11-25) | Owner, managers and read-only open Reports. Practitioners see only their own numbers ("My numbers"). Front desk has no Reports. |
+| Reports: briefing (2026-11-25) | The Owner's advisor's morning briefing arrives in the app with a phone notification at 8:00 am Nepal time; Reports › Briefings keeps the history. No SMS or WhatsApp for it. |
+| Reports: catalogue (2026-11-25) | Trimmed and regrouped. Sales: Daily, Treatment revenue, Discounts, Payments by method. Team: Performance, Attendance summary. Patients: New vs returning, No-shows, Referral sources. Transfers and the attendance calendar leave Reports (Team has them). Every report exports to Excel. |
+| Reports: clinic numbers (2026-11-25) | Five headline numbers (revenue, visits, new patients, no-show rate, agent-handled share) and three charts (revenue by day, chair use by hour, dentist use). All branches adds a branch comparison. |
 | Archive and erase (2026-11-22) | Managers and owners archive a record: it's hidden from lists, agents stop messaging the patient, and it can be restored. Only the owner can erase personal details, on a written request. Clinical and money records are kept as the law requires, and the erasure is logged. |
 
 ## 3. Where the product is today
