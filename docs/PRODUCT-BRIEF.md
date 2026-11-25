@@ -79,6 +79,10 @@ phase once Phase 2 is live.
 | Cancelling a paid booking (2026-11-24) | Front desk cancelling a paid booking creates a refund request for a manager and does not refund. A manager or the owner cancelling refunds with a refund note (a credit note in PAN bill mode). Built with Money Part 1 (CMD-126). Until then, today's automatic refund stays. |
 | Nepali dates (2026-11-24) | Sadin checks the AD↔BS test dates against the official Nepal government calendar before the BS calendar is used for receipts. |
 | Dentists' role in production (2026-11-24) | Bright Smile dentists log in today as staff or manager. Staff-role dentists move to practitioner before migrations 019 and 020 go to production. |
+| Team: logins and access (2026-11-24) | Staff logins live in Team: one person page holds the profile, branch, access level (owner, manager, front desk, practitioner, read-only), invite, deactivate and PIN reset. |
+| Team: shifts (2026-11-24) | Designed now: a weekly working pattern per person per branch, plus one-off changes (swap, extra day, day off). The calendar and the booking agent use it for availability. |
+| Team: leave (2026-11-24) | Staff and practitioners request leave in the app (phone first). A manager approves. Yearly annual and sick balances per person. Approved leave blocks the calendar. |
+| Team: payroll (2026-11-24) | Payslips staff can see now. SSF and TDS come later; no tax rules are built yet. |
 | Archive and erase (2026-11-22) | Managers and owners archive a record: it's hidden from lists, agents stop messaging the patient, and it can be restored. Only the owner can erase personal details, on a written request. Clinical and money records are kept as the law requires, and the erasure is logged. |
 
 ## 3. Where the product is today
