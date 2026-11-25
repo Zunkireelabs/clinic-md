@@ -87,6 +87,13 @@ phase once Phase 2 is live.
 | Reports: briefing (2026-11-25) | The Owner's advisor's morning briefing arrives in the app with a phone notification at 8:00 am Nepal time; Reports › Briefings keeps the history. No SMS or WhatsApp for it. |
 | Reports: catalogue (2026-11-25) | Trimmed and regrouped. Sales: Daily, Treatment revenue, Discounts, Payments by method. Team: Performance, Attendance summary. Patients: New vs returning, No-shows, Referral sources. Transfers and the attendance calendar leave Reports (Team has them). Every report exports to Excel. |
 | Reports: clinic numbers (2026-11-25) | Five headline numbers (revenue, visits, new patients, no-show rate, agent-handled share) and three charts (revenue by day, chair use by hour, dentist use). All branches adds a branch comparison. |
+| Settings: clinic and branches (2026-11-25) | The owner edits the clinic profile, PAN, logo and branches. A manager edits only their own branch's hours and closed dates. Every change is in the audit log. |
+| Settings: specialty pack (2026-11-25) | A clinic edits its labels (Dentist, Chair), intake forms and the note template. AI prompts and image types stay with Zunkiree. |
+| Settings: prices (2026-11-25) | One clinic price list. A branch can override a price where it differs, and switch treatments on or off. |
+| Settings: holidays (2026-11-25) | Each year ClinicMD suggests Nepal's public holidays; the owner or the branch manager ticks the ones the branch closes on. Other closed days are added by hand. |
+| Patient side: sign-in (2026-11-25) | Patients sign in with their phone and a 6-digit SMS code; an email code is the fallback. No passwords. |
+| Patient side: language (2026-11-25) | Patient pages open in English with a one-tap switch to Nepali, remembered for next time. |
+| Patient side: deposit (2026-11-25) | No deposit by default. A clinic setting can ask first-time online bookings for a Fonepay deposit that counts against the bill. |
 | Archive and erase (2026-11-22) | Managers and owners archive a record: it's hidden from lists, agents stop messaging the patient, and it can be restored. Only the owner can erase personal details, on a written request. Clinical and money records are kept as the law requires, and the erasure is logged. |
 
 ## 3. Where the product is today
