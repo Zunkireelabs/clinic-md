@@ -30,6 +30,7 @@ supabase stop                       # shut down
 ```
 
 Reset and reseed: `supabase db reset && ./scripts/local-db-bootstrap.sh`.
+CI runs `npm run test:rls` on every PR to `main` (job `rls`, `ci.yml`): it starts the DB, runs `./scripts/local-db-bootstrap.sh --no-test-users`, then the test.
 `supabase status` reprints URLs/keys.
 
 ## Env switching

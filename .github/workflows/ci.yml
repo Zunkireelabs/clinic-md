@@ -30,3 +30,20 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
           VITE_POSTHOG_HOST: ${{ secrets.VITE_POSTHOG_HOST }}
+
+  rls:
+    name: Tenant isolation (RLS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.109.1
+
+      # Only the database: the test needs Postgres with Supabase's roles and auth schema, not GoTrue or the API.
+      - run: supabase db start
+
+      - run: ./scripts/local-db-bootstrap.sh --no-test-users
+
+      - run: npm run test:rls

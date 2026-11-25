@@ -10,6 +10,8 @@
 #
 # To wipe and start over:
 #   supabase db reset && ./scripts/local-db-bootstrap.sh
+#
+# --no-test-users: skip the test users (CI: they need GoTrue and the test does not use them).
 
 set -euo pipefail
 
@@ -53,7 +55,7 @@ for f in $(ls "$SUPABASE_DIR"/migration-[0-9]*.sql 2>/dev/null | sort -V); do
 done
 
 # Local test users (auth.users + app linkage). Passwords are generated into a gitignored file.
-if [ -x "$REPO_ROOT/scripts/local-create-test-users.sh" ]; then
+if [ "${1:-}" != "--no-test-users" ] && [ -x "$REPO_ROOT/scripts/local-create-test-users.sh" ]; then
   "$REPO_ROOT/scripts/local-create-test-users.sh"
 fi
 
