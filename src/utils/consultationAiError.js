@@ -17,3 +17,10 @@ export function consultationAiError(status, payload) {
   }
   return { code: 'AI_FAILED', message: "Couldn't process this. Your recording is saved; try again." };
 }
+
+/** The AI answered (200) but the note has no clinical content: not a failure, nothing was said. Redrafting the same transcript gives the same result. */
+export const NO_SPEECH_ERROR = { code: 'NO_SPEECH', message: 'No clinical details were heard in the recording.' };
+
+/** Why a draft is unusable: a real AI error wins; a 200 with an empty/missing note is NO_SPEECH only when the call succeeded. */
+export const draftFailure = (aiError, drafted, empty) =>
+  aiError || (!drafted ? { code: 'AI_FAILED', message: "The AI didn't return a note. Your recording is saved; try again." } : empty ? NO_SPEECH_ERROR : null);

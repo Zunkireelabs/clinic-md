@@ -26,6 +26,7 @@ import ConsultationRail from './desk/ConsultationRail';
 import useLeaveGuard from './desk/useLeaveGuard';
 import { flowReducer, initialFlow, deriveStage, showNoAiBanner, draftingSteps, draftInputsKey, draftIsStale } from '../../utils/consultationFlow';
 import { markdownToNote, noteToMarkdown, normalizeNote, isNoteEmpty, sameNote, emptyNote } from '../../utils/consultationNote';
+import { draftFailure } from '../../utils/consultationAiError';
 import { parseSummarySections } from '../../utils/summarySections';
 import { CURRENT_CONSENT_SCRIPT } from '../../utils/consentScripts';
 import { EMPTY_META, metaFromRow, canUnsign, provenanceLine } from '../../utils/consultationMeta';
@@ -534,8 +535,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       consultationId: consultationIdRef.current,
     });
     const drafted = aiNote ? normalizeNote(aiNote) : null;
-    if (aiError || !drafted || isNoteEmpty(drafted)) {
-      dispatchFlow({ type: 'FAILED', at: 'drafting', error: aiError || { code: 'AI_FAILED', message: "The AI didn't return a note. Your recording is saved; try again." } });
+    const failure = draftFailure(aiError, drafted, drafted && isNoteEmpty(drafted));
+    if (failure) {
+      dispatchFlow({ type: 'FAILED', at: 'drafting', error: failure });
       return false;
     }
     if (savingRef.current || stageRef.current === 'saved') {
@@ -1162,7 +1164,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
               <NoteCard
                 stage={stage} note={note} onNoteChange={editNote} view={noteView} onView={setNoteView}
                 transcript={form.transcript} onTranscript={(v) => patchForm({ transcript: v })} hasTranscript={!!form.transcript.trim()}
-                badge={badge} drafting={drafting} noAiBanner={noAiBanner} noAiKind={hasUploadFailure(queue) ? 'upload' : 'ai'} onTryAgain={retryDraft} tryAgainBusy={flow.step !== 'idle'}
+                badge={badge} drafting={drafting} noAiBanner={noAiBanner} noAiKind={hasUploadFailure(queue) ? 'upload' : flow.aiError?.code === 'NO_SPEECH' ? 'nospeech' : 'ai'} onTryAgain={retryDraft} tryAgainBusy={flow.step !== 'idle'}
                 readOnly={stage === 'saved' || readOnlyRole} findingsTags={findingsTags} footer={footer} onRedraft={flow.aiDrafted && stage === 'review' && !readOnlyRole ? redraft : null}
                 updateDraftOffer={stage === 'review' && hasNote && draftIsStale(flow, draftInputsKey(form), { readOnly: readOnlyRole })} onUpdateDraft={redraft}
                 onWriteMyself={() => dispatchFlow({ type: 'WRITE_MYSELF' })} earlierDoctorNotes={form.doctorNotes.trim() ? form.doctorNotes : ''}
