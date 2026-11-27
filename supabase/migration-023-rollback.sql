@@ -7,4 +7,5 @@ DROP TRIGGER IF EXISTS consultations_pieces_fn_only ON public.consultations;
 DROP FUNCTION IF EXISTS public.consultation_pieces_fn_only();
 ALTER TABLE public.consultations DROP CONSTRAINT IF EXISTS consultations_transcript_pieces_check;
 ALTER TABLE public.consultations DROP COLUMN IF EXISTS transcript_pieces;
+DELETE FROM public.schema_migrations WHERE version = '023';
 COMMIT;

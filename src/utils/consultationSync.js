@@ -67,6 +67,25 @@ export const columnsForChanges = (form, synced) => {
 };
 
 /**
+ * The transcript only ever grows on the server (recordings are APPENDED by consultation_add_transcript_piece). If this device has typed in
+ * it since `synced`, keep what was typed and add what the server appended since, so the next autosave cannot wipe the new piece.
+ * Anything else (the other side rewrote the text) keeps ours, as before. CMD-146.
+ */
+export const rebaseText = (local, synced, remote) => {
+  if (remote === synced || !String(remote).startsWith(synced)) return local;
+  const suffix = String(remote).slice(synced.length);
+  return local + (suffix.startsWith('\n') || !String(local).trim() ? '' : '\n\n') + suffix;
+};
+
+/** Audio paths whose words are already in the transcript (migration 023). */
+// shortcut: a legacy piece (path null, from the backfill) is assumed to cover every recording the row had; a recording that was uploaded
+// but never transcribed across the migration deploy would not be offered for retry. Upgrade if that ever shows up.
+export const transcribedPaths = (row) => {
+  const pieces = row?.transcript_pieces || [];
+  return pieces.some((x) => !x.path) ? [...new Set([...(row.audio_paths || []), ...pieces.map((x) => x.path).filter(Boolean)])] : pieces.map((x) => x.path);
+};
+
+/**
  * Apply a row update that arrived from the other device. For each field:
  * - this device has not edited it since the last sync -> take the remote value
  * - this device has unsaved edits to it -> keep ours (they are saved next)
@@ -78,6 +97,7 @@ export const mergeRemote = (local, synced, remoteRow) => {
   Object.keys(FIELD_COLUMNS).forEach((k) => {
     const locallyEdited = !same(local[k], synced[k]);
     if (!locallyEdited) form[k] = remote[k];
+    else if (k === 'transcript') form[k] = rebaseText(local[k], synced[k], remote[k]);
     // Two devices may each have added an X-ray/photo/recording: keep both (the remote ones first), never drop either side's.
     else if (ARRAY_KEYS.has(k)) form[k] = [...(remote[k] || []), ...(local[k] || []).filter((p) => !(remote[k] || []).includes(p))];
   });
@@ -102,4 +122,19 @@ export const allColumns = (form) => {
     out[column] = ARRAY_KEYS.has(k) ? (v || []) : (v || null);
   });
   return out;
+};
+
+/**
+ * After consultation_add_transcript_piece returns { transcript, language }: the server's text is the new synced state. If this device has
+ * typed in the transcript meanwhile, keep that and add the appended words (rebaseText); otherwise show the server's text. Both the form
+ * and the synced snapshot move, so the autosave sees no difference and cannot send a stale transcript back. CMD-146.
+ */
+export const applyAppended = (form, synced, data) => {
+  const language = data.language ?? null;
+  const nextSynced = { ...synced, transcript: data.transcript || '', language: language ?? synced.language };
+  const edited = form.transcript !== synced.transcript;
+  return {
+    form: { ...form, transcript: edited ? rebaseText(form.transcript, synced.transcript, data.transcript || '') : (data.transcript || ''), language: language ?? form.language },
+    synced: nextSynced,
+  };
 };

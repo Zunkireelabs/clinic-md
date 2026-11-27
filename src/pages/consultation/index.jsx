@@ -38,6 +38,7 @@ import {
   createConsultationDraft,
   createPhonePairing,
   updateConsultationColumns,
+  addConsultationTranscriptPiece,
   subscribeToConsultation,
   saveConsultation,
   uploadConsultationFile,
@@ -51,10 +52,10 @@ import {
   updateBookingStatus,
 } from '../../services/api';
 import { generateConsultationPdf, exportConsultationJson } from '../../utils/consultationReport';
-import { EMPTY_FORM, formFromRow, columnsForChanges, allColumns, mergeRemote, changedKeys, mergeAfterSave } from '../../utils/consultationSync';
+import { EMPTY_FORM, formFromRow, columnsForChanges, allColumns, mergeRemote, changedKeys, mergeAfterSave, transcribedPaths, applyAppended } from '../../utils/consultationSync';
 import {
   newQueueItem, enqueue, update as updateQueue, hasUnuploaded, failedItems, hasUploadFailure, isBusy as queueBusy,
-  seedTranscribed, untranscribedPaths, readTranscribed, writeTranscribed,
+  untranscribedPaths,
 } from '../../utils/recordingQueue';
 
 const todayIso = () => new Date().toLocaleDateString('en-CA');
@@ -141,7 +142,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   const [queue, setQueue] = useState([]); // desktop: recordings not yet safely uploaded AND transcribed
   const queueRef = useRef(queue);
   queueRef.current = queue;
-  const [transcribed, setTranscribed] = useState([]); // audio paths already transcribed (per path, persisted per consultation)
+  const [transcribed, setTranscribed] = useState([]); // audio paths already in the transcript: from the database (transcript_pieces), not this browser (CMD-146)
   const transcribedRef = useRef(transcribed);
   transcribedRef.current = transcribed;
   const savingRef = useRef(false);
@@ -222,7 +223,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     setAttendedBy(row.attended_by_names || []);
     setLastSavedJson(row.status === 'completed' ? JSON.stringify(allColumns(next)) : null);
     setSavedAt(row.status === 'completed' && row.updated_at ? new Date(row.updated_at) : null);
-    setTranscribed(readTranscribed(row.id) ?? seedTranscribed(next.audioPaths, next.transcript));
+    setTranscribed(transcribedPaths(row));
   }, []);
 
   // Load the booking and open (or create) its consultation draft. Phone and
@@ -299,9 +300,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       if ((row.xray_image_paths || []).length > before.xrayPaths.length) setReceived('X-ray photo received from the phone');
       else if ((row.photo_image_paths || []).length > before.photoPaths.length) setReceived('Clinical photo received from the phone');
       else if ((row.audio_paths || []).length > before.audioPaths.length) setReceived('Recording received from the phone');
-      // Recordings that arrive from the other device are transcribed by that device: don't transcribe them again here.
-      const arrived = (row.audio_paths || []).filter((p) => !before.audioPaths.includes(p) && !queueRef.current.some((q) => q.audioPath === p));
-      if (arrived.length) { const next = [...transcribedRef.current, ...arrived]; setTranscribed(next); writeTranscribed(row.id, next); }
+      // Which recordings are in the transcript is the database's answer (an append from the other device arrives here too).
+      transcribedRef.current = transcribedPaths(row);
+      setTranscribed(transcribedRef.current);
     });
   }, [consultationId]);
 
@@ -553,12 +554,6 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     return true;
   }, [lastPlan, patchForm]);
 
-  const markTranscribed = useCallback((path) => {
-    const next = [...new Set([...transcribedRef.current, path])];
-    setTranscribed(next);
-    transcribedRef.current = next;
-    if (consultationId) writeTranscribed(consultationId, next);
-  }, [consultationId]);
 
   // Recordings go through a QUEUE, one at a time and in order: upload → transcribe. Each stays queued until it is both uploaded and
   // transcribed, so a failure never overwrites another failure and nothing is lost. When the queue drains, the note is drafted
@@ -594,18 +589,28 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       dispatchFlow({ type: 'FAILED', at: 'transcribing', error: tError });
       return;
     }
-    markTranscribed(audioPath);
+    // The server adds this recording's words once per audio path (a retry, a reload or the other device cannot add them twice) and returns
+    // the new transcript; the form AND the synced snapshot move to it so the autosave cannot send an older transcript back.
+    const { data: added, error: addError } = await addConsultationTranscriptPiece(consultationIdRef.current, audioPath, text, language);
+    if (addError) {
+      patchItem({ status: 'failed-transcribe', error: addError.message });
+      dispatchFlow({ type: 'FAILED', at: 'transcribing', error: addError });
+      return;
+    }
+    transcribedRef.current = [...new Set([...transcribedRef.current, audioPath])];
+    setTranscribed(transcribedRef.current);
     dispatchFlow({ type: 'TRANSCRIBED', language });
-    const transcript = [formRef.current.transcript, text].filter(Boolean).join('\n\n');
-    formRef.current = { ...formRef.current, transcript, language: language || formRef.current.language };
-    patchForm({ transcript, language: language || formRef.current.language });
+    const applied = applyAppended(formRef.current, syncedRef.current, added);
+    syncedRef.current = applied.synced;
+    formRef.current = applied.form;
+    setForm(applied.form);
     queueRef.current = queueRef.current.filter((q) => q.id !== itemId); // done: uploaded AND transcribed
     setQueue(queueRef.current);
     if (queueBusy(queueRef.current)) return; // more recordings are still queued behind this one
     if (phoneView) { dispatchFlow({ type: 'TRANSCRIPT_ONLY', language }); return; } // the phone only captures: the computer drafts the note
     if (!isNoteEmpty(noteRef.current)) { dispatchFlow({ type: 'TRANSCRIPT_ONLY', language }); return; }
     await runDraft();
-  }, [bookingId, patchForm, runDraft, markTranscribed, phoneView]);
+  }, [bookingId, patchForm, runDraft, phoneView]);
 
   const submitToQueue = useCallback((item) => {
     queueRef.current = enqueue(queueRef.current, item);

@@ -86,3 +86,48 @@ describe('mergeAfterSave', () => {
     expect(mergeAfterSave(sent, { ...sent }, saved)).toEqual(saved);
   });
 });
+
+// ── CMD-146: the transcript is appended on the server; the client must never send an older one back ──────────────────────────────
+import { applyAppended, rebaseText, transcribedPaths, columnsForChanges as colsFor, mergeRemote as mergeR, formFromRow as formFrom } from './consultationSync';
+
+describe('transcript appended by the server (CMD-146)', () => {
+  const synced = { ...EMPTY_FORM, transcript: 'one' };
+  it('append, then autosave, does not revert: nothing to send for the transcript', () => {
+    const { form, synced: s2 } = applyAppended(synced, synced, { transcript: 'one\n\ntwo', language: 'en' });
+    expect(form.transcript).toBe('one\n\ntwo');
+    expect(colsFor(form, s2).transcript).toBeUndefined();
+  });
+  it('typed text since the last sync is kept and the appended words are added, so the autosave cannot wipe the piece', () => {
+    const typed = { ...synced, transcript: 'one (typed)' };
+    const { form, synced: s2 } = applyAppended(typed, synced, { transcript: 'one\n\ntwo', language: 'en' });
+    expect(form.transcript).toBe('one (typed)\n\ntwo');
+    expect(colsFor(form, s2).transcript).toBe('one (typed)\n\ntwo');
+  });
+  it('an append from the other device (realtime) while this one has typed text', () => {
+    const typed = { ...synced, transcript: 'one (typed)' };
+    const row = { transcript: 'one\n\nphone words' };
+    const { form, synced: s2 } = mergeR(typed, synced, row);
+    expect(form.transcript).toBe('one (typed)\n\nphone words');
+    expect(s2.transcript).toBe('one\n\nphone words');
+  });
+  it('an append from the other device with nothing typed here simply takes the new text', () => {
+    expect(mergeR(synced, synced, { transcript: 'one\n\nphone words' }).form.transcript).toBe('one\n\nphone words');
+  });
+  it('a rewrite (not a pure append) keeps ours; an empty start joins cleanly', () => {
+    expect(rebaseText('mine', 'one', 'totally new')).toBe('mine');
+    expect(rebaseText('typed', '', 'words')).toBe('typed\n\nwords');
+    expect(rebaseText('x', 'a', 'a')).toBe('x');
+  });
+  it('N recordings -> N pieces: which paths count as transcribed comes from the pieces', () => {
+    const row = { audio_paths: ['p1', 'p2'], transcript_pieces: [{ path: 'p1' }, { path: 'p2' }] };
+    expect(transcribedPaths(row)).toEqual(['p1', 'p2']);
+    expect(transcribedPaths({ audio_paths: ['p1', 'p2'], transcript_pieces: [{ path: 'p1' }] })).toEqual(['p1']);
+    expect(transcribedPaths({ audio_paths: ['p1', 'p2'], transcript_pieces: [] })).toEqual([]);
+  });
+  it('a legacy piece (path null, from the backfill) counts every recording the row had as transcribed', () => {
+    expect(transcribedPaths({ audio_paths: ['p1', 'p2'], transcript_pieces: [{ path: null, text: 'old' }] }).sort()).toEqual(['p1', 'p2']);
+  });
+  it('the form never carries transcript_pieces, so it is never written back', () => {
+    expect(Object.keys(formFrom({ transcript_pieces: [{ path: 'p1' }] }))).not.toContain('transcript_pieces');
+  });
+});

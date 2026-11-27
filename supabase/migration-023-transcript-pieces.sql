@@ -103,4 +103,6 @@ END $$;
 REVOKE ALL ON FUNCTION public.consultation_add_transcript_piece(uuid, text, text, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.consultation_add_transcript_piece(uuid, text, text, text) TO authenticated;
 
+INSERT INTO public.schema_migrations (version, name) VALUES ('023', 'transcript-pieces') ON CONFLICT DO NOTHING;
+
 COMMIT;

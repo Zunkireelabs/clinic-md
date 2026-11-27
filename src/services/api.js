@@ -11739,6 +11739,11 @@ async function callConsultationAction(fn, args) {
   return { data: data.data, error: null };
 }
 
+/** Add one recording's words to the transcript (migration 023). A path already in the transcript does nothing (added=false). Returns { added, transcript, language, pieces }. */
+export async function addConsultationTranscriptPiece(consultationId, audioPath, text, language) {
+  return callConsultationAction('consultation_add_transcript_piece', { p_consultation: consultationId, p_audio_path: audioPath, p_text: text || '', p_language: language || null });
+}
+
 /** answer 'agreed' | 'declined'; device 'computer' | 'phone'; script = the id of the words shown (consentScripts.js). */
 export async function recordConsultationConsent(consultationId, answer, device, script) {
   return callConsultationAction('consultation_record_consent', { p_consultation: consultationId, p_answer: answer, p_device: device, p_script: script });

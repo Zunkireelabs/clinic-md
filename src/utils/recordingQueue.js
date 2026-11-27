@@ -21,21 +21,9 @@ export const failedItems = (queue) => queue.filter((q) => q.status === 'failed-u
 export const hasUploadFailure = (queue) => queue.some((q) => q.status === 'failed-upload');
 export const isBusy = (queue) => queue.some((q) => q.status === 'uploading' || q.status === 'transcribing');
 
-// ── which uploaded recordings still need transcribing (per audio path, survives a reload) ────────────────────────────────────
-// Stored per consultation in this browser. Recordings that arrive from the other device are assumed to be transcribed there.
-export const transcribedKey = (consultationId) => `clinicmd.consultation.${consultationId}.transcribed`;
-
-/** First time on this device: if there is already a transcript, assume the existing recordings were transcribed; otherwise none were. */
-export const seedTranscribed = (audioPaths, transcript) => (String(transcript || '').trim() ? [...(audioPaths || [])] : []);
-
+// ── which uploaded recordings still need transcribing ─────────────────────────────────────────────────────────────────────────
+// The database knows (consultations.transcript_pieces, migration 023); this only filters. Nothing is kept in this browser any more (CMD-146).
 export const untranscribedPaths = (audioPaths, transcribed) => {
   const done = new Set(transcribed || []);
   return (audioPaths || []).filter((p) => !done.has(p));
-};
-
-export const readTranscribed = (consultationId, storage = typeof window !== 'undefined' ? window.localStorage : null) => {
-  try { const raw = storage?.getItem(transcribedKey(consultationId)); return raw ? JSON.parse(raw) : null; } catch { return null; }
-};
-export const writeTranscribed = (consultationId, paths, storage = typeof window !== 'undefined' ? window.localStorage : null) => {
-  try { storage?.setItem(transcribedKey(consultationId), JSON.stringify([...new Set(paths)])); } catch { /* storage unavailable */ }
 };
