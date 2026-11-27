@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { consultationAiError } from './consultationAiError';
+import { consultationAiError, draftFailure } from './consultationAiError';
 
 describe('consultationAiError', () => {
   it('AI_KEY_MISSING (a 503 with a body) is "not set up", not "unavailable"', () => {
@@ -26,5 +26,16 @@ describe('consultationAiError', () => {
     expect(consultationAiError(403, { error: 'FORBIDDEN_ROLE' }).code).toBe('FORBIDDEN_ROLE');
     expect(consultationAiError(403, { error: 'CONSENT_REQUIRED' }).code).toBe('CONSENT_REQUIRED');
     expect(consultationAiError(400, { error: 'UNKNOWN_TEMPLATE' }).code).toBe('UNKNOWN_TEMPLATE');
+  });
+  it('200 + all-empty note is NO_SPEECH, not AI_FAILED/AI_UNAVAILABLE', () => {
+    expect(draftFailure(null, { plan: '' }, true).code).toBe('NO_SPEECH');
+    expect(draftFailure(null, { plan: '' }, true).message).toBe('No clinical details were heard in the recording.');
+  });
+  it('real failures keep their code and text', () => {
+    const e = consultationAiError(503, null);
+    expect(draftFailure(e, null, false)).toBe(e);
+    expect(draftFailure(consultationAiError(503, { error: 'AI_KEY_MISSING' }), null, false).code).toBe('AI_KEY_MISSING');
+    expect(draftFailure(null, null, false).code).toBe('AI_FAILED');
+    expect(draftFailure(null, { plan: 'x' }, false)).toBeNull();
   });
 });
