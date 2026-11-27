@@ -2866,6 +2866,10 @@ BEGIN
   PERFORM pg_temp.act_chk('CROSS-BRANCH: found by P-number (P-01234 form)', (r ->> 'n')::int = 1 AND r ->> 'id' = p2::text, r::text);
   r := pg_temp.pt_q('staff', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.list_patients(NULL, ''all'', %L)', lower('OLD-' || sfx)));
   PERFORM pg_temp.act_chk('SEARCH: found by old file number (case-insensitive)', (r ->> 'n')::int = 1, r::text);
+  r := pg_temp.pt_q('staff', 'SELECT jsonb_build_object(''n'', count(*)) FROM public.list_patients(NULL, ''all'', ''Pat Baneshwor 970100'')');
+  PERFORM pg_temp.act_chk('SEARCH: a name query with digits is not a phone search (970100 is inside Pat Baneshwor''s phone 9701000002)', (r ->> 'n')::int = 0, r::text);
+  r := pg_temp.pt_q('staff', 'SELECT jsonb_build_object(''n'', count(*)) FROM public.list_patients(NULL, ''all'', ''970100'')');
+  PERFORM pg_temp.act_chk('SEARCH: a phone-shaped fragment (970100) still finds by phone', (r ->> 'n')::int >= 1, r::text);
   r := pg_temp.pt_q('staff', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.list_patients(%L, ''all'', %L)', a1, 'Pat Baneshwor ' || sfx));
   PERFORM pg_temp.act_chk('BRANCH FILTER: filtering to A1 hides the A2 patient; All branches shows them', (r ->> 'n')::int = 0, r::text);
   r := pg_temp.pt_q('staff', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.list_patients(%L, ''all'', %L)', a2, 'Pat Baneshwor ' || sfx));

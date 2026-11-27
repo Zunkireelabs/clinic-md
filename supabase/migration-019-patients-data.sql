@@ -1280,9 +1280,10 @@ BEGIN
   IF p_archived AND v_role NOT IN ('manager', 'admin') THEN RAISE EXCEPTION 'list_patients: archived patients are for managers' USING ERRCODE = '42501'; END IF;
   IF p_view NOT IN ('all', 'mine', 'new') THEN RAISE EXCEPTION 'list_patients: unknown view %', p_view; END IF;
   IF v_q IS NOT NULL THEN
-    v_digits := NULLIF(regexp_replace(v_q, '\D', '', 'g'), '');
+    -- digits count as a phone search only when the whole query is phone-shaped ('Ram Kumar 980' is a name search, not a phone search)
+    IF v_q ~ '^[+0-9\s()-]+$' THEN v_digits := NULLIF(regexp_replace(v_q, '\D', '', 'g'), ''); END IF;
     v_like := '%' || replace(replace(replace(lower(v_q), '\', '\\'), '%', '\%'), '_', '\_') || '%';
-    IF v_q ~* '^p?-?\s*\d{1,9}$' THEN v_no := v_digits::integer; END IF;
+    IF v_q ~* '^p?-?\s*\d{1,9}$' THEN v_no := regexp_replace(v_q, '\D', '', 'g')::integer; END IF;
   END IF;
   RETURN QUERY
   WITH base AS (
