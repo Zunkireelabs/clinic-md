@@ -466,9 +466,8 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     setMeta(metaFromRow(data));
     setAttendedBy(data.attended_by_names || []);
     setSyncState('synced');
-    setNotice(noteError
-      ? 'Consultation saved, but the summary could not be added to the treatment notes.'
-      : 'Consultation saved.');
+    // the "Note saved to chart" banner already says it saved; only the failure is news (CMD-148)
+    setNotice(noteError ? 'Consultation saved, but the summary could not be added to the treatment notes.' : null);
     link.closeOnPhone(bookingId);
     return true;
   };
