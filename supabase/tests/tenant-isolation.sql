@@ -3793,7 +3793,7 @@ END $tp$;
 -- ───────────────────────────── 3n. delete one recording (migration 024, CMD-143) ─────────────────────────────
 DO $dr$
 DECLARE
-  oa uuid; ob uuid; br_a uuid; tr uuid; cu uuid; d_a1 uuid; bk uuid; bk_b uuid; c uuid; c_b uuid; p1 text; p2 text; p3 text; pb text;
+  oa uuid; ob uuid; br_a uuid; tr uuid; cu uuid; d_a1 uuid; bk uuid; bk3 uuid; c3 uuid; bk_b uuid; c uuid; c_b uuid; p1 text; p2 text; p3 text; pb text;
   r jsonb; res text; n0 int; tx text; seg jsonb; ap text[];
 BEGIN
   IF to_regprocedure('public.consultation_delete_recording(uuid,text)') IS NULL THEN
@@ -3869,6 +3869,25 @@ BEGIN
   UPDATE consultations SET transcript = 'delta words' WHERE id = c;
   r := pg_temp.act_run('practitioner', format('SELECT public.consultation_delete_recording(%L, %L)', c, oa::text || '/' || bk::text || '/r4.webm'), 1);
   PERFORM pg_temp.p_chk('deleting the only piece leaves an empty transcript (NULL), not a blank string', (SELECT transcript IS NULL FROM consultations WHERE id = c), NULL);
+  -- two recordings with identical words: cut nothing, never guess which block is whose; a unique block is still cut
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, dentist_id)
+    VALUES (br_a, tr, cu, 'Cust A1', '2031-04-22', '10:00', '10:30', '2031-04-22 10:00+00', '2031-04-22 10:30+00', 1000, 1000, d_a1) RETURNING id INTO bk3;
+  INSERT INTO consultations (org_id, branch_id, booking_id, patient_name, status) VALUES (oa, br_a, bk3, 'Cust A1', 'draft') RETURNING id INTO c3;
+  PERFORM pg_temp.act_run('practitioner', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''same words'', ''en'')', c3, oa::text || '/' || bk3::text || '/d1.webm'), 1);
+  PERFORM pg_temp.act_run('practitioner', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''same words'', ''en'')', c3, oa::text || '/' || bk3::text || '/d2.webm'), 1);
+  PERFORM pg_temp.act_run('practitioner', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''only words'', ''en'')', c3, oa::text || '/' || bk3::text || '/u1.webm'), 1);
+  UPDATE consultations SET audio_paths = ARRAY[oa::text || '/' || bk3::text || '/d1.webm', oa::text || '/' || bk3::text || '/d2.webm', oa::text || '/' || bk3::text || '/u1.webm'] WHERE id = c3;
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_delete_recording(%L, %L)', c3, oa::text || '/' || bk3::text || '/d1.webm'), 1);
+  PERFORM pg_temp.p_chk('identical blocks: deleting the first recording cuts nothing (text_removed=false), but its piece and audio path go',
+    pg_temp.act_code(r) = 'ok' AND (r #>> '{data,text_removed}') = 'false' AND (SELECT transcript = E'same words\n\nsame words\n\nonly words' AND jsonb_array_length(transcript_pieces) = 2
+      AND cardinality(audio_paths) = 2 FROM consultations WHERE id = c3), r::text);
+  UPDATE consultations SET transcript_pieces = transcript_pieces || jsonb_build_array(jsonb_build_object('path', oa::text || '/' || bk3::text || '/d1.webm', 'text', 'same words')) WHERE id = c3;
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_delete_recording(%L, %L)', c3, oa::text || '/' || bk3::text || '/d2.webm'), 1);
+  PERFORM pg_temp.p_chk('identical blocks: deleting the other one also cuts nothing', pg_temp.act_code(r) = 'ok' AND (r #>> '{data,text_removed}') = 'false'
+    AND (SELECT transcript = E'same words\n\nsame words\n\nonly words' FROM consultations WHERE id = c3), r::text);
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_delete_recording(%L, %L)', c3, oa::text || '/' || bk3::text || '/u1.webm'), 1);
+  PERFORM pg_temp.p_chk('a unique block is still cut next to identical ones', pg_temp.act_code(r) = 'ok' AND (r #>> '{data,text_removed}') = 'true'
+    AND (SELECT transcript = E'same words\n\nsame words' FROM consultations WHERE id = c3), r::text);
   -- signed: refused
   PERFORM pg_temp.act_run('practitioner', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''echo words'', ''en'')', c, p1), 1);
   UPDATE consultations SET audio_paths = ARRAY[p1] WHERE id = c;

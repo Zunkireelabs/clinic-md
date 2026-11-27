@@ -620,6 +620,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   // Delete one recording (staff, not signed): the server removes its words and audio path, then the audio file; the note is NOT redrafted.
   const deleteRecording = useCallback(async (path) => {
     setError(null);
+    setNotice(null);
     const { data, error: delError, storageError } = await deleteConsultationRecording(consultationIdRef.current, path);
     if (delError) { setError(delError.message || 'Could not delete the recording.'); return; }
     const applied = applyRemoved(formRef.current, syncedRef.current, data, path);
@@ -872,6 +873,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
                   <button type="button" className="ml-2 text-primary font-medium" onClick={retryDraft}>Retry</button>
                 </div>
               </div>
+            )}
+            {notice && (
+              <div role="status" className="p-3 bg-[#FFFAF0] border border-[#F5D9A8] rounded-md flex items-start gap-2 text-sm"><Icon name="Info" size={16} className="text-[#B45309] mt-0.5 shrink-0" /><span className="flex-1 text-text-secondary">{notice}</span><button type="button" onClick={() => setNotice(null)} aria-label="Dismiss"><Icon name="X" size={14} className="text-text-tertiary" /></button></div>
             )}
             {error && (
               <div className="p-3 bg-error/5 border border-error/20 rounded-md flex items-start gap-2">
@@ -1145,6 +1149,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
               <div className="flex-1 text-text-secondary">{error}</div>
               <button onClick={() => setError(null)} aria-label="Dismiss"><Icon name="X" size={14} className="text-text-tertiary" /></button>
             </div>
+          )}
+          {notice && (
+            <div role="status" className="mt-4 p-3 bg-[#FFFAF0] border border-[#F5D9A8] rounded-lg text-[13px] flex items-start gap-2"><Icon name="Info" size={15} className="text-[#B45309] mt-0.5 shrink-0" /><span className="flex-1 text-text-secondary">{notice}</span><button type="button" onClick={() => setNotice(null)} aria-label="Dismiss"><Icon name="X" size={14} className="text-text-tertiary" /></button></div>
           )}
           {autoStopMsg && (
             <div role="alert" className="mt-4 p-3 bg-[#FFFAF0] border border-[#F5D9A8] rounded-lg text-[13px] flex items-center gap-2"><Icon name="AlertTriangle" size={15} className="text-[#B45309] shrink-0" /><span className="flex-1">{autoStopMsg}</span><button type="button" onClick={() => setAutoStopMsg(null)} aria-label="Dismiss"><Icon name="X" size={14} className="text-text-tertiary" /></button></div>

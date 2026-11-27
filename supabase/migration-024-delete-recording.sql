@@ -9,8 +9,8 @@
 --   * the recording's piece from transcript_pieces and its rows from transcript_segments (they hold its words);
 --   * the path from audio_paths;
 --   * the piece's words from `transcript` ONLY when they are still there as a whole untouched block (they start the text or follow a blank
---     line, and end it or precede one; the block plus one blank-line separator is cut). If the doctor edited them, the transcript is left
---     alone and text_removed=false tells the page to say so.
+--     line, and end it or precede one; the block plus one blank-line separator is cut). If the doctor edited them, or the same block appears
+--     more than once (two recordings with identical words), the transcript is left alone and text_removed=false tells the page to say so.
 -- It does NOT touch ai_draft, the note or note_sources and does not redraft: the transcript changed, so the page's staleness check offers
 -- "Update the draft". Audited in action_log as consultation.delete_recording: ids and the audio path only, never audio or words.
 -- The storage object is deleted by the CLIENT through the Storage API AFTER this returns ok (never SQL on storage.objects). Calling this
@@ -59,7 +59,10 @@ BEGIN
       EXIT WHEN v_hit = 0;
       v_hit := v_hit + v_from - 1;
       IF (v_hit = 1 OR substr(c.transcript, v_hit - 2, 2) = E'\n\n')
-         AND (v_hit + length(v_t) > length(c.transcript) OR substr(c.transcript, v_hit + length(v_t), 2) = E'\n\n') THEN v_pos := v_hit; EXIT; END IF;
+         AND (v_hit + length(v_t) > length(c.transcript) OR substr(c.transcript, v_hit + length(v_t), 2) = E'\n\n') THEN
+        IF v_pos > 0 THEN v_pos := 0; EXIT; END IF;     -- the same block twice (two recordings with identical words): cut nothing, never guess which one
+        v_pos := v_hit;
+      END IF;
       v_from := v_hit + 1;
     END LOOP;
     IF v_pos > 0 THEN
