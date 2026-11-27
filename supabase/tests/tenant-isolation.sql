@@ -3058,7 +3058,7 @@ BEGIN
                AND p.prosrc ~* '(treatment_notes|consultations|doctor_notes|xray_analysis|transcript)'
                AND p.proname NOT IN ('patient_clinical_index', 'act_patient_erase', 'act_undo', 'consultation_remote_topic_ok',
                                     'consultation_record_consent', 'consultation_sign', 'consultation_unsign',
-                                    'consultation_add_transcript_piece') LOOP   -- 020/023: gated by _consult_gate (front desk = FORBIDDEN, see sections 3j and 3m)
+                                    'consultation_add_transcript_piece', 'consultation_delete_recording') LOOP   -- 020/023: gated by _consult_gate (front desk = FORBIDDEN, see sections 3j and 3m)
     PERFORM pg_temp.act_chk('WALL (RPC): ' || rr.proname || ' touches clinical tables and is not on the reviewed list', false, 'review it and add it to the list, or remove access');
   END LOOP;
   PERFORM pg_temp.act_chk('WALL (views): no public view reads the clinical tables', NOT EXISTS (SELECT 1 FROM information_schema.views WHERE table_schema = 'public' AND view_definition ~* '(treatment_notes|consultations)'), 'views');
@@ -3789,6 +3789,94 @@ BEGIN
   PERFORM pg_temp.p_chk('a signed consultation answers SIGNED_LOCKED', pg_temp.act_code(r) = 'SIGNED_LOCKED', r::text);
   PERFORM pg_temp.p_chk('...and nothing changed', (SELECT jsonb_array_length(transcript_pieces) FROM consultations WHERE id = c) = 3, NULL);
 END $tp$;
+
+-- ───────────────────────────── 3n. delete one recording (migration 024, CMD-143) ─────────────────────────────
+DO $dr$
+DECLARE
+  oa uuid; ob uuid; br_a uuid; tr uuid; cu uuid; d_a1 uuid; bk uuid; bk_b uuid; c uuid; c_b uuid; p1 text; p2 text; p3 text; pb text;
+  r jsonb; res text; n0 int; tx text; seg jsonb; ap text[];
+BEGIN
+  IF to_regprocedure('public.consultation_delete_recording(uuid,text)') IS NULL THEN
+    INSERT INTO t_res VALUES ('CONSULT', '-', 'migration-024 checks', 'INFO', 'skipped: 024 not applied');
+    RETURN;
+  END IF;
+  EXECUTE 'RESET ROLE';
+  SELECT org INTO oa FROM t_actor WHERE name = 'admin'; SELECT org INTO ob FROM t_actor WHERE name = 'admin_of_OTHER_org';
+  SELECT t.v INTO bk_b FROM t_prac t WHERE t.k = 'bk_b'; SELECT t.v INTO d_a1 FROM t_prac t WHERE t.k = 'd_a1';
+  SELECT b.branch_id, b.treatment_id, b.customer_id INTO br_a, tr, cu FROM bookings b WHERE b.id = (SELECT t.v FROM t_prac t WHERE t.k = 'bk_mine_bd');
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, dentist_id)
+    VALUES (br_a, tr, cu, 'Cust A1', '2031-04-21', '10:00', '10:30', '2031-04-21 10:00+00', '2031-04-21 10:30+00', 1000, 1000, d_a1) RETURNING id INTO bk;
+  INSERT INTO consultations (org_id, branch_id, booking_id, patient_name, status) VALUES (oa, br_a, bk, 'Cust A1', 'draft') RETURNING id INTO c;
+  SELECT x.id INTO c_b FROM consultations x WHERE x.booking_id = bk_b ORDER BY x.created_at LIMIT 1;
+  p1 := oa::text || '/' || bk::text || '/r1.webm'; p2 := oa::text || '/' || bk::text || '/r2.webm'; p3 := oa::text || '/' || bk::text || '/r3.webm'; pb := ob::text || '/' || bk_b::text || '/rb.webm';
+  -- three recordings, added the real way (023), with their segments and audio paths
+  PERFORM pg_temp.act_run('practitioner', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''alpha words'', ''en'')', c, p1), 1);
+  PERFORM pg_temp.act_run('practitioner', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''bravo words'', ''en'')', c, p2), 1);
+  PERFORM pg_temp.act_run('practitioner', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''charlie words'', ''en'')', c, p3), 1);
+  UPDATE consultations SET audio_paths = ARRAY[p1, p2, p3],
+    transcript_segments = jsonb_build_array(jsonb_build_object('audio_path', p1, 'start', 0, 'end', 1, 'text', 'alpha'), jsonb_build_object('audio_path', p2, 'start', 0, 'end', 1, 'text', 'bravo'),
+                                            jsonb_build_object('audio_path', p3, 'start', 0, 'end', 1, 'text', 'charlie')) WHERE id = c;
+
+  -- who may delete
+  r := pg_temp.act_run('staff', format('SELECT public.consultation_delete_recording(%L, %L)', c, p2), 1);
+  PERFORM pg_temp.p_chk('front desk cannot delete a recording', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.act_run('admin_viewer', format('SELECT public.consultation_delete_recording(%L, %L)', c, p2), 1);
+  PERFORM pg_temp.p_chk('admin_viewer cannot delete a recording', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.act_run('admin_of_OTHER_org', format('SELECT public.consultation_delete_recording(%L, %L)', c, p2), 1);
+  PERFORM pg_temp.p_chk('another clinic gets NOT_FOUND (audit org = the caller''s)', pg_temp.act_code(r) = 'NOT_FOUND'
+    AND (SELECT org_id FROM public.action_log WHERE action = 'consultation.delete_recording' AND actor_user_id = (SELECT uid FROM t_actor WHERE name = 'admin_of_OTHER_org') AND error_code = 'NOT_FOUND') = ob, r::text);
+  r := pg_temp.act_run('admin', format('SELECT public.consultation_delete_recording(%L, %L)', gen_random_uuid(), p2), 1);
+  PERFORM pg_temp.p_chk('a nonexistent consultation id gets NOT_FOUND with the caller''s org in the audit row', pg_temp.act_code(r) = 'NOT_FOUND'
+    AND (SELECT bool_and(org_id = oa) FROM public.action_log WHERE action = 'consultation.delete_recording' AND actor_user_id = (SELECT uid FROM t_actor WHERE name = 'admin') AND error_code = 'NOT_FOUND'), r::text);
+  r := pg_temp.act_run('admin', format('SELECT public.consultation_delete_recording(%L, %L)', c_b, pb), 1);
+  PERFORM pg_temp.p_chk('org A admin cannot delete from org B''s consultation (NOT_FOUND)', pg_temp.act_code(r) = 'NOT_FOUND', r::text);
+  r := pg_temp.act_run('anon', format('SELECT public.consultation_delete_recording(%L, %L)', c, p2), 0);
+  PERFORM pg_temp.p_chk('anon cannot call it (42501)', pg_temp.act_code(r) = 'raised:42501', r::text);
+  r := pg_temp.act_run('service', format('SELECT public.consultation_delete_recording(%L, %L)', c, p2), 0);
+  PERFORM pg_temp.p_chk('service_role is refused (INVALID_CONTEXT or 42501, no audit row)', pg_temp.act_code(r) IN ('INVALID_CONTEXT', 'raised:42501'), r::text);
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_delete_recording(%L, %L)', c, pb), 1);
+  PERFORM pg_temp.p_chk('a path of another booking/clinic is INVALID_PATH', pg_temp.act_code(r) = 'INVALID_PATH', r::text);
+  PERFORM pg_temp.p_chk('...and all the refusals changed nothing', (SELECT jsonb_array_length(transcript_pieces) = 3 AND cardinality(audio_paths) = 3 AND jsonb_array_length(transcript_segments) = 3 FROM consultations WHERE id = c), NULL);
+
+  -- the practitioner deletes the middle recording: words verbatim -> removed
+  UPDATE consultations SET ai_draft = '{"plan": "x"}'::jsonb, ai_drafted_at = '2031-01-01 00:00+00' WHERE id = c;
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_delete_recording(%L, %L)', c, p2), 1);
+  SELECT transcript, transcript_segments, audio_paths INTO tx, seg, ap FROM consultations WHERE id = c;
+  PERFORM pg_temp.p_chk('practitioner deletes recording 2: ok, removed, text_removed', pg_temp.act_code(r) = 'ok' AND (r #>> '{data,removed}') = 'true' AND (r #>> '{data,text_removed}') = 'true', r::text);
+  PERFORM pg_temp.p_chk('...its words are gone, the others keep one blank line between them', tx = E'alpha words\n\ncharlie words', tx);
+  PERFORM pg_temp.p_chk('...its piece, segments and audio path are gone; the other two recordings are intact',
+    (SELECT jsonb_array_length(transcript_pieces) = 2 AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(transcript_pieces) e WHERE e ->> 'path' = p2) FROM consultations WHERE id = c)
+    AND jsonb_array_length(seg) = 2 AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(seg) e WHERE e ->> 'audio_path' = p2) AND ap = ARRAY[p1, p3], tx);
+  PERFORM pg_temp.p_chk('...the AI note fields were not touched (no redraft)',
+    (SELECT ai_draft = '{"plan": "x"}'::jsonb AND ai_drafted_at = '2031-01-01 00:00+00' FROM consultations WHERE id = c), NULL);
+  PERFORM pg_temp.p_chk('the audit row has the path, and no words', EXISTS (SELECT 1 FROM public.action_log WHERE action = 'consultation.delete_recording' AND ok AND inputs ->> 'audio_path' = p2)
+    AND NOT EXISTS (SELECT 1 FROM public.action_log WHERE action = 'consultation.delete_recording' AND (inputs::text || result::text) LIKE '%bravo%'), NULL);
+  -- idempotent
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_delete_recording(%L, %L)', c, p2), 1);
+  PERFORM pg_temp.p_chk('deleting it again: ok, removed=false, nothing else changes', pg_temp.act_code(r) = 'ok' AND (r #>> '{data,removed}') = 'false'
+    AND (SELECT transcript = E'alpha words\n\ncharlie words' AND cardinality(audio_paths) = 2 FROM consultations WHERE id = c), r::text);
+  -- first and last positions
+  r := pg_temp.act_run('manager_2_branches', format('SELECT public.consultation_delete_recording(%L, %L)', c, p1), 1);
+  PERFORM pg_temp.p_chk('a manager deletes the first recording: no leading separator left', pg_temp.act_code(r) = 'ok' AND (SELECT transcript = 'charlie words' FROM consultations WHERE id = c), r::text);
+  -- an edited transcript is never cut
+  UPDATE consultations SET transcript = 'charlie words (edited by the doctor)' WHERE id = c;
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_delete_recording(%L, %L)', c, p3), 1);
+  PERFORM pg_temp.p_chk('words edited by hand are kept: text_removed=false, transcript untouched, the recording itself is gone',
+    pg_temp.act_code(r) = 'ok' AND (r #>> '{data,text_removed}') = 'false' AND (SELECT transcript = 'charlie words (edited by the doctor)' AND cardinality(audio_paths) = 0
+      AND jsonb_array_length(transcript_pieces) = 0 AND jsonb_array_length(transcript_segments) = 0 FROM consultations WHERE id = c), r::text);
+  -- the last one: transcript empties to NULL when it was all that piece
+  PERFORM pg_temp.act_run('practitioner', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''delta words'', ''en'')', c, oa::text || '/' || bk::text || '/r4.webm'), 1);
+  UPDATE consultations SET transcript = 'delta words' WHERE id = c;
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_delete_recording(%L, %L)', c, oa::text || '/' || bk::text || '/r4.webm'), 1);
+  PERFORM pg_temp.p_chk('deleting the only piece leaves an empty transcript (NULL), not a blank string', (SELECT transcript IS NULL FROM consultations WHERE id = c), NULL);
+  -- signed: refused
+  PERFORM pg_temp.act_run('practitioner', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''echo words'', ''en'')', c, p1), 1);
+  UPDATE consultations SET audio_paths = ARRAY[p1] WHERE id = c;
+  UPDATE consultations SET signed_at = now(), signed_by = (SELECT uid FROM t_actor WHERE name = 'practitioner'), status = 'completed' WHERE id = c;
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_delete_recording(%L, %L)', c, p1), 1);
+  PERFORM pg_temp.p_chk('a signed consultation answers SIGNED_LOCKED and nothing changes', pg_temp.act_code(r) = 'SIGNED_LOCKED'
+    AND (SELECT cardinality(audio_paths) = 1 AND jsonb_array_length(transcript_pieces) = 1 AND transcript = 'echo words' FROM consultations WHERE id = c), r::text);
+END $dr$;
 
 -- ───────────────────────────── 4. REPORT ─────────────────────────────
 SELECT status || '|' || kind || '|' || caller || '|' || subject || '|' || detail
