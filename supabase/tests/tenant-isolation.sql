@@ -778,7 +778,9 @@ BEGIN
   -- consent as the backfill / front desk would have left it: pat1 and pat2 agreed to service SMS
   INSERT INTO patient_channels (org_id, customer_id, channel, address, purpose, status, source, evidence) VALUES
     (oa, pat1, 'sms', '+9779801000001', 'service', 'agreed', 'booking', 'Phone given when booking'),
-    (oa, pat2, 'sms', '+9779801000002', 'service', 'agreed', 'booking', 'Phone given when booking');
+    (oa, pat2, 'sms', '+9779801000002', 'service', 'agreed', 'booking', 'Phone given when booking')
+  ON CONFLICT (org_id, channel, address, purpose) DO NOTHING;   -- 015's booking trigger may already have recorded these (same values)
+  DELETE FROM patient_channels WHERE customer_id = pat3;          -- pat3 is the 'no consent yet' patient: remove the row 015's booking trigger recorded for her booking
 
   -- ═══ message.send ═══
   r := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_template => %L, p_booking => %L)', pat1, t_conf, bk1));
@@ -1213,8 +1215,10 @@ BEGIN
   INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Hub Backfill Stopped', oa, '+9779801000042') RETURNING id INTO pat4;
   INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status)
     VALUES (a1, tr, pat4, 'Hub Backfill Stopped', current_date + 41, '10:00', '10:30', (current_date + 41)::timestamp + time '10:00', (current_date + 41)::timestamp + time '10:30', 1000, 1000, 'Pending');
-  INSERT INTO patient_channels (org_id, customer_id, channel, address, purpose, status, source, evidence) VALUES (oa, pat4, 'sms', '+9779801000042', 'service', 'stopped', 'patient_reply', 'STOP');
+  INSERT INTO patient_channels (org_id, customer_id, channel, address, purpose, status, source, evidence) VALUES (oa, pat4, 'sms', '+9779801000042', 'service', 'stopped', 'patient_reply', 'STOP')
+    ON CONFLICT (org_id, channel, address, purpose) DO UPDATE SET status = 'stopped', source = 'patient_reply', evidence = 'STOP';   -- 015's booking trigger may have recorded 'agreed' first
   INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Hub Backfill NoBooking', oa, '+9779801000043');
+  DELETE FROM patient_channels WHERE org_id = oa AND address = '+9779801000041';   -- the backfill is for bookings made BEFORE 015's trigger: remove the row the trigger just recorded
   r2 := pg_temp.act_run('service', format('SELECT public.hub_backfill_booking_consent(%L, true)', oa), 0);
   PERFORM pg_temp.act_chk('backfill: not callable by the service role (owner only)', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
   r2 := public.hub_backfill_booking_consent(oa, true);
@@ -1465,6 +1469,114 @@ BEGIN
     AND p.oid::regprocedure::text <> 'public_record_customer_referral(text,uuid,uuid,uuid)';
   PERFORM pg_temp.m_chk('role coverage: every authenticated-executable definer function reading a money table has a role check', bad IS NULL, coalesce(bad, 'none'));
 END $money$;
+
+-- ───────────────────────────── 3d. BOOKING CONSENT (migration-015, CMD-93) ─────────────────────────────
+-- A booking records service-SMS consent for the patient's phone (patient_channels: sms / service / agreed / booking) by trigger, unless the
+-- clinic's switch is off. It never changes an existing row, never creates marketing, and never fails the booking. Skipped if 015 is absent.
+CREATE FUNCTION pg_temp.c_book(p_branch uuid, p_tr uuid, p_cust uuid) RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE i uuid := gen_random_uuid(); d date := date '2032-01-01' + (random() * 3000)::int;
+BEGIN
+  INSERT INTO bookings (id, branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status, payment_status)
+    VALUES (i, p_branch, p_tr, p_cust, 'Consent test', d, '10:00', '10:30', (d || ' 10:00+00')::timestamptz, (d || ' 10:30+00')::timestamptz, 1000, 1000, 'Pending', 'unpaid');
+  RETURN i;
+END $$;
+CREATE FUNCTION pg_temp.c_chk(p_label text, p_ok boolean, p_detail text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO t_res VALUES ('CONSENT', '-', p_label, CASE WHEN COALESCE(p_ok, false) THEN 'PASS' ELSE 'FAIL' END, p_detail);
+  IF NOT COALESCE(p_ok, false) THEN RAISE NOTICE 'FAILED CHECK: % -- %', p_label, left(p_detail, 300); END IF;
+END $$;
+
+DO $consent$
+DECLARE
+  oa uuid; a1 uuid; tr uuid; sfx text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+  c1 uuid; c2 uuid; c3 uuid; c4 uuid; c5 uuid; c6 uuid; c7 uuid; ca uuid; bk uuid;
+  p1 text; p2 text; p4 text; p6 text; p7 text; pa text; a1e text; r record; n int; ok boolean;
+BEGIN
+  IF to_regprocedure('public.trg_booking_record_service_consent()') IS NULL OR to_regclass('public.patient_channels') IS NULL THEN
+    INSERT INTO t_res VALUES ('CONSENT', '-', 'migration-015 checks', 'INFO', 'skipped: trg_booking_record_service_consent (015) not present');
+    RETURN;
+  END IF;
+  SELECT org INTO oa FROM t_actor WHERE name = 'admin';
+  SELECT s.pk::uuid INTO a1 FROM t_seed s JOIN branches b ON b.id = s.pk::uuid WHERE s.tbl = 'branches' AND s.org = oa AND b.name = 'A1';
+  SELECT s.pk::uuid INTO tr FROM t_seed s WHERE s.tbl = 'treatments' AND s.org = oa LIMIT 1;
+  p1 := '98' || lpad((random() * 99999999)::int::text, 8, '0'); p2 := '97' || lpad((random() * 99999999)::int::text, 8, '0');
+  p4 := '98' || lpad((random() * 99999999)::int::text, 8, '0'); p6 := '97' || lpad((random() * 99999999)::int::text, 8, '0');
+  p7 := '98' || lpad((random() * 99999999)::int::text, 8, '0'); pa := '97' || lpad((random() * 99999999)::int::text, 8, '0');
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Consent new ' || sfx, oa, p1) RETURNING id INTO c1;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Consent stopped ' || sfx, oa, p2) RETURNING id INTO c2;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Consent nophone ' || sfx, oa, NULL) RETURNING id INTO c3;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Consent switchoff ' || sfx, oa, p4) RETURNING id INTO c4;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Consent badphone ' || sfx, oa, 'n/a') RETURNING id INTO c5;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Consent rowfail ' || sfx, oa, p6) RETURNING id INTO c6;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Consent later ' || sfx, oa, p7) RETURNING id INTO c7;
+
+  -- 1. a new booking for a patient with a phone and no row: one agreed service-sms row from 'booking'
+  bk := pg_temp.c_book(a1, tr, c1);
+  SELECT count(*) AS n, min(status) AS st, min(source) AS src, min(evidence) AS ev, min(customer_id::text) AS cu INTO r FROM patient_channels
+    WHERE org_id = oa AND channel = 'sms' AND address = public.normalize_phone_e164(p1) AND purpose = 'service';
+  PERFORM pg_temp.c_chk('new booking, patient with a phone, no row: one agreed service-sms row (source booking, evidence names the booking)',
+    r.n = 1 AND r.st = 'agreed' AND r.src = 'booking' AND r.ev LIKE 'Phone given when booking %' AND r.cu = c1::text, row_to_json(r)::text);
+  -- 1b. a second booking for the same patient changes nothing
+  bk := pg_temp.c_book(a1, tr, c1);
+  SELECT count(*) INTO n FROM patient_channels WHERE org_id = oa AND address = public.normalize_phone_e164(p1);
+  PERFORM pg_temp.c_chk('a second booking for the same patient adds no row', n = 1, n::text);
+  -- 2. already stopped: stays stopped, no new row
+  INSERT INTO patient_channels (org_id, customer_id, channel, address, purpose, status, source, evidence)
+    VALUES (oa, c2, 'sms', public.normalize_phone_e164(p2), 'service', 'stopped', 'patient_reply', 'replied STOP');
+  bk := pg_temp.c_book(a1, tr, c2);
+  SELECT count(*) AS n, min(status) AS st, min(source) AS src INTO r FROM patient_channels WHERE org_id = oa AND address = public.normalize_phone_e164(p2);
+  PERFORM pg_temp.c_chk('patient already stopped: still stopped after a new booking, no new row, source unchanged', r.n = 1 AND r.st = 'stopped' AND r.src = 'patient_reply', row_to_json(r)::text);
+  -- 3. marketing is never created
+  SELECT count(*) INTO n FROM patient_channels WHERE org_id = oa AND purpose = 'marketing' AND address IN (public.normalize_phone_e164(p1), public.normalize_phone_e164(p2));
+  PERFORM pg_temp.c_chk('marketing consent is never created by a booking', n = 0, n::text);
+  -- 4. switch off for the clinic: no row; back on: the next booking records it
+  UPDATE organizations SET booking_phone_is_service_consent = false WHERE id = oa;
+  bk := pg_temp.c_book(a1, tr, c4);
+  SELECT count(*) INTO n FROM patient_channels WHERE org_id = oa AND address = public.normalize_phone_e164(p4);
+  PERFORM pg_temp.c_chk('clinic switch false: no row', n = 0, n::text);
+  UPDATE organizations SET booking_phone_is_service_consent = true WHERE id = oa;
+  bk := pg_temp.c_book(a1, tr, c4);
+  SELECT count(*) INTO n FROM patient_channels WHERE org_id = oa AND address = public.normalize_phone_e164(p4) AND status = 'agreed';
+  PERFORM pg_temp.c_chk('clinic switch back on: the next booking records the row', n = 1, n::text);
+  SELECT booking_phone_is_service_consent INTO ok FROM organizations WHERE id = oa;
+  PERFORM pg_temp.c_chk('the switch defaults to true', (SELECT column_default FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'booking_phone_is_service_consent') = 'true' AND ok, 'default');
+  -- 5. no phone / unparseable phone: the booking succeeds, no row
+  bk := pg_temp.c_book(a1, tr, c3);
+  PERFORM pg_temp.c_chk('patient with no phone: booking succeeds, no row', EXISTS (SELECT 1 FROM bookings WHERE id = bk) AND NOT EXISTS (SELECT 1 FROM patient_channels WHERE customer_id = c3), 'no phone');
+  bk := pg_temp.c_book(a1, tr, c5);
+  PERFORM pg_temp.c_chk('patient with an unparseable phone: booking succeeds, no row', EXISTS (SELECT 1 FROM bookings WHERE id = bk) AND NOT EXISTS (SELECT 1 FROM patient_channels WHERE customer_id = c5), 'bad phone');
+  -- 6. a booking that gets its patient later (UPDATE customer_id)
+  INSERT INTO bookings (id, branch_id, treatment_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status, payment_status)
+    VALUES (gen_random_uuid(), a1, tr, 'Walk-in', '2033-05-05', '10:00', '10:30', '2033-05-05 10:00+00', '2033-05-05 10:30+00', 1000, 1000, 'Pending', 'unpaid') RETURNING id INTO bk;
+  PERFORM pg_temp.c_chk('walk-in booking (no patient) records nothing', NOT EXISTS (SELECT 1 FROM patient_channels WHERE address = public.normalize_phone_e164(p7)), 'before');
+  UPDATE bookings SET customer_id = c7 WHERE id = bk;
+  PERFORM pg_temp.c_chk('booking that gets its patient later (UPDATE customer_id) records the row',
+    EXISTS (SELECT 1 FROM patient_channels WHERE org_id = oa AND address = public.normalize_phone_e164(p7) AND status = 'agreed' AND purpose = 'service'), 'after');
+  -- 7. never fails a booking: make the consent insert fail (a constraint nothing satisfies), the booking must still succeed, with a WARNING
+  ALTER TABLE patient_channels ADD CONSTRAINT zz_consent_test_fail CHECK (false) NOT VALID;
+  bk := pg_temp.c_book(a1, tr, c6);
+  ALTER TABLE patient_channels DROP CONSTRAINT zz_consent_test_fail;
+  PERFORM pg_temp.c_chk('consent insert fails: the booking still succeeds, no row', EXISTS (SELECT 1 FROM bookings WHERE id = bk) AND NOT EXISTS (SELECT 1 FROM patient_channels WHERE customer_id = c6), 'error became a warning');
+  -- 8. the public booking flow (anon): upsert_customer_for_booking, then a direct booking insert with the customer id
+  EXECUTE 'SET LOCAL ROLE anon';
+  PERFORM set_config('request.jwt.claims', '{"role":"anon"}', true);
+  BEGIN
+    ca := public.upsert_customer_for_booking(oa, a1, 'Consent anon ' || sfx, pa, NULL, NULL);
+    bk := gen_random_uuid();
+    INSERT INTO bookings (id, branch_id, treatment_id, customer_id, customer_name, customer_phone, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status, payment_status)
+      VALUES (bk, a1, tr, ca, 'Consent anon ' || sfx, pa, '2033-06-06', '10:00', '10:30', '2033-06-06 10:00+00', '2033-06-06 10:30+00', 1000, 1000, 'Pending', 'unpaid');
+    ok := true;
+  EXCEPTION WHEN OTHERS THEN ok := false; RAISE NOTICE 'anon booking failed: % %', SQLSTATE, SQLERRM;
+  END;
+  EXECUTE 'RESET ROLE';
+  PERFORM pg_temp.c_chk('public booking flow (anon): the booking is created', ok, 'anon');
+  PERFORM pg_temp.c_chk('public booking flow (anon): the service-sms row is recorded',
+    EXISTS (SELECT 1 FROM patient_channels WHERE org_id = oa AND address = public.normalize_phone_e164(pa) AND purpose = 'service' AND status = 'agreed' AND source = 'booking' AND customer_id = ca), 'anon row');
+  -- 9. the trigger function is not callable by anon or authenticated
+  PERFORM pg_temp.c_chk('trg_booking_record_service_consent is not executable by anon or authenticated',
+    NOT has_function_privilege('anon', 'public.trg_booking_record_service_consent()', 'execute')
+    AND NOT has_function_privilege('authenticated', 'public.trg_booking_record_service_consent()', 'execute'), 'revoked');
+END $consent$;
 
 -- COVERAGE: RLS tables that this test does not seed (static checks above still apply)
 INSERT INTO t_res
