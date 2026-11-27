@@ -63,6 +63,11 @@ bootstrap in `scripts/lib/local-db-url.sh` (parsed host, one host only, no `host
 query, PG* variables cleared). Run from a git worktree, the default stack is still the shared local one, but the
 passwords file is the worktree's own: a run there resets the users' passwords and the main checkout's file goes stale.
 
+Worktrees share the one local stack, so the script always uses the **main checkout's** `supabase/LOCAL_TEST_USERS.md`
+(it prints which file) and reuses those passwords; it refuses, changing nothing, if that file is missing. Never copy the
+file into a worktree. If a worktree runs its own separate stack, pass `--workdir <dir>` (to the script or the bootstrap):
+it then uses `<dir>/supabase/LOCAL_TEST_USERS.md` and that dir's `supabase status`.
+
 ## Busy calendar seed
 
 `./scripts/local-seed-busy-calendar.sh` fills Bright Smile / Kathmandu Main with a realistic busy week, from

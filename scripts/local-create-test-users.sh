@@ -24,7 +24,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 usage() { sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 die() { echo "local-create-test-users: $*" >&2; exit 1; }
 
-WORKDIR="$REPO_ROOT"; DRY_RUN=0
+WORKDIR=""; DRY_RUN=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --workdir)   [ $# -ge 2 ] || die "--workdir needs a directory"; WORKDIR="$2"; shift 2 ;;
@@ -34,9 +34,23 @@ while [ $# -gt 0 ]; do
     *)           die "unknown option: $1 (see --help)" ;;
   esac
 done
-[ -n "$WORKDIR" ] && [ -d "$WORKDIR" ] || die "--workdir is not a directory: '$WORKDIR'"
-WORKDIR="$(cd "$WORKDIR" && pwd)"
-USERS_FILE="$WORKDIR/supabase/LOCAL_TEST_USERS.md"
+if [ -n "$WORKDIR" ]; then
+  # own separate stack: its own file
+  [ -d "$WORKDIR" ] || die "--workdir is not a directory: '$WORKDIR'"
+  WORKDIR="$(cd "$WORKDIR" && pwd)"
+  [ -f "$WORKDIR/supabase/config.toml" ] || die "refusing: --workdir $WORKDIR has no supabase/config.toml"
+  USERS_FILE="$WORKDIR/supabase/LOCAL_TEST_USERS.md"
+else
+  # CMD-111: every worktree shares one local stack, so the passwords file is the MAIN checkout's; a worktree never makes its own
+  # (new passwords would be PUT to GoTrue and break everyone else's logins).
+  WORKDIR="$REPO_ROOT"
+  MAIN="$(dirname "$(cd "$REPO_ROOT" && git rev-parse --path-format=absolute --git-common-dir)")" || die "refusing: cannot find the main checkout with git. Nothing changed."
+  USERS_FILE="$MAIN/supabase/LOCAL_TEST_USERS.md"
+  if [ "$MAIN" != "$REPO_ROOT" ] && { [ ! -f "$USERS_FILE" ] || [ ! -w "$USERS_FILE" ]; }; then
+    die "refusing: this is a worktree and the main checkout's $USERS_FILE is missing or not writable. Nothing changed."
+  fi
+fi
+echo "local-create-test-users: passwords file: $USERS_FILE"
 
 STATUS="$(local_status_env "$WORKDIR")"
 DB_URL="$(local_status_value "$STATUS" DB_URL)"
