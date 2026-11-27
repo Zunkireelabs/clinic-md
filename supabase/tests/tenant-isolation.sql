@@ -401,6 +401,882 @@ BEGIN
   EXECUTE 'RESET ROLE';
 END $fdyn$;
 
+-- ───────────────────────────── 3b. ACTION LAYER (migration-012) ─────────────────────────────
+-- The booking actions (act_booking_set_status / reschedule / flag_not_confirmed / act_undo). Needs 011 (practitioner) and 012; otherwise skipped.
+-- Callers: signed-in staff by role, a practitioner linked to Dr A1, the service role (agent / rule), anon, other-org admin, and
+-- two forged calls (an authenticated session carrying a service_role JWT claim). The section seeds its own rows and removes them at the end.
+CREATE FUNCTION pg_temp.act_chk(p_label text, p_ok boolean, p_detail text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO t_res VALUES ('ACT', '-', p_label, CASE WHEN COALESCE(p_ok, false) THEN 'PASS' ELSE 'FAIL' END, p_detail);
+  -- a NOTICE survives even if the section later crashes (the t_res rows of a crashed block are rolled back with it)
+  IF NOT COALESCE(p_ok, false) THEN RAISE NOTICE 'FAILED CHECK: % -- %', p_label, left(p_detail, 300); END IF;
+END $$;
+
+-- Runs one call as an actor, WITHOUT rolling back (the next call builds on it), and checks it wrote exactly p_expect action_log rows.
+-- Actors: a t_actor name, 'service' (db role service_role + claim), 'forged' (authenticated + staff sub + a service_role CLAIM),
+-- 'forged_nosub' (authenticated + only the service_role claim).
+CREATE FUNCTION pg_temp.act_run(p_actor text, p_sql text, p_expect int DEFAULT 1) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE r jsonb; n0 bigint; n1 bigint; a record; claims text; dbrole text;
+BEGIN
+  EXECUTE 'RESET ROLE';
+  SELECT count(*) INTO n0 FROM public.action_log;
+  IF p_actor = 'service' THEN dbrole := 'service_role'; claims := '{"role":"service_role"}';
+  ELSIF p_actor = 'forged' THEN dbrole := 'authenticated'; claims := json_build_object('sub', (SELECT uid FROM t_actor WHERE name = 'staff'), 'role', 'service_role')::text;
+  ELSIF p_actor = 'forged_nosub' THEN dbrole := 'authenticated'; claims := '{"role":"service_role"}';
+  ELSE
+    SELECT * INTO a FROM t_actor WHERE name = p_actor; dbrole := a.db_role;
+    claims := CASE WHEN a.uid IS NULL THEN '{"role":"anon"}' ELSE json_build_object('sub', a.uid, 'role', 'authenticated')::text END;
+  END IF;
+  EXECUTE format('SET LOCAL ROLE %I', dbrole);
+  PERFORM set_config('request.jwt.claims', claims, true);
+  BEGIN EXECUTE p_sql INTO r; EXCEPTION WHEN OTHERS THEN r := jsonb_build_object('raised', SQLSTATE); END;
+  EXECUTE 'RESET ROLE';
+  SELECT count(*) INTO n1 FROM public.action_log;
+  INSERT INTO t_res VALUES ('ACT', p_actor, 'rows written: ' || left(regexp_replace(p_sql, '\s+', ' ', 'g'), 70), CASE WHEN n1 - n0 = p_expect THEN 'PASS' ELSE 'FAIL' END,
+                            format('expected %s new action_log row(s), got %s', p_expect, n1 - n0));
+  RETURN r;
+END $$;
+
+CREATE FUNCTION pg_temp.act_code(r jsonb) RETURNS text LANGUAGE sql AS
+$$ SELECT CASE WHEN r ? 'raised' THEN 'raised:' || (r ->> 'raised') WHEN (r ->> 'ok')::boolean THEN 'ok' ELSE r #>> '{error,code}' END $$;
+
+DO $act$
+DECLARE
+  oa uuid; ob uuid; a1 uuid; tr uuid; cu uuid; d1 uuid; d1b uuid; cz uuid; bk record;
+  u_prac uuid := gen_random_uuid(); u_staff uuid; u_adm uuid; u_adminb uuid; u_mgr uuid; sfx text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+  b1 uuid; b2 uuid; b3 uuid; b4 uuid; b5 uuid; bR1 uuid; bR2 uuid; bR3 uuid; bD uuid; bPaid uuid; bX uuid; aCancelX uuid;
+  r jsonb; r2 jsonb; l record; x_id uuid; tot bigint;
+BEGIN
+  IF to_regprocedure('public.act_undo(uuid,text,jsonb)') IS NULL OR to_regprocedure('public.is_my_booking_row(uuid,uuid)') IS NULL THEN
+    INSERT INTO t_res VALUES ('ACT', '-', 'migration-011/012 checks', 'INFO', 'skipped: act_* (012) or the practitioner role (011) not present');
+    RETURN;
+  END IF;
+  SELECT org, uid INTO oa, u_staff FROM t_actor WHERE name = 'staff';
+  SELECT uid INTO u_adm FROM t_actor WHERE name = 'admin'; SELECT uid INTO u_mgr FROM t_actor WHERE name = 'manager_2_branches';
+  SELECT org, uid INTO ob, u_adminb FROM t_actor WHERE name = 'admin_of_OTHER_org';
+  SELECT s.pk::uuid INTO a1 FROM t_seed s JOIN branches b ON b.id = s.pk::uuid WHERE s.tbl = 'branches' AND s.org = oa AND b.name = 'A1';
+  SELECT s.pk::uuid INTO tr FROM t_seed s WHERE s.tbl = 'treatments' AND s.org = oa LIMIT 1;
+  SELECT s.pk::uuid INTO cu FROM t_seed s JOIN customers c ON c.id = s.pk::uuid WHERE s.tbl = 'customers' AND s.org = oa AND c.branch_id = a1 LIMIT 1;
+  SELECT d.id INTO d1 FROM dentists d JOIN t_seed s ON s.tbl = 'dentists' AND s.pk = d.id::text WHERE d.branch_id = a1 AND d.name = 'Dr A1';
+
+  -- a practitioner (Dr A1), a second dentist in the branch, a one-seat chair
+  INSERT INTO auth.users (id, instance_id, aud, role, email, created_at, updated_at) VALUES (u_prac, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-actprac-' || sfx || '@test.invalid', now(), now());
+  INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES (u_prac, 'rls-actprac-' || sfx || '@test.invalid', 'RLS act practitioner', 'practitioner', a1, oa, true, d1);
+  INSERT INTO t_actor VALUES ('act_practitioner', u_prac, oa, 'authenticated');
+  INSERT INTO dentists (branch_id, name, gender, org_id) VALUES (a1, 'Dr A1b', 'Male', oa) RETURNING id INTO d1b;
+  INSERT INTO chairs (branch_id, name, capacity) VALUES (a1, 'Chair Z', 1) RETURNING id INTO cz;
+
+  -- bookings (org A, branch A1), spread over distinct days so no dentist / chair clash by accident
+  FOR bk IN SELECT * FROM (VALUES
+      ('b1', '2031-02-01', 'Pending',   NULL::uuid, NULL::uuid, 'unpaid'),
+      ('b2', '2031-02-02', 'Pending',   NULL, NULL, 'unpaid'),
+      ('b3', '2031-02-03', 'Confirmed', d1,   NULL, 'unpaid'),
+      ('b4', '2031-02-04', 'Confirmed', d1b,  NULL, 'unpaid'),
+      ('b5', '2031-02-05', 'Pending',   NULL, NULL, 'unpaid'),
+      ('r1', '2031-02-06', 'Confirmed', NULL, cz,   'unpaid'),
+      ('r2', '2031-02-06', 'Confirmed', NULL, NULL, 'unpaid'),
+      ('d',  '2031-02-07', 'Confirmed', d1,   NULL, 'unpaid'),
+      ('pd', '2031-02-08', 'Pending',   NULL, NULL, 'partial'),
+      ('x',  '2031-02-09', 'Pending',   NULL, NULL, 'unpaid')) v(k, dt, st, den, ch, pay) LOOP
+    INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status, dentist_id, chair_id, payment_status)
+      VALUES (a1, tr, cu, 'Cust A1', bk.dt::date, CASE WHEN bk.k = 'r2' THEN '11:00'::time ELSE '10:00'::time END, CASE WHEN bk.k = 'r2' THEN '11:30'::time ELSE '10:30'::time END,
+              (bk.dt || ' ' || CASE WHEN bk.k = 'r2' THEN '11:00' ELSE '10:00' END || '+00')::timestamptz, (bk.dt || ' ' || CASE WHEN bk.k = 'r2' THEN '11:30' ELSE '10:30' END || '+00')::timestamptz,
+              1000, 1000, bk.st::booking_status, bk.den, bk.ch, bk.pay)
+      RETURNING id INTO x_id;
+    IF bk.den IS NOT NULL THEN INSERT INTO booking_dentists (booking_id, dentist_id) VALUES (x_id, bk.den); END IF;
+    CASE bk.k WHEN 'b1' THEN b1 := x_id; WHEN 'b2' THEN b2 := x_id; WHEN 'b3' THEN b3 := x_id; WHEN 'b4' THEN b4 := x_id; WHEN 'b5' THEN b5 := x_id;
+              WHEN 'r1' THEN bR1 := x_id; WHEN 'r2' THEN bR2 := x_id; WHEN 'd' THEN bD := x_id; WHEN 'pd' THEN bPaid := x_id; WHEN 'x' THEN bX := x_id; END CASE;
+  END LOOP;
+
+  -- ── set_status: staff ──
+  r := pg_temp.act_run('staff', format('SELECT public.act_booking_set_status(%L, ''Confirmed'')', b1));
+  PERFORM pg_temp.act_chk('staff: Pending -> Confirmed works', pg_temp.act_code(r) = 'ok' AND (SELECT status FROM bookings WHERE id = b1) = 'Confirmed', 'got ' || coalesce(r::text, 'null'));
+  SELECT * INTO l FROM action_log WHERE id = (r ->> 'action_id')::uuid;
+  PERFORM pg_temp.act_chk('log row: actor is the signed-in person, action, target', l.actor_kind = 'person' AND l.actor_user_id = u_staff AND l.action = 'booking.set_status' AND l.target_id = b1 AND l.ok AND l.org_id = oa AND l.actor_agent IS NULL, row_to_json(l)::text);
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_booking_set_status(%L, ''Completed'')', b1));
+  PERFORM pg_temp.act_chk('staff: Confirmed -> Completed is refused (INVALID_STATUS_TRANSITION), and logged', pg_temp.act_code(r2) = 'INVALID_STATUS_TRANSITION' AND EXISTS (SELECT 1 FROM action_log WHERE id = (r2 ->> 'action_id')::uuid AND NOT ok AND error_code = 'INVALID_STATUS_TRANSITION'), 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_booking_set_status(%L, ''Cancelled'')', b2));
+  PERFORM pg_temp.act_chk('staff: cancelling without a reason is refused (REASON_REQUIRED)', pg_temp.act_code(r2) = 'REASON_REQUIRED', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_booking_set_status(%L, ''Cancelled'', ''patient asked'')', b2));
+  PERFORM pg_temp.act_chk('manager: cancel with a reason works and stores the reason', pg_temp.act_code(r2) = 'ok' AND (SELECT cancellation_reason FROM bookings WHERE id = b2) = 'patient asked', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_booking_set_status(%L, ''Confirmed'')', b2));
+  PERFORM pg_temp.act_chk('a Cancelled booking is immutable (BOOKING_IMMUTABLE)', pg_temp.act_code(r2) = 'BOOKING_IMMUTABLE', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('admin_viewer', format('SELECT public.act_booking_set_status(%L, ''Confirmed'')', b5));
+  PERFORM pg_temp.act_chk('admin_viewer cannot change a booking (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+
+  -- cross-org, patients, anon
+  r2 := pg_temp.act_run('admin_of_OTHER_org', format('SELECT public.act_booking_set_status(%L, ''Confirmed'')', b5));
+  PERFORM pg_temp.act_chk('another org''s admin gets BOOKING_NOT_FOUND, the booking is untouched, and the refusal is logged in THEIR org', pg_temp.act_code(r2) = 'BOOKING_NOT_FOUND'
+    AND (SELECT status FROM bookings WHERE id = b5) = 'Pending' AND (SELECT org_id FROM action_log WHERE id = (r2 ->> 'action_id')::uuid) = ob, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('customer_no_staff_row', format('SELECT public.act_booking_set_status(%L, ''Confirmed'')', b5), 0);
+  PERFORM pg_temp.act_chk('a signed-in patient (no users row) is refused (FORBIDDEN), nothing logged', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('anon', format('SELECT public.act_booking_set_status(%L, ''Confirmed'')', b5), 0);
+  PERFORM pg_temp.act_chk('anon cannot execute the action (permission denied)', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('anon', format('SELECT public.act_undo(%L)', gen_random_uuid()), 0);
+  PERFORM pg_temp.act_chk('anon cannot execute act_undo', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+
+  -- ── p_ctx: honoured for the service role only ──
+  r := pg_temp.act_run('service', format('SELECT public.act_booking_set_status(%L, ''Confirmed'', NULL, %L::jsonb)', b5, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa)));
+  SELECT * INTO l FROM action_log WHERE id = (r ->> 'action_id')::uuid;
+  PERFORM pg_temp.act_chk('service role: p_ctx honoured, logged as the agent (no user)', pg_temp.act_code(r) = 'ok' AND l.actor_kind = 'agent' AND l.actor_agent = 'follow_up' AND l.actor_user_id IS NULL AND l.org_id = oa, row_to_json(l)::text);
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_booking_set_status(%L, ''Cancelled'', ''no'', %L::jsonb)', bX, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', ob, 'approved_by', u_adm)));
+  SELECT * INTO l FROM action_log WHERE id = (r2 ->> 'action_id')::uuid;
+  PERFORM pg_temp.act_chk('a user''s p_ctx is IGNORED: the same call as a signed-in user logs the user, not the agent', pg_temp.act_code(r2) = 'ok' AND l.actor_kind = 'person' AND l.actor_user_id = u_staff AND l.actor_agent IS NULL AND l.approved_by IS NULL AND l.org_id = oa AND (l.inputs ->> 'ctx_ignored')::boolean, row_to_json(l)::text);
+  r2 := pg_temp.act_run('forged', format('SELECT public.act_booking_set_status(%L, ''Confirmed'', NULL, %L::jsonb)', b4, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa)));
+  SELECT * INTO l FROM action_log WHERE id = (r2 ->> 'action_id')::uuid;
+  PERFORM pg_temp.act_chk('forged: an authenticated session with a service_role JWT claim is still treated as the signed-in user', l.actor_kind = 'person' AND l.actor_agent IS NULL, 'got ' || coalesce(r2::text, 'null') || ' / ' || coalesce(row_to_json(l)::text, ''));
+  r2 := pg_temp.act_run('forged_nosub', format('SELECT public.act_booking_set_status(%L, ''Confirmed'', NULL, %L::jsonb)', b5, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa)), 0);
+  PERFORM pg_temp.act_chk('forged claim with no user: refused (FORBIDDEN), nothing logged', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_booking_set_status(%L, ''Confirmed'')', b5), 0);
+  PERFORM pg_temp.act_chk('service role without a p_ctx: INVALID_CONTEXT, nothing logged', pg_temp.act_code(r2) = 'INVALID_CONTEXT', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_booking_set_status(%L, ''Confirmed'', NULL, %L::jsonb)', b5, jsonb_build_object('actor_kind', 'human', 'org_id', oa)), 0);
+  PERFORM pg_temp.act_chk('service role with a bad actor_kind: INVALID_CONTEXT', pg_temp.act_code(r2) = 'INVALID_CONTEXT', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_booking_set_status(%L, ''Cancelled'', ''x'', %L::jsonb)', bX, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa, 'approved_by', u_adminb)), 0);
+  PERFORM pg_temp.act_chk('agent approved_by a user of ANOTHER org: INVALID_CONTEXT', pg_temp.act_code(r2) = 'INVALID_CONTEXT', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_booking_set_status(%L, ''Confirmed'', NULL, %L::jsonb)', b1, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', ob)));
+  PERFORM pg_temp.act_chk('agent for org B cannot touch an org A booking (BOOKING_NOT_FOUND)', pg_temp.act_code(r2) = 'BOOKING_NOT_FOUND', 'got ' || coalesce(r2::text, 'null'));
+
+  -- ── agent rules (set_status) ──
+  UPDATE bookings SET status = 'Confirmed' WHERE id = bX;   -- as owner, so the agent tests below start from a clean state
+  UPDATE bookings SET status = 'Pending', cancellation_reason = NULL WHERE id = bX;   -- clear the 'no' left by the cancel above
+  FOR l IN SELECT * FROM (VALUES ('No Show'), ('In-Progress'), ('Completed')) v(s) LOOP
+    r2 := pg_temp.act_run('service', format('SELECT public.act_booking_set_status(%L, %L, ''x'', %L::jsonb)', bX, l.s, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa, 'approved_by', u_adm)));
+    PERFORM pg_temp.act_chk('agent cannot set ' || l.s || ', even with approval (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  END LOOP;
+  r2 := pg_temp.act_run('service', format('SELECT public.act_booking_set_status(%L, ''Cancelled'', ''x'', %L::jsonb)', bX, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa)));
+  PERFORM pg_temp.act_chk('agent cancel needs approval (APPROVAL_REQUIRED) without reason_source patient_reply', pg_temp.act_code(r2) = 'APPROVAL_REQUIRED', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_booking_set_status(%L, ''Cancelled'', ''x'', %L::jsonb)', bPaid, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa, 'reason_source', 'patient_reply')));
+  PERFORM pg_temp.act_chk('agent cannot cancel a PAID / part-paid booking alone, even if the patient said no', pg_temp.act_code(r2) = 'APPROVAL_REQUIRED', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_booking_set_status(%L, ''Cancelled'', ''patient said no'', %L::jsonb)', bX, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa, 'reason_source', 'patient_reply')));
+  PERFORM pg_temp.act_chk('agent cancels an UNPAID booking without approval when the patient said no', pg_temp.act_code(r2) = 'ok' AND (SELECT status FROM bookings WHERE id = bX) = 'Cancelled', 'got ' || coalesce(r2::text, 'null'));
+  aCancelX := (r2 ->> 'action_id')::uuid;   -- undone below; picked by id because every created_at in this transaction is the same now()
+  r := pg_temp.act_run('service', format('SELECT public.act_booking_set_status(%L, ''Cancelled'', ''staff asked'', %L::jsonb)', bPaid, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa, 'approved_by', u_adm)));
+  SELECT * INTO l FROM action_log WHERE id = (r ->> 'action_id')::uuid;
+  PERFORM pg_temp.act_chk('agent cancel WITH approval works and logs approved_by', pg_temp.act_code(r) = 'ok' AND l.approved_by = u_adm AND l.actor_agent = 'follow_up', 'got ' || coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_booking_set_status(%L, ''Confirmed'', NULL, %L::jsonb)', b3, jsonb_build_object('actor_kind', 'rule', 'org_id', oa)));
+  PERFORM pg_temp.act_chk('a rule cannot change status (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+
+  -- ── practitioner ──
+  r2 := pg_temp.act_run('act_practitioner', format('SELECT public.act_booking_set_status(%L, ''In-Progress'')', b4));
+  PERFORM pg_temp.act_chk('practitioner: another dentist''s booking is refused with a clear error (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN' AND r2 #>> '{error,message}' LIKE '%your own%', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('act_practitioner', format('SELECT public.act_booking_set_status(%L, ''In-Progress'')', bR2));
+  PERFORM pg_temp.act_chk('practitioner: a booking with NO dentist is not theirs (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN' AND (SELECT status FROM bookings WHERE id = bR2) = 'Confirmed', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_booking_set_status(%L, NULL)', b5));
+  PERFORM pg_temp.act_chk('a NULL status is refused (INVALID_INPUT)', pg_temp.act_code(r2) = 'INVALID_INPUT', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('act_practitioner', format('SELECT public.act_booking_set_status(%L, ''Cancelled'', ''x'')', b3));
+  PERFORM pg_temp.act_chk('practitioner: cannot cancel even their own booking (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('act_practitioner', format('SELECT public.act_booking_reschedule(%L, ''2031-03-01'', ''10:00'')', b3));
+  PERFORM pg_temp.act_chk('practitioner: cannot reschedule (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('act_practitioner', format('SELECT public.act_booking_flag_not_confirmed(%L)', b5));
+  PERFORM pg_temp.act_chk('practitioner: cannot flag (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  r := pg_temp.act_run('act_practitioner', format('SELECT public.act_booking_set_status(%L, ''In-Progress'')', b3));
+  PERFORM pg_temp.act_chk('practitioner: starts their OWN visit (Confirmed -> In-Progress)', pg_temp.act_code(r) = 'ok' AND (SELECT status FROM bookings WHERE id = b3) = 'In-Progress', 'got ' || coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('act_practitioner', format('SELECT public.act_undo(%L, ''oops'')', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('practitioner can undo their own status change', pg_temp.act_code(r2) = 'ok' AND (SELECT status FROM bookings WHERE id = b3) = 'Confirmed', 'got ' || coalesce(r2::text, 'null'));
+  r := pg_temp.act_run('staff', format('SELECT public.act_booking_set_status(%L, ''In-Progress'')', bD));
+  r2 := pg_temp.act_run('act_practitioner', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('practitioner cannot undo an action front desk ran, even on their own booking (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN' AND (SELECT status FROM bookings WHERE id = bD) = 'In-Progress', 'got ' || coalesce(r2::text, 'null'));
+  UPDATE bookings SET status = 'Pending' WHERE id = b5;
+  r := pg_temp.act_run('staff', format('SELECT public.act_booking_flag_not_confirmed(%L)', b5));
+  r2 := pg_temp.act_run('act_practitioner', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('practitioner cannot undo a flag action (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+
+  -- ── reschedule ──
+  r := pg_temp.act_run('staff', format('SELECT public.act_booking_reschedule(%L, ''2031-02-10'', ''12:00'')', bR1));
+  PERFORM pg_temp.act_chk('staff: reschedule works, end time from the treatment duration', pg_temp.act_code(r) = 'ok' AND (SELECT (date, start_time, end_time) FROM bookings WHERE id = bR1) = ('2031-02-10'::date, '12:00'::time, '12:30'::time), 'got ' || coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_booking_reschedule(%L, ''2031-02-10'', ''12:00'', %L::jsonb)', bR2, jsonb_build_object('chair_id', cz)));
+  PERFORM pg_temp.act_chk('reschedule into a chair that is not free is refused (CHAIR_CONFLICT)', pg_temp.act_code(r2) = 'CHAIR_CONFLICT', 'got ' || coalesce(r2::text, 'null'));
+  -- chair cz is free at its old slot now (R1 moved away), so put R2 there; then undoing R1's move must be refused
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_booking_reschedule(%L, ''2031-02-06'', ''10:00'', %L::jsonb)', bR2, jsonb_build_object('chair_id', cz)));
+  PERFORM pg_temp.act_chk('...and the same move is fine once the chair is free', pg_temp.act_code(r2) = 'ok' AND (SELECT chair_id FROM bookings WHERE id = bR2) = cz, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('undo of a reschedule is refused when the old slot was taken (UNDO_BLOCKED)', pg_temp.act_code(r2) = 'UNDO_BLOCKED' AND (SELECT start_time FROM bookings WHERE id = bR1) = '12:00'::time, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_booking_reschedule(%L, ''2031-02-11'', ''09:00'', %L::jsonb)', b4, jsonb_build_object('dentist_id', (SELECT s.pk FROM t_seed s WHERE s.tbl = 'dentists' AND s.org = ob LIMIT 1))));
+  PERFORM pg_temp.act_chk('reschedule with ANOTHER org''s dentist is refused (INVALID_DENTIST)', pg_temp.act_code(r2) = 'INVALID_DENTIST', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_booking_reschedule(%L, ''2031-02-11'', ''09:00'', %L::jsonb)', b4, jsonb_build_object('chair_id', (SELECT s.pk FROM t_seed s WHERE s.tbl = 'chairs' AND s.org = ob LIMIT 1))));
+  PERFORM pg_temp.act_chk('reschedule with ANOTHER org''s chair is refused (INVALID_CHAIR)', pg_temp.act_code(r2) = 'INVALID_CHAIR', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_booking_reschedule(%L, ''2031-02-11'', ''09:00'', ''{"dentist_id": "unassigned"}'')', b4));
+  PERFORM pg_temp.act_chk('reschedule can clear the dentist ("unassigned"), and booking_dentists follows', pg_temp.act_code(r2) = 'ok' AND (SELECT dentist_id FROM bookings WHERE id = b4) IS NULL AND NOT EXISTS (SELECT 1 FROM booking_dentists WHERE booking_id = b4), 'got ' || coalesce(r2::text, 'null'));
+  r := pg_temp.act_run('staff', format('SELECT public.act_undo(%L, ''back'')', r2 ->> 'action_id'));
+  PERFORM pg_temp.act_chk('undo restores the old date, time, dentist and booking_dentists', pg_temp.act_code(r) = 'ok' AND (SELECT dentist_id FROM bookings WHERE id = b4) = d1b AND (SELECT date FROM bookings WHERE id = b4) = '2031-02-04'::date AND EXISTS (SELECT 1 FROM booking_dentists WHERE booking_id = b4 AND dentist_id = d1b), 'got ' || coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_booking_reschedule(%L, ''2031-02-12'', ''09:00'', ''{}'', %L::jsonb)', b4, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa)));
+  PERFORM pg_temp.act_chk('agent reschedule needs approval (APPROVAL_REQUIRED)', pg_temp.act_code(r2) = 'APPROVAL_REQUIRED', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_booking_reschedule(%L, ''2031-02-12'', ''09:00'', ''{}'', %L::jsonb)', b4, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa, 'approved_by', u_staff)));
+  PERFORM pg_temp.act_chk('agent reschedule WITH approval works', pg_temp.act_code(r2) = 'ok' AND (SELECT date FROM bookings WHERE id = b4) = '2031-02-12'::date, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_booking_reschedule(%L, ''2031-02-12'', ''09:00'')', bPaid));
+  PERFORM pg_temp.act_chk('a cancelled (immutable) booking cannot be rescheduled', pg_temp.act_code(r2) = 'BOOKING_IMMUTABLE', 'got ' || coalesce(r2::text, 'null'));
+  UPDATE bookings SET payment_status = 'paid' WHERE id = b1;   -- as owner
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_booking_reschedule(%L, ''2031-02-12'', ''09:00'')', b1));
+  PERFORM pg_temp.act_chk('a paid booking cannot be rescheduled', pg_temp.act_code(r2) = 'BOOKING_IMMUTABLE' AND r2 #>> '{error,message}' = 'Cannot reschedule a paid booking.', 'got ' || coalesce(r2::text, 'null'));
+  UPDATE bookings SET payment_status = 'unpaid' WHERE id = b1;
+  r2 := pg_temp.act_run('admin_of_OTHER_org', format('SELECT public.act_booking_reschedule(%L, ''2031-02-12'', ''09:00'')', b1));
+  PERFORM pg_temp.act_chk('reschedule across orgs: BOOKING_NOT_FOUND', pg_temp.act_code(r2) = 'BOOKING_NOT_FOUND', 'got ' || coalesce(r2::text, 'null'));
+
+  -- ── flag_not_confirmed ──
+  r2 := pg_temp.act_run('service', format('SELECT public.act_booking_flag_not_confirmed(%L, ''6 pm rule'', %L::jsonb)', b2, jsonb_build_object('actor_kind', 'rule', 'org_id', oa)));
+  PERFORM pg_temp.act_chk('a rule cannot flag a Cancelled booking (NOT_PENDING)', pg_temp.act_code(r2) = 'NOT_PENDING', 'got ' || coalesce(r2::text, 'null'));
+  UPDATE bookings SET status = 'Pending' WHERE id = b5;
+  UPDATE booking_flags SET cleared_at = now() WHERE booking_id = b5 AND cleared_at IS NULL;
+  r := pg_temp.act_run('service', format('SELECT public.act_booking_flag_not_confirmed(%L, ''6 pm rule'', %L::jsonb)', b5, jsonb_build_object('actor_kind', 'rule', 'org_id', oa)));
+  SELECT * INTO l FROM action_log WHERE id = (r ->> 'action_id')::uuid;
+  PERFORM pg_temp.act_chk('a rule flags a Pending booking; logged as kind rule, one open flag', pg_temp.act_code(r) = 'ok' AND l.actor_kind = 'rule' AND (SELECT count(*) FROM booking_flags WHERE booking_id = b5 AND cleared_at IS NULL) = 1, 'got ' || coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_booking_flag_not_confirmed(%L)', b5));
+  PERFORM pg_temp.act_chk('flagging twice: ok, already_flagged, still one open flag', pg_temp.act_code(r2) = 'ok' AND (r2 #>> '{data,already_flagged}')::boolean AND (SELECT count(*) FROM booking_flags WHERE booking_id = b5 AND cleared_at IS NULL) = 1, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('undo of a flag clears it', pg_temp.act_code(r2) = 'ok' AND NOT EXISTS (SELECT 1 FROM booking_flags WHERE booking_id = b5 AND cleared_at IS NULL), 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('admin_viewer', format('SELECT public.act_booking_flag_not_confirmed(%L)', b5));
+  PERFORM pg_temp.act_chk('admin_viewer cannot flag (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  UPDATE bookings SET status = 'Confirmed' WHERE id = b5;
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_booking_flag_not_confirmed(%L)', b5));
+  PERFORM pg_temp.act_chk('only a Pending booking can be flagged (NOT_PENDING)', pg_temp.act_code(r2) = 'NOT_PENDING', 'got ' || coalesce(r2::text, 'null'));
+  UPDATE bookings SET status = 'Pending' WHERE id = b5;
+
+  -- ── undo ──
+  r := pg_temp.act_run('service', format('SELECT public.act_booking_set_status(%L, ''Confirmed'', NULL, %L::jsonb)', b5, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa)));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_undo(%L, ''x'', %L::jsonb)', r ->> 'action_id', jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa)));
+  PERFORM pg_temp.act_chk('an agent cannot undo without approval (APPROVAL_REQUIRED)', pg_temp.act_code(r2) = 'APPROVAL_REQUIRED', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('admin_of_OTHER_org', format('SELECT public.act_undo(%L, ''x'')', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('undo across orgs: ACTION_NOT_FOUND', pg_temp.act_code(r2) = 'ACTION_NOT_FOUND', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('admin_viewer', format('SELECT public.act_undo(%L, ''x'')', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('admin_viewer cannot undo (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_undo(%L, ''front desk changed their mind'')', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('FRONT DESK can undo an AGENT''s action; status restored to the prior state directly (Confirmed -> Pending)', pg_temp.act_code(r2) = 'ok' AND (SELECT status FROM bookings WHERE id = b5) = 'Pending', 'got ' || coalesce(r2::text, 'null'));
+  SELECT * INTO l FROM action_log WHERE id = (r ->> 'action_id')::uuid;
+  PERFORM pg_temp.act_chk('the original row is stamped (undone_by_action, undone_reason) and the undo has its own row', l.undone_by_action = (r2 ->> 'action_id')::uuid AND l.undone_reason = 'front desk changed their mind'
+    AND (SELECT action FROM action_log WHERE id = (r2 ->> 'action_id')::uuid) = 'undo' AND (SELECT actor_user_id FROM action_log WHERE id = (r2 ->> 'action_id')::uuid) = u_staff, row_to_json(l)::text);
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('a second undo is refused (UNDO_ALREADY)', pg_temp.act_code(r2) = 'UNDO_ALREADY', 'got ' || coalesce(r2::text, 'null'));
+
+  r := pg_temp.act_run('staff', format('SELECT public.act_booking_set_status(%L, ''Confirmed'')', b5));
+  -- anything else touching the booking afterwards. Inside this one test transaction now() never advances, so move updated_at by hand.
+  ALTER TABLE public.bookings DISABLE TRIGGER trg_updated_at;
+  UPDATE bookings SET special_requests = 'changed later', updated_at = now() + interval '1 second' WHERE id = b5;
+  ALTER TABLE public.bookings ENABLE TRIGGER trg_updated_at;
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('undo after a later change is refused (UNDO_STALE)', pg_temp.act_code(r2) = 'UNDO_STALE' AND (SELECT status FROM bookings WHERE id = b5) = 'Confirmed', 'got ' || coalesce(r2::text, 'null'));
+
+  r := pg_temp.act_run('staff', format('SELECT public.act_booking_set_status(%L, ''In-Progress'')', bD));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_booking_set_status(%L, ''Completed'')', bD));
+  PERFORM pg_temp.act_chk('Pending..Completed path: Completed works', pg_temp.act_code(r2) = 'ok' AND (SELECT status FROM bookings WHERE id = bD) = 'Completed', 'got ' || coalesce(r2::text, 'null'));
+  r := pg_temp.act_run('staff', format('SELECT public.act_undo(%L)', r2 ->> 'action_id'));
+  PERFORM pg_temp.act_chk('Completed is NOT undoable (UNDO_NOT_POSSIBLE)', pg_temp.act_code(r) = 'UNDO_NOT_POSSIBLE', 'got ' || coalesce(r::text, 'null'));
+  SELECT jsonb_build_object('action_id', id) INTO r2 FROM action_log WHERE target_id = bPaid AND action = 'booking.set_status' AND ok ORDER BY created_at DESC LIMIT 1;
+  r := pg_temp.act_run('staff', format('SELECT public.act_undo(%L)', r2 ->> 'action_id'));
+  PERFORM pg_temp.act_chk('cancelling a part-paid booking is NOT undoable (UNDO_NOT_POSSIBLE)', pg_temp.act_code(r) = 'UNDO_NOT_POSSIBLE', 'got ' || coalesce(r::text, 'null'));
+  r2 := jsonb_build_object('action_id', aCancelX);
+  r := pg_temp.act_run('staff', format('SELECT public.act_undo(%L, ''patient called back'')', r2 ->> 'action_id'));
+  PERFORM pg_temp.act_chk('cancelling an UNPAID booking IS undoable, and the cancellation reason is restored', pg_temp.act_code(r) = 'ok' AND (SELECT status FROM bookings WHERE id = bX) = 'Pending' AND (SELECT cancellation_reason FROM bookings WHERE id = bX) IS NULL, 'got ' || coalesce(r::text, 'null'));
+  -- the 24 h window
+  r := pg_temp.act_run('staff', format('SELECT public.act_booking_set_status(%L, ''Confirmed'')', bX));
+  ALTER TABLE public.action_log DISABLE TRIGGER trg_action_log_guard_row;   -- owner only; to age the stored undo
+  UPDATE public.action_log SET undo = jsonb_set(undo, '{expires_at}', to_jsonb(now() - interval '1 minute')) WHERE id = (r ->> 'action_id')::uuid;
+  ALTER TABLE public.action_log ENABLE TRIGGER trg_action_log_guard_row;
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('undo after the 24 h window is refused (UNDO_EXPIRED)', pg_temp.act_code(r2) = 'UNDO_EXPIRED', 'got ' || coalesce(r2::text, 'null'));
+
+  -- ── action_log: nobody writes it directly; reads are scoped ──
+  FOR l IN SELECT * FROM (VALUES ('staff'), ('admin'), ('act_practitioner'), ('service')) v(who) LOOP
+    r2 := pg_temp.act_run(l.who, 'INSERT INTO public.action_log (org_id, action, actor_kind, ok) SELECT org_id, ''x'', ''person'', true FROM public.action_log LIMIT 1 RETURNING to_jsonb(action_log)', 0);
+    PERFORM pg_temp.act_chk(l.who || ': direct INSERT into action_log is denied', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+    r2 := pg_temp.act_run(l.who, 'UPDATE public.action_log SET ok = ok RETURNING to_jsonb(action_log)', 0);
+    PERFORM pg_temp.act_chk(l.who || ': direct UPDATE of action_log is denied', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+    r2 := pg_temp.act_run(l.who, 'DELETE FROM public.action_log RETURNING to_jsonb(action_log)', 0);
+    PERFORM pg_temp.act_chk(l.who || ': direct DELETE from action_log is denied', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+  END LOOP;
+  r2 := pg_temp.act_run('staff', 'INSERT INTO public.booking_flags (org_id, branch_id, booking_id, kind) SELECT org_id, branch_id, booking_id, ''not_confirmed'' FROM public.booking_flags LIMIT 1 RETURNING to_jsonb(booking_flags)', 0);
+  PERFORM pg_temp.act_chk('staff: direct INSERT into booking_flags is denied', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+  BEGIN DELETE FROM public.action_log WHERE id = (SELECT id FROM public.action_log LIMIT 1); r2 := '{"deleted":true}'; EXCEPTION WHEN OTHERS THEN r2 := jsonb_build_object('raised', SQLSTATE); END;
+  PERFORM pg_temp.act_chk('even the owner role cannot DELETE from action_log (append-only trigger)', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+  BEGIN UPDATE public.action_log SET inputs = '{}'::jsonb WHERE id = (SELECT id FROM public.action_log LIMIT 1); r2 := '{"updated":true}'; EXCEPTION WHEN OTHERS THEN r2 := jsonb_build_object('raised', SQLSTATE); END;
+  PERFORM pg_temp.act_chk('even the owner role cannot rewrite an action_log row (only the undo stamp can be set)', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+
+  SELECT count(*) INTO tot FROM action_log WHERE org_id = oa;
+  r2 := pg_temp.act_run('admin_viewer', 'SELECT jsonb_build_object(''n'', count(*)) FROM public.action_log', 0);
+  PERFORM pg_temp.act_chk('admin_viewer reads the whole org''s log', (r2 ->> 'n')::bigint = tot, format('saw %s of %s', r2 ->> 'n', tot));
+  r2 := pg_temp.act_run('admin', 'SELECT jsonb_build_object(''n'', count(*)) FROM public.action_log', 0);
+  PERFORM pg_temp.act_chk('admin reads the whole org''s log', (r2 ->> 'n')::bigint = tot, format('saw %s of %s', r2 ->> 'n', tot));
+  r2 := pg_temp.act_run('staff', 'SELECT jsonb_build_object(''n'', count(*)) FROM public.action_log', 0);
+  PERFORM pg_temp.act_chk('staff reads their branch''s log rows (some, and not the other org''s)', (r2 ->> 'n')::bigint > 0 AND (r2 ->> 'n')::bigint <= tot, format('saw %s of %s', r2 ->> 'n', tot));
+  r2 := pg_temp.act_run('act_practitioner', 'SELECT jsonb_build_object(''n'', count(*), ''foreign'', count(*) FILTER (WHERE target_id NOT IN (SELECT id FROM public.bookings WHERE dentist_id = public.get_user_dentist_id()))) FROM public.action_log', 0);
+  PERFORM pg_temp.act_chk('practitioner reads ONLY log rows about their own bookings', (r2 ->> 'n')::bigint > 0 AND (r2 ->> 'foreign')::bigint = 0 AND (r2 ->> 'n')::bigint < tot, format('saw %s, %s foreign, of %s', r2 ->> 'n', r2 ->> 'foreign', tot));
+  r2 := pg_temp.act_run('admin_of_OTHER_org', 'SELECT jsonb_build_object(''n'', count(*), ''ours'', count(*) FILTER (WHERE org_id <> (SELECT org_id FROM public.users WHERE id = auth.uid()))) FROM public.action_log', 0);
+  PERFORM pg_temp.act_chk('another org''s admin sees none of org A''s log', (r2 ->> 'ours')::bigint = 0, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('anon', 'SELECT jsonb_build_object(''n'', count(*)) FROM public.action_log', 0);
+  PERFORM pg_temp.act_chk('anon cannot read the log', pg_temp.act_code(r2) = 'raised:42501' OR (r2 ->> 'n')::bigint = 0, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('act_practitioner', 'SELECT jsonb_build_object(''n'', count(*)) FROM public.booking_flags', 0);
+  PERFORM pg_temp.act_chk('practitioner reads no booking_flags of bookings that are not theirs', (r2 ->> 'n')::bigint = 0, 'got ' || coalesce(r2::text, 'null'));
+
+  -- clean up everything this section created (the action_log rows stay until the final ROLLBACK: the log is append-only)
+  EXECUTE 'RESET ROLE';
+  DELETE FROM booking_flags WHERE org_id = oa;
+  DELETE FROM booking_dentists WHERE booking_id IN (b1, b2, b3, b4, b5, bR1, bR2, bD, bPaid, bX);
+  DELETE FROM bookings WHERE id IN (b1, b2, b3, b4, b5, bR1, bR2, bD, bPaid, bX);
+  DELETE FROM t_actor WHERE name = 'act_practitioner';
+  DELETE FROM public.users WHERE id = u_prac;
+  DELETE FROM auth.users WHERE id = u_prac;
+  DELETE FROM dentists WHERE id = d1b;
+  DELETE FROM chairs WHERE id = cz;
+END $act$;
+
+-- HUB-BEGIN
+-- ───────────────────────────── 3b2. COMMUNICATION HUB (migration-013) ─────────────────────────────
+-- Conversations, messages, consent, channel accounts and templates; the actions message.send / retry / receive and conversation.take_over / hand_back /
+-- assign / handoff, consent.record; the sender and delivery-status functions; the consent backfill. Reuses pg_temp.act_run / act_chk / act_code from the
+-- action-layer section above. Needs 011, 012 and 013, otherwise skipped. Seeds its own rows (two practitioners, a profile-holding manager, patients in
+-- two branches and in the other org, accounts, templates) and removes them at the end.
+DO $hub$
+DECLARE
+  oa uuid; ob uuid; a1 uuid; a2 uuid; b1 uuid; tr uuid; sfx text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+  u_staff uuid; u_mgr uuid; u_adm uuid; u_viewer uuid; u_adminb uuid;
+  u_p1 uuid := gen_random_uuid(); u_p2 uuid := gen_random_uuid(); u_prof uuid := gen_random_uuid(); u_staff2 uuid := gen_random_uuid(); u_staffb uuid;
+  d1 uuid; d2 uuid; dprof uuid; pat1 uuid; pat2 uuid; pat3 uuid; pat4 uuid; patb uuid; bk1 uuid; bk2 uuid; bk3 uuid; bkx uuid;
+  acc uuid; acc_wa uuid; acc_b uuid; acc_a2 uuid; acc_ak uuid; t_conf uuid; t_clin uuid; t_mkt uuid; t_bad uuid; t_ne uuid; t_conf_ne uuid;
+  r jsonb; r2 jsonb; l record; n bigint; x_id uuid; conv1 uuid; conv2 uuid; convu uuid; convb uuid; m1 uuid; m2 uuid; lt time; v_when timestamptz;
+  agent_ctx jsonb; rule_ctx jsonb; agent_appr jsonb; pat_ctx jsonb; patb_ctx jsonb; cnt_before bigint;
+BEGIN
+  IF to_regprocedure('public.act_message_send(uuid,uuid,text,uuid,text,jsonb,text,uuid,text,text,jsonb)') IS NULL OR to_regprocedure('public.act_undo(uuid,text,jsonb)') IS NULL THEN
+    INSERT INTO t_res VALUES ('HUB', '-', 'migration-013 checks', 'INFO', 'skipped: the communication hub (013) is not present');
+    RETURN;
+  END IF;
+  SELECT org, uid INTO oa, u_staff FROM t_actor WHERE name = 'staff';
+  SELECT uid INTO u_mgr FROM t_actor WHERE name = 'manager_2_branches'; SELECT uid INTO u_adm FROM t_actor WHERE name = 'admin'; SELECT uid INTO u_viewer FROM t_actor WHERE name = 'admin_viewer';
+  SELECT org, uid INTO ob, u_adminb FROM t_actor WHERE name = 'admin_of_OTHER_org';
+  SELECT s.pk::uuid INTO a1 FROM t_seed s JOIN branches b ON b.id = s.pk::uuid WHERE s.tbl = 'branches' AND s.org = oa AND b.name = 'A1';
+  SELECT s.pk::uuid INTO a2 FROM t_seed s JOIN branches b ON b.id = s.pk::uuid WHERE s.tbl = 'branches' AND s.org = oa AND b.name = 'A2';
+  SELECT s.pk::uuid INTO b1 FROM t_seed s JOIN branches b ON b.id = s.pk::uuid WHERE s.tbl = 'branches' AND s.org = ob AND b.name = 'B1';
+  SELECT s.pk::uuid INTO tr FROM t_seed s WHERE s.tbl = 'treatments' AND s.org = oa LIMIT 1;
+  SELECT uid INTO u_staffb FROM t_actor WHERE name = 'admin_of_OTHER_org';
+  agent_ctx := jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa);
+  rule_ctx := jsonb_build_object('actor_kind', 'rule', 'org_id', oa);
+  pat_ctx := jsonb_build_object('actor_kind', 'patient', 'org_id', oa);
+  patb_ctx := jsonb_build_object('actor_kind', 'patient', 'org_id', ob);
+
+  -- people: practitioner 1 (Dr A1x), practitioner 2 (Dr A1y), a MANAGER who also has a practitioner profile (Dr Owner), front desk of branch A2 only
+  INSERT INTO dentists (branch_id, name, gender, org_id) VALUES (a1, 'Dr Hub1', 'Male', oa) RETURNING id INTO d1;
+  INSERT INTO dentists (branch_id, name, gender, org_id) VALUES (a1, 'Dr Hub2', 'Female', oa) RETURNING id INTO d2;
+  INSERT INTO dentists (branch_id, name, gender, org_id) VALUES (a1, 'Dr Hub Owner', 'Male', oa) RETURNING id INTO dprof;
+  INSERT INTO auth.users (id, instance_id, aud, role, email, created_at, updated_at) VALUES
+    (u_p1, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-hubp1-' || sfx || '@test.invalid', now(), now()),
+    (u_p2, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-hubp2-' || sfx || '@test.invalid', now(), now()),
+    (u_prof, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-hubprof-' || sfx || '@test.invalid', now(), now()),
+    (u_staff2, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-hubs2-' || sfx || '@test.invalid', now(), now());
+  INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES
+    (u_p1, 'rls-hubp1-' || sfx || '@test.invalid', 'Hub Practitioner One', 'practitioner', a1, oa, true, d1),
+    (u_p2, 'rls-hubp2-' || sfx || '@test.invalid', 'Hub Practitioner Two', 'practitioner', a1, oa, true, d2),
+    (u_prof, 'rls-hubprof-' || sfx || '@test.invalid', 'Hub Owner Manager', 'manager', a1, oa, true, dprof),
+    (u_staff2, 'rls-hubs2-' || sfx || '@test.invalid', 'Hub Front Desk A2', 'staff', a2, oa, true, NULL);
+  INSERT INTO t_actor VALUES ('hub_p1', u_p1, oa, 'authenticated'), ('hub_p2', u_p2, oa, 'authenticated'), ('hub_prof', u_prof, oa, 'authenticated'), ('hub_staff_a2', u_staff2, oa, 'authenticated');
+
+  -- patients (phones are unique per org) and bookings: pat1 sees Dr Hub1 and the owner, pat2 sees Dr Hub2, pat3 is a branch A2 patient, pat4 has no phone
+  INSERT INTO customers (branch_id, full_name, org_id, phone, email) VALUES (a1, 'Hub Pat One', oa, '+9779801000001', NULL) RETURNING id INTO pat1;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Hub Pat Two', oa, '+9779801000002') RETURNING id INTO pat2;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a2, 'Hub Pat Three', oa, '+9779801000003') RETURNING id INTO pat3;
+  INSERT INTO customers (branch_id, full_name, org_id) VALUES (a1, 'Hub Pat Four', oa) RETURNING id INTO pat4;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (b1, 'Hub Pat B', ob, '+9779801000009') RETURNING id INTO patb;
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status, dentist_id, customer_phone)
+    VALUES (a1, tr, pat1, 'Hub Pat One', current_date + 30, '10:00', '10:30', (current_date + 30)::timestamp + time '10:00', (current_date + 30)::timestamp + time '10:30', 1000, 1000, 'Confirmed', d1, '+9779801000001') RETURNING id INTO bk1;
+  INSERT INTO booking_dentists (booking_id, dentist_id) VALUES (bk1, d1);
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status, dentist_id)
+    VALUES (a1, tr, pat1, 'Hub Pat One', current_date - 40, '10:00', '10:30', (current_date - 40)::timestamp + time '10:00', (current_date - 40)::timestamp + time '10:30', 1000, 1000, 'Completed', dprof) RETURNING id INTO bkx;
+  INSERT INTO booking_dentists (booking_id, dentist_id) VALUES (bkx, dprof);
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status, dentist_id)
+    VALUES (a1, tr, pat2, 'Hub Pat Two', current_date + 31, '10:00', '10:30', (current_date + 31)::timestamp + time '10:00', (current_date + 31)::timestamp + time '10:30', 1000, 1000, 'Confirmed', d2) RETURNING id INTO bk2;
+  INSERT INTO booking_dentists (booking_id, dentist_id) VALUES (bk2, d2);
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status)
+    VALUES (a2, tr, pat3, 'Hub Pat Three', current_date + 32, '10:00', '10:30', (current_date + 32)::timestamp + time '10:00', (current_date + 32)::timestamp + time '10:30', 1000, 1000, 'Pending') RETURNING id INTO bk3;
+
+  -- channel accounts (the test provider) and templates
+  INSERT INTO channel_accounts (org_id, channel, provider, sender, status, priority, credit_cost_npr) VALUES (oa, 'sms', 'test', '+9779700' || substr(sfx, 1, 1) || '000001', 'connected', 100, 1.5) RETURNING id INTO acc;
+  UPDATE channel_accounts SET sender = '+977970000' || lpad((random() * 9999)::int::text, 4, '0') WHERE id = acc;
+  INSERT INTO channel_accounts (org_id, channel, provider, sender, status, priority) VALUES (ob, 'sms', 'test', '+977971' || lpad((random() * 999999)::int::text, 6, '0'), 'connected', 100) RETURNING id INTO acc_b;
+  INSERT INTO message_templates (org_id, name, channel, language, body, purpose, clinical) VALUES
+    (oa, 'confirm-' || sfx, NULL, 'en', 'Hi {patient_name}, your {treatment} at {clinic} is on {date} at {time}.', 'service', false) RETURNING id INTO t_conf;
+  INSERT INTO message_templates (org_id, name, channel, language, body, purpose, clinical) VALUES
+    (oa, 'confirm-' || sfx, NULL, 'ne', 'नमस्ते {patient_name}, {clinic} मा तपाईंको समय {date} {time} बजे हो।', 'service', false) RETURNING id INTO t_conf_ne;
+  INSERT INTO message_templates (org_id, name, channel, language, body, purpose, clinical) VALUES
+    (oa, 'followup-' || sfx, NULL, 'en', 'How is your {treatment} healing, {patient_name}?', 'service', true) RETURNING id INTO t_clin;
+  INSERT INTO message_templates (org_id, name, channel, language, body, purpose, clinical) VALUES
+    (oa, 'promo-' || sfx, NULL, 'en', 'Hi {patient_name}, this month at {clinic}: free check-up.', 'marketing', false) RETURNING id INTO t_mkt;
+  INSERT INTO message_templates (org_id, name, channel, language, body, purpose, clinical) VALUES
+    (oa, 'bad-' || sfx, NULL, 'en', 'Hi {patient_name}, {nonsense_field}.', 'service', false) RETURNING id INTO t_bad;
+
+  -- consent as the backfill / front desk would have left it: pat1 and pat2 agreed to service SMS
+  INSERT INTO patient_channels (org_id, customer_id, channel, address, purpose, status, source, evidence) VALUES
+    (oa, pat1, 'sms', '+9779801000001', 'service', 'agreed', 'booking', 'Phone given when booking'),
+    (oa, pat2, 'sms', '+9779801000002', 'service', 'agreed', 'booking', 'Phone given when booking')
+  ON CONFLICT (org_id, channel, address, purpose) DO NOTHING;   -- 015's booking trigger may already have recorded these (same values)
+  DELETE FROM patient_channels WHERE customer_id = pat3;          -- pat3 is the 'no consent yet' patient: remove the row 015's booking trigger recorded for her booking
+
+  -- ═══ message.send ═══
+  r := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_template => %L, p_booking => %L)', pat1, t_conf, bk1));
+  m1 := (r #>> '{data,message_id}')::uuid; conv1 := (r #>> '{data,conversation_id}')::uuid;
+  PERFORM pg_temp.act_chk('send: staff sends a template to a patient with consent: queued, one log row', pg_temp.act_code(r) = 'ok' AND (SELECT status FROM messages WHERE id = m1) = 'queued'
+    AND (SELECT provider FROM messages WHERE id = m1) = 'test' AND (SELECT author_kind FROM messages WHERE id = m1) = 'person' AND (SELECT action_id FROM messages WHERE id = m1) = (r ->> 'action_id')::uuid, 'got ' || coalesce(r::text, 'null'));
+  PERFORM pg_temp.act_chk('send: the fields are filled by code from the booking (no literal {x} left)', (SELECT body FROM messages WHERE id = m1) LIKE 'Hi Hub Pat One, your %' AND (SELECT body FROM messages WHERE id = m1) NOT LIKE '%{%', (SELECT body FROM messages WHERE id = m1));
+  PERFORM pg_temp.act_chk('send: a new thread is created for the patient, in their branch, handled by the sender', (SELECT (customer_id, branch_id, state, handled_by, channel) FROM conversations WHERE id = conv1) = (pat1, a1, 'person'::text, u_staff, 'sms'::text), (SELECT row_to_json(c)::text FROM conversations c WHERE id = conv1));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_template => %L)', pat1, t_bad));
+  PERFORM pg_temp.act_chk('send: a placeholder with no value is refused (TEMPLATE_FIELD_MISSING), nothing queued', pg_temp.act_code(r2) = 'TEMPLATE_FIELD_MISSING' AND (SELECT count(*) FROM messages WHERE conversation_id = conv1 AND kind = 'message') = 1, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'')', pat3));
+  PERFORM pg_temp.act_chk('send: another branch''s patient is not found for front desk (PATIENT_NOT_FOUND)', pg_temp.act_code(r2) = 'PATIENT_NOT_FOUND', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'')', pat3));
+  PERFORM pg_temp.act_chk('send: no consent yet is refused (NO_CONSENT)', pg_temp.act_code(r2) = 'NO_CONSENT', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'')', pat4));
+  PERFORM pg_temp.act_chk('send: a patient with no phone (NO_ADDRESS)', pg_temp.act_code(r2) = 'NO_ADDRESS', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_template => %L)', pat1, t_mkt));
+  PERFORM pg_temp.act_chk('send: marketing needs its own explicit agreement (NO_CONSENT)', pg_temp.act_code(r2) = 'NO_CONSENT', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'', p_channel => ''whatsapp'')', pat1));
+  PERFORM pg_temp.act_chk('send: a channel with no connected account (CHANNEL_NOT_CONNECTED)', pg_temp.act_code(r2) = 'CHANNEL_NOT_CONNECTED', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L)', pat1));
+  PERFORM pg_temp.act_chk('send: neither text nor template (INVALID_INPUT)', pg_temp.act_code(r2) = 'INVALID_INPUT', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('admin_viewer', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'')', pat1));
+  PERFORM pg_temp.act_chk('send: admin_viewer cannot send (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('admin_of_OTHER_org', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'')', pat1));
+  PERFORM pg_temp.act_chk('send: another org''s admin cannot reach this patient (PATIENT_NOT_FOUND), logged in THEIR org', pg_temp.act_code(r2) = 'PATIENT_NOT_FOUND'
+    AND (SELECT org_id FROM action_log WHERE id = (r2 ->> 'action_id')::uuid) = ob, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('admin_of_OTHER_org', format('SELECT public.act_message_send(p_conversation => %L, p_text => ''Hello'')', conv1));
+  PERFORM pg_temp.act_chk('send: another org''s conversation id (CONVERSATION_NOT_FOUND)', pg_temp.act_code(r2) = 'CONVERSATION_NOT_FOUND', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('anon', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'')', pat1), 0);
+  PERFORM pg_temp.act_chk('send: anon cannot execute it', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('customer_no_staff_row', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'')', pat1), 0);
+  PERFORM pg_temp.act_chk('send: a signed-in patient (no users row) is refused (FORBIDDEN), nothing logged', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_template => %L, p_language => ''ne'', p_booking => %L)', pat1, t_conf, bk1));
+  PERFORM pg_temp.act_chk('send: the Nepali version of a template is used when asked for', pg_temp.act_code(r2) = 'ok' AND (SELECT body FROM messages WHERE id = (r2 #>> '{data,message_id}')::uuid) LIKE 'नमस्ते Hub Pat One%'
+    AND (SELECT language FROM messages WHERE id = (r2 #>> '{data,message_id}')::uuid) = 'ne', 'got ' || coalesce(r2::text, 'null'));
+
+  -- who sends what: the clinical rule, agents, rules, practitioners
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_template => %L, p_booking => %L)', pat1, t_clin, bk1));
+  PERFORM pg_temp.act_chk('clinical: front desk cannot send a clinical template (CLINICAL_TEMPLATE)', pg_temp.act_code(r2) = 'CLINICAL_TEMPLATE', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('admin', format('SELECT public.act_message_send(p_customer => %L, p_template => %L, p_booking => %L)', pat1, t_clin, bk1));
+  PERFORM pg_temp.act_chk('clinical: neither can an admin without a practitioner profile', pg_temp.act_code(r2) = 'CLINICAL_TEMPLATE', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_p1', format('SELECT public.act_message_send(p_customer => %L, p_template => %L, p_booking => %L)', pat1, t_clin, bk1));
+  PERFORM pg_temp.act_chk('clinical: the practitioner of this patient can', pg_temp.act_code(r2) = 'ok', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_p1', format('SELECT public.act_message_send(p_customer => %L, p_template => %L)', pat2, t_clin));
+  PERFORM pg_temp.act_chk('clinical: a practitioner cannot reach another practitioner''s patient (PATIENT_NOT_FOUND)', pg_temp.act_code(r2) = 'PATIENT_NOT_FOUND', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_prof', format('SELECT public.act_message_send(p_customer => %L, p_template => %L, p_booking => %L)', pat1, t_clin, bkx));
+  PERFORM pg_temp.act_chk('clinical: a MANAGER with a practitioner profile can, to their own patient', pg_temp.act_code(r2) = 'ok', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_prof', format('SELECT public.act_message_send(p_customer => %L, p_template => %L)', pat2, t_clin));
+  PERFORM pg_temp.act_chk('clinical: ...but not to a patient who is not theirs (CLINICAL_TEMPLATE)', pg_temp.act_code(r2) = 'CLINICAL_TEMPLATE', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_send(p_customer => %L, p_template => %L, p_ctx => %L::jsonb)', pat1, t_clin, agent_ctx || jsonb_build_object('approved_by', u_adm)));
+  PERFORM pg_temp.act_chk('clinical: an agent never sends one, even with approval (CLINICAL_TEMPLATE)', pg_temp.act_code(r2) = 'CLINICAL_TEMPLATE', 'got ' || coalesce(r2::text, 'null'));
+  r := pg_temp.act_run('service', format('SELECT public.act_message_send(p_customer => %L, p_template => %L, p_booking => %L, p_ctx => %L::jsonb)', pat1, t_conf, bk1, agent_ctx));
+  SELECT * INTO l FROM action_log WHERE id = (r ->> 'action_id')::uuid;
+  PERFORM pg_temp.act_chk('agent: a service message from a template needs no approval; logged as the agent', pg_temp.act_code(r) = 'ok' AND l.actor_kind = 'agent' AND l.actor_agent = 'follow_up'
+    AND (SELECT author_kind FROM messages WHERE id = (r #>> '{data,message_id}')::uuid) = 'agent', 'got ' || coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Free text'', p_ctx => %L::jsonb)', pat1, agent_ctx));
+  PERFORM pg_temp.act_chk('agent: free text needs approval (APPROVAL_REQUIRED)', pg_temp.act_code(r2) = 'APPROVAL_REQUIRED', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Free text'', p_ctx => %L::jsonb)', pat1, agent_ctx || jsonb_build_object('approved_by', u_adm)));
+  PERFORM pg_temp.act_chk('agent: free text with approval works, and logs approved_by', pg_temp.act_code(r2) = 'ok' AND (SELECT approved_by FROM action_log WHERE id = (r2 ->> 'action_id')::uuid) = u_adm, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_send(p_customer => %L, p_template => %L, p_ctx => %L::jsonb)', pat1, t_mkt, agent_ctx));
+  PERFORM pg_temp.act_chk('agent: marketing needs approval (APPROVAL_REQUIRED)', pg_temp.act_code(r2) = 'APPROVAL_REQUIRED', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hi'', p_ctx => %L::jsonb)', pat1, rule_ctx));
+  PERFORM pg_temp.act_chk('rule: free text is refused (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_send(p_customer => %L, p_template => %L, p_booking => %L, p_ctx => %L::jsonb)', pat1, t_conf, bk1, rule_ctx));
+  PERFORM pg_temp.act_chk('rule: a service template works', pg_temp.act_code(r2) = 'ok', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_p1', format('SELECT public.act_message_send(p_customer => %L, p_template => %L, p_booking => %L)', pat1, t_conf, bk1));
+  PERFORM pg_temp.act_chk('practitioner: a service template to their own patient works', pg_temp.act_code(r2) = 'ok', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('forged', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hi'', p_ctx => %L::jsonb)', pat1, agent_ctx));
+  SELECT * INTO l FROM action_log WHERE id = (r2 ->> 'action_id')::uuid;
+  PERFORM pg_temp.act_chk('forged service_role claim: logged as the signed-in person, p_ctx ignored', l.actor_kind = 'person' AND l.actor_agent IS NULL, row_to_json(l)::text);
+
+  -- fallback order and per-branch accounts
+  INSERT INTO channel_accounts (org_id, channel, provider, sender, status, priority) VALUES (oa, 'whatsapp', 'test', '+977972' || lpad((random() * 999999)::int::text, 6, '0'), 'connected', 10) RETURNING id INTO acc_wa;
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'')', pat1));
+  PERFORM pg_temp.act_chk('fallback: whatsapp comes first by priority but has no consent, so sms is used', pg_temp.act_code(r2) = 'ok' AND r2 #>> '{data,channel}' = 'sms', 'got ' || coalesce(r2::text, 'null'));
+  INSERT INTO patient_channels (org_id, customer_id, channel, address, purpose, status, source, evidence) VALUES (oa, pat1, 'whatsapp', '+9779801000001', 'service', 'agreed', 'front_desk', 'Agreed at the front desk');
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'')', pat1));
+  PERFORM pg_temp.act_chk('fallback: once whatsapp is agreed, the lower priority number wins', pg_temp.act_code(r2) = 'ok' AND r2 #>> '{data,channel}' = 'whatsapp', 'got ' || coalesce(r2::text, 'null'));
+  UPDATE channel_accounts SET status = 'not_connected' WHERE id = acc_wa;
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'')', pat1));
+  PERFORM pg_temp.act_chk('fallback: a not-connected account is skipped', pg_temp.act_code(r2) = 'ok' AND r2 #>> '{data,channel}' = 'sms', 'got ' || coalesce(r2::text, 'null'));
+  INSERT INTO channel_accounts (org_id, branch_id, channel, provider, sender, status, priority) VALUES (oa, a2, 'whatsapp', 'test', '+977973' || lpad((random() * 999999)::int::text, 6, '0'), 'connected', 1) RETURNING id INTO acc_a2;
+  UPDATE channel_accounts SET status = 'connected' WHERE id = acc_wa;
+  UPDATE channel_accounts SET status = 'not_connected' WHERE id = acc_wa;
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'')', pat1));
+  PERFORM pg_temp.act_chk('accounts: another branch''s own account is not used for a branch A1 patient', pg_temp.act_code(r2) = 'ok' AND r2 #>> '{data,channel}' = 'sms', 'got ' || coalesce(r2::text, 'null'));
+  DELETE FROM channel_accounts WHERE id = acc_a2;
+
+  -- ═══ quiet hours ═══
+  lt := (now() AT TIME ZONE 'Asia/Kathmandu')::time;
+  UPDATE channel_accounts SET quiet_start = lt - interval '1 hour', quiet_end = lt + interval '1 hour' WHERE id = acc;
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'')', pat1));
+  PERFORM pg_temp.act_chk('quiet hours: refused by default (QUIET_HOURS), nothing queued', pg_temp.act_code(r2) = 'QUIET_HOURS', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Deferred hello'', p_on_quiet_hours => ''defer'')', pat1));
+  m2 := (r2 #>> '{data,message_id}')::uuid;
+  PERFORM pg_temp.act_chk('quiet hours: "defer" queues it for the end of the window', pg_temp.act_code(r2) = 'ok' AND (SELECT scheduled_for FROM messages WHERE id = m2) > now() + interval '30 minutes' AND (r2 #>> '{data,deferred}')::boolean, 'got ' || coalesce(r2::text, 'null'));
+  UPDATE messages SET scheduled_for = now() - interval '1 minute' WHERE id = m2;   -- pretend the window ended; the worker re-checks at claim time
+  r2 := pg_temp.act_run('service', 'SELECT coalesce(jsonb_agg(c.id), ''[]''::jsonb) FROM public.hub_claim_messages(50) c', 0);
+  PERFORM pg_temp.act_chk('quiet hours: the worker re-checks at claim time and pushes it past the window instead of sending', NOT (r2 @> to_jsonb(m2::text)) AND (SELECT status FROM messages WHERE id = m2) = 'queued' AND (SELECT scheduled_for FROM messages WHERE id = m2) > now(), 'claimed: ' || coalesce(r2::text, 'null'));
+  UPDATE channel_accounts SET quiet_start = NULL, quiet_end = NULL WHERE id = acc;
+  UPDATE channel_accounts SET quiet_start = lt + interval '2 hours', quiet_end = lt + interval '3 hours' WHERE id = acc;
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Outside the window'')', pat1));
+  PERFORM pg_temp.act_chk('quiet hours: outside the window (and across midnight) is fine', pg_temp.act_code(r2) = 'ok', 'got ' || coalesce(r2::text, 'null'));
+  UPDATE channel_accounts SET quiet_start = NULL, quiet_end = NULL WHERE id = acc;
+  UPDATE messages SET scheduled_for = now() - interval '1 minute' WHERE id IN (m1, m2);   -- the claim above pushed both past the quiet window
+
+  -- ═══ the sender: claim, result, stale, delivery status ═══
+  UPDATE messages SET status = 'cancelled' WHERE conversation_id = conv1 AND direction = 'out' AND kind = 'message' AND id <> m1 AND id <> m2;   -- keep this part small
+  r2 := pg_temp.act_run('service', 'SELECT coalesce(jsonb_agg(c.id), ''[]''::jsonb) FROM public.hub_claim_messages(50) c', 0);
+  PERFORM pg_temp.act_chk('claim: a due queued message is handed to the sender and set to sending ', r2 @> to_jsonb(m2::text) AND (SELECT status FROM messages WHERE id = m2) = 'sending' AND (SELECT status FROM messages WHERE id = m1) = 'sending', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', 'SELECT coalesce(jsonb_agg(c.id), ''[]''::jsonb) FROM public.hub_claim_messages(50) c', 0);
+  PERFORM pg_temp.act_chk('claim: a second claim gets nothing (a claimed message is never handed out twice)', r2 = '[]'::jsonb, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', 'SELECT coalesce(jsonb_agg(c.id), ''[]''::jsonb) FROM public.hub_claim_messages(50) c', 0);
+  PERFORM pg_temp.act_chk('claim: only the service role can call it', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT to_jsonb(public.hub_record_send_result(%L, true, ''prov-1'', 2, NULL))', m1), 0);
+  PERFORM pg_temp.act_chk('result: ok -> sent with the provider id, credits and cost (credits x the account''s price)', r2 = 'true'::jsonb AND (SELECT (status, provider_message_id, credits, cost_npr) FROM messages WHERE id = m1) = ('sent'::text, 'prov-1'::text, 2.00::numeric, 3.0000::numeric), (SELECT row_to_json(m)::text FROM messages m WHERE id = m1));
+  r2 := pg_temp.act_run('service', format('SELECT to_jsonb(public.hub_record_send_result(%L, false, NULL, NULL, ''Not enough balance.''))', m2), 0);
+  PERFORM pg_temp.act_chk('result: a failure is recorded with its error', (SELECT (status, error) FROM messages WHERE id = m2) = ('failed'::text, 'Not enough balance.'::text), (SELECT row_to_json(m)::text FROM messages m WHERE id = m2));
+  r2 := pg_temp.act_run('service', format('SELECT to_jsonb(public.hub_record_send_result(%L, true, ''prov-x'', 1, NULL))', m1), 0);
+  PERFORM pg_temp.act_chk('result: only a message in "sending" can be recorded (a second result is ignored)', r2 = 'false'::jsonb, 'got ' || coalesce(r2::text, 'null'));
+
+  -- delivery receipts only move forward
+  r2 := pg_temp.act_run('service', format('SELECT to_jsonb(public.hub_apply_delivery_status(%L, ''prov-1'', ''delivered'', now(), NULL))', acc), 0);
+  PERFORM pg_temp.act_chk('status: sent -> delivered', r2 = '"updated"'::jsonb AND (SELECT status FROM messages WHERE id = m1) = 'delivered' AND (SELECT delivered_at FROM messages WHERE id = m1) IS NOT NULL, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT to_jsonb(public.hub_apply_delivery_status(%L, ''prov-1'', ''sent'', now(), NULL))', acc), 0);
+  PERFORM pg_temp.act_chk('status: a late "sent" never moves it backwards', r2 = '"ignored"'::jsonb AND (SELECT status FROM messages WHERE id = m1) = 'delivered', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT to_jsonb(public.hub_apply_delivery_status(%L, ''prov-1'', ''failed'', now(), ''late''))', acc), 0);
+  PERFORM pg_temp.act_chk('status: a "failed" after delivery is ignored', r2 = '"ignored"'::jsonb AND (SELECT status FROM messages WHERE id = m1) = 'delivered', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT to_jsonb(public.hub_apply_delivery_status(%L, ''prov-1'', ''read'', now(), NULL))', acc), 0);
+  PERFORM pg_temp.act_chk('status: delivered -> read', r2 = '"updated"'::jsonb AND (SELECT status FROM messages WHERE id = m1) = 'read', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT to_jsonb(public.hub_apply_delivery_status(%L, ''no-such-id'', ''delivered'', now(), NULL))', acc), 0);
+  PERFORM pg_temp.act_chk('status: an unknown provider id is "not_found"', r2 = '"not_found"'::jsonb, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT to_jsonb(public.hub_apply_delivery_status(%L, ''prov-1'', ''read'', now(), NULL))', acc), 0);
+  PERFORM pg_temp.act_chk('status: only the service role can report delivery', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+
+  -- stale "sending": an idempotent provider is re-queued, any other is failed as "outcome unknown", never re-sent
+  INSERT INTO messages (org_id, conversation_id, direction, kind, body, author_kind, status, channel_account_id, provider, purpose) VALUES
+    (oa, conv1, 'out', 'message', 'stale test', 'person', 'sending', acc, 'test', 'service') RETURNING id INTO x_id;
+  INSERT INTO messages (org_id, conversation_id, direction, kind, body, author_kind, status, channel_account_id, provider, purpose) VALUES
+    (oa, conv1, 'out', 'message', 'stale aakash', 'person', 'sending', acc, 'aakash', 'service') RETURNING id INTO m2;
+  ALTER TABLE public.messages DISABLE TRIGGER trg_messages_updated_at;
+  UPDATE messages SET updated_at = now() - interval '11 minutes' WHERE id IN (x_id, m2);
+  ALTER TABLE public.messages ENABLE TRIGGER trg_messages_updated_at;
+  r2 := pg_temp.act_run('service', 'SELECT coalesce(jsonb_agg(c.id), ''[]''::jsonb) FROM public.hub_claim_messages(50) c', 0);
+  PERFORM pg_temp.act_chk('stale: a test-provider message stuck in "sending" is re-queued (and then claimed again)', r2 @> to_jsonb(x_id::text), 'got ' || coalesce(r2::text, 'null'));
+  PERFORM pg_temp.act_chk('stale: a non-idempotent provider''s message becomes failed "outcome unknown", and is NOT handed out again', (SELECT (status, error) FROM messages WHERE id = m2) = ('failed'::text, 'outcome unknown: check the provider report'::text) AND NOT (r2 @> to_jsonb(m2::text)), (SELECT row_to_json(m)::text FROM messages m WHERE id = m2));
+  UPDATE messages SET status = 'cancelled' WHERE id = x_id;
+  r2 := pg_temp.act_run('service', format('SELECT coalesce(jsonb_agg(p.provider_message_id), ''[]''::jsonb) FROM public.hub_pending_delivery(%L) p', acc), 0);
+  PERFORM pg_temp.act_chk('poll: hub_pending_delivery lists only "sent" messages that have a provider id', NOT (r2 @> to_jsonb('prov-1'::text)), 'got ' || coalesce(r2::text, 'null'));
+
+  -- ═══ message.retry ═══
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_retry(%L)', m1));
+  PERFORM pg_temp.act_chk('retry: only a failed message can be retried (NOT_FAILED)', pg_temp.act_code(r2) = 'NOT_FAILED', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_retry(%L)', m2));
+  PERFORM pg_temp.act_chk('retry: a failed message is re-queued as a NEW row linked by meta.retry_of; the old row stays failed', pg_temp.act_code(r2) = 'ok'
+    AND (SELECT status FROM messages WHERE id = m2) = 'failed' AND (r2 #>> '{data,message_id}')::uuid <> m2 AND (SELECT meta ->> 'retry_of' FROM messages WHERE id = (r2 #>> '{data,message_id}')::uuid) = m2::text
+    AND (SELECT body FROM messages WHERE id = (r2 #>> '{data,message_id}')::uuid) = 'stale aakash', 'got ' || coalesce(r2::text, 'null'));
+  r := r2;
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_retry(%L)', m2));
+  PERFORM pg_temp.act_chk('retry: a message already retried cannot be retried again (ALREADY_RETRIED)', pg_temp.act_code(r2) = 'ALREADY_RETRIED', 'got ' || coalesce(r2::text, 'null'));
+  UPDATE messages SET status = 'failed', error = 'x' WHERE id = (r #>> '{data,message_id}')::uuid;
+  UPDATE channel_accounts SET status = 'connected' WHERE id = acc_wa;
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_retry(%L, ''whatsapp'')', (r #>> '{data,message_id}')::uuid));
+  PERFORM pg_temp.act_chk('retry: on another channel (the owner''s "Send by SMS" board in reverse) it creates the thread there and re-checks consent', pg_temp.act_code(r2) = 'ok' AND r2 #>> '{data,channel}' = 'whatsapp', 'got ' || coalesce(r2::text, 'null'));
+  UPDATE channel_accounts SET status = 'not_connected' WHERE id = acc_wa;
+  r2 := pg_temp.act_run('admin_of_OTHER_org', format('SELECT public.act_message_retry(%L)', m2));
+  PERFORM pg_temp.act_chk('retry: another org''s message (MESSAGE_NOT_FOUND)', pg_temp.act_code(r2) = 'MESSAGE_NOT_FOUND', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('admin_viewer', format('SELECT public.act_message_retry(%L)', m2));
+  PERFORM pg_temp.act_chk('retry: admin_viewer cannot (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN' OR pg_temp.act_code(r2) = 'ALREADY_RETRIED', 'got ' || coalesce(r2::text, 'null'));
+
+  -- ═══ STOP and START (message.receive) ═══
+  r := pg_temp.act_run('service', format('SELECT public.act_message_receive(%L, ''+977 980-1000001'', ''Thanks, see you'', ''in-1'', NULL, %L::jsonb)', acc, pat_ctx));
+  convb := (r #>> '{data,conversation_id}')::uuid;
+  PERFORM pg_temp.act_chk('receive: a reply from a patient lands in the same thread (matched by normalised phone), logged as the patient', pg_temp.act_code(r) = 'ok' AND convb = conv1 AND (r #>> '{data,matched}')::boolean
+    AND (SELECT actor_kind FROM action_log WHERE id = (r ->> 'action_id')::uuid) = 'patient' AND (SELECT (direction, author_kind, status) FROM messages WHERE id = (r #>> '{data,message_id}')::uuid) = ('in'::text, 'patient'::text, 'delivered'::text), 'got ' || coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_receive(%L, ''+977 980-1000001'', ''Thanks, see you'', ''in-1'', NULL, %L::jsonb)', acc, pat_ctx));
+  PERFORM pg_temp.act_chk('receive: the same provider message id again is a duplicate, nothing inserted twice', pg_temp.act_code(r2) = 'ok' AND (r2 #>> '{data,duplicate}')::boolean
+    AND (SELECT count(*) FROM messages WHERE channel_account_id = acc AND provider_message_id = 'in-1') = 1, 'got ' || coalesce(r2::text, 'null'));
+  UPDATE messages SET status = 'cancelled' WHERE conversation_id = conv1 AND direction = 'out' AND kind = 'message' AND status IN ('queued', 'sending');
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_receive(%L, ''9801000001'', ''Please cancel my appointment'', ''in-2'', NULL, %L::jsonb)', acc, pat_ctx));
+  PERFORM pg_temp.act_chk('receive: "cancel my appointment" is NOT a stop word', pg_temp.act_code(r2) = 'ok' AND r2 #>> '{data,keyword}' IS NULL AND (SELECT status FROM patient_channels WHERE org_id = oa AND address = '+9779801000001' AND channel = 'sms' AND purpose = 'service') = 'agreed', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_receive(%L, ''9801000001'', ''cancel'', ''in-2b'', NULL, %L::jsonb)', acc, pat_ctx));
+  PERFORM pg_temp.act_chk('receive: a bare "cancel" is not a stop word either', r2 #>> '{data,keyword}' IS NULL AND (SELECT status FROM patient_channels WHERE org_id = oa AND address = '+9779801000001' AND channel = 'sms' AND purpose = 'service') = 'agreed', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_receive(%L, ''9801000001'', '' Stop. '', ''in-3'', NULL, %L::jsonb)', acc, pat_ctx));
+  PERFORM pg_temp.act_chk('STOP: both purposes become stopped, with an event line and ONE queued confirmation reply', pg_temp.act_code(r2) = 'ok' AND r2 #>> '{data,keyword}' = 'stop'
+    AND (SELECT count(*) FROM patient_channels WHERE org_id = oa AND address = '+9779801000001' AND channel = 'sms' AND status = 'stopped' AND source = 'patient_reply') = 2
+    AND EXISTS (SELECT 1 FROM messages WHERE conversation_id = conv1 AND event_type = 'stop_recorded')
+    AND (SELECT count(*) FROM messages WHERE conversation_id = conv1 AND meta ->> 'opt_out_confirmation' = 'true' AND status = 'queued') = 1, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_template => %L, p_booking => %L)', pat1, t_conf, bk1));
+  PERFORM pg_temp.act_chk('STOP: the next send is refused with STOPPED', pg_temp.act_code(r2) = 'STOPPED', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_receive(%L, ''9801000001'', ''STOP'', ''in-4'', NULL, %L::jsonb)', acc, pat_ctx));
+  PERFORM pg_temp.act_chk('STOP: a second STOP sends no second confirmation', (SELECT count(*) FROM messages WHERE conversation_id = conv1 AND meta ->> 'opt_out_confirmation' = 'true') = 1, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', 'SELECT coalesce(jsonb_agg(c.body), ''[]''::jsonb) FROM public.hub_claim_messages(50) c', 0);
+  PERFORM pg_temp.act_chk('STOP: the confirmation reply IS sent to the stopped number (the only message allowed there)', r2::text LIKE '%no longer receive%', 'got ' || coalesce(r2::text, 'null'));
+  UPDATE patient_channels SET status = 'stopped', source = 'patient_reply' WHERE org_id = oa AND address = '+9779801000001' AND channel = 'sms';
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_consent_record(p_customer => %L, p_evidence => ''Agreed at the front desk, 4 Feb'')', pat1));
+  PERFORM pg_temp.act_chk('STOP: plain front desk CANNOT un-stop a number (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN' AND (SELECT status FROM patient_channels WHERE org_id = oa AND address = '+9779801000001' AND channel = 'sms' AND purpose = 'service') = 'stopped', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_consent_record(p_customer => %L, p_evidence => ''ok'')', pat1));
+  PERFORM pg_temp.act_chk('STOP: a manager needs real evidence to record a new agreement (FORBIDDEN when it is too short)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_consent_record(p_customer => %L, p_evidence => ''Signed paper form, 5 Feb, checked by the manager'')', pat1));
+  PERFORM pg_temp.act_chk('STOP: a manager with written evidence can record a new agreement', pg_temp.act_code(r2) = 'ok' AND (SELECT (status, source) FROM patient_channels WHERE org_id = oa AND address = '+9779801000001' AND channel = 'sms' AND purpose = 'service') = ('agreed'::text, 'front_desk'::text), 'got ' || coalesce(r2::text, 'null'));
+  UPDATE patient_channels SET status = 'stopped', source = 'patient_reply' WHERE org_id = oa AND address = '+9779801000001' AND channel = 'sms';
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_receive(%L, ''9801000001'', ''START'', ''in-5'', NULL, %L::jsonb)', acc, pat_ctx));
+  PERFORM pg_temp.act_chk('START: the patient''s own START brings service messages back; marketing goes to "not asked", never to agreed', pg_temp.act_code(r2) = 'ok' AND r2 #>> '{data,keyword}' = 'start'
+    AND (SELECT status FROM patient_channels WHERE org_id = oa AND address = '+9779801000001' AND channel = 'sms' AND purpose = 'service') = 'agreed'
+    AND (SELECT status FROM patient_channels WHERE org_id = oa AND address = '+9779801000001' AND channel = 'sms' AND purpose = 'marketing') = 'not_asked', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_template => %L, p_booking => %L)', pat1, t_conf, bk1));
+  PERFORM pg_temp.act_chk('START: a send is allowed again', pg_temp.act_code(r2) = 'ok', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_receive(%L, ''9801000002'', ''रोक'', ''in-6'', NULL, %L::jsonb)', acc, pat_ctx));
+  PERFORM pg_temp.act_chk('STOP in Nepali (रोक) works, the confirmation is in Nepali, and it does not touch another number''s consent', pg_temp.act_code(r2) = 'ok' AND r2 #>> '{data,keyword}' = 'stop'
+    AND (SELECT status FROM patient_channels WHERE org_id = oa AND address = '+9779801000002' AND channel = 'sms' AND purpose = 'service') = 'stopped'
+    AND (SELECT status FROM patient_channels WHERE org_id = oa AND address = '+9779801000001' AND channel = 'sms' AND purpose = 'service') = 'agreed'
+    AND EXISTS (SELECT 1 FROM messages WHERE meta ->> 'opt_out_confirmation' = 'true' AND language = 'ne' AND body LIKE 'तपाईंले%'), 'got ' || coalesce(r2::text, 'null'));
+  UPDATE patient_channels SET status = 'agreed' WHERE org_id = oa AND address = '+9779801000002' AND channel = 'sms';
+  UPDATE messages SET status = 'cancelled' WHERE org_id = oa AND status IN ('queued', 'sending') AND direction = 'out' AND kind = 'message';
+
+  -- a message queued, then the patient says STOP before it is sent: cancelled at claim time
+  r := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Reminder'')', pat2));
+  m2 := (r #>> '{data,message_id}')::uuid;
+  PERFORM pg_temp.act_run('service', format('SELECT public.act_message_receive(%L, ''9801000002'', ''STOP'', ''in-7'', NULL, %L::jsonb)', acc, pat_ctx));
+  r2 := pg_temp.act_run('service', 'SELECT coalesce(jsonb_agg(c.id), ''[]''::jsonb) FROM public.hub_claim_messages(50) c', 0);
+  PERFORM pg_temp.act_chk('STOP between queue and send: the queued message is cancelled, not sent', (SELECT (status, error) FROM messages WHERE id = m2) = ('cancelled'::text, 'cancelled: the patient replied STOP before this was sent'::text) AND NOT (r2 @> to_jsonb(m2::text)), (SELECT row_to_json(m)::text FROM messages m WHERE id = m2));
+  UPDATE patient_channels SET status = 'agreed' WHERE org_id = oa AND address = '+9779801000002' AND channel = 'sms';
+
+  -- ═══ inbound from a number that is not a patient ═══
+  r := pg_temp.act_run('service', format('SELECT public.act_message_receive(%L, ''+977 980-5512345'', ''Hello, do you do braces?'', ''in-u1'', NULL, %L::jsonb)', acc, pat_ctx));
+  convu := (r #>> '{data,conversation_id}')::uuid;
+  PERFORM pg_temp.act_chk('unknown number: a thread with no patient and no branch is created ("No patient match")', pg_temp.act_code(r) = 'ok' AND NOT (r #>> '{data,matched}')::boolean AND (SELECT (customer_id IS NULL, branch_id IS NULL, state) FROM conversations WHERE id = convu) = (true, true, 'agent'::text), 'got ' || coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.conversations WHERE id = %L', convu), 0);
+  PERFORM pg_temp.act_chk('unknown number: front desk of branch A1 can see it', (r2 ->> 'n')::int = 1, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_staff_a2', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.conversations WHERE id = %L', convu), 0);
+  PERFORM pg_temp.act_chk('unknown number: so can front desk of ANY other branch', (r2 ->> 'n')::int = 1, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_p1', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.conversations WHERE id = %L', convu), 0);
+  PERFORM pg_temp.act_chk('unknown number: a practitioner cannot', (r2 ->> 'n')::int = 0, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('admin_of_OTHER_org', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.conversations WHERE id = %L', convu), 0);
+  PERFORM pg_temp.act_chk('unknown number: another org cannot', (r2 ->> 'n')::int = 0, 'got ' || coalesce(r2::text, 'null'));
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a2, 'Hub Newly Registered', oa, '+9779805512345') RETURNING id INTO x_id;
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_receive(%L, ''9805512345'', ''I booked now'', ''in-u2'', NULL, %L::jsonb)', acc, pat_ctx));
+  PERFORM pg_temp.act_chk('unknown number: once the number belongs to a patient, the thread is linked to them and takes their branch', pg_temp.act_code(r2) = 'ok'
+    AND (r2 #>> '{data,conversation_id}')::uuid = convu AND (SELECT (customer_id, branch_id) FROM conversations WHERE id = convu) = (x_id, a2), 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_receive(%L, ''9805512345'', ''STOP'', ''in-u3'', NULL, %L::jsonb)', acc, pat_ctx));
+  PERFORM pg_temp.act_chk('STOP from a number that was not a patient is stored by ADDRESS and linked to the patient once known', (SELECT (customer_id, status) FROM patient_channels WHERE org_id = oa AND address = '+9779805512345' AND purpose = 'service' AND channel = 'sms') = (x_id, 'stopped'::text), 'got ' || coalesce(r2::text, 'null'));
+  UPDATE conversations SET state = 'closed' WHERE id = conv1;
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_receive(%L, ''9801000001'', ''Hello again'', ''in-8'', NULL, %L::jsonb)', acc, pat_ctx));
+  PERFORM pg_temp.act_chk('a closed thread is reopened by an inbound message', (r2 #>> '{data,reopened}')::boolean AND (SELECT state FROM conversations WHERE id = conv1) IN ('agent', 'needs_person'), 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_message_receive(%L, ''9801000001'', ''spoof'', ''in-x'', NULL, %L::jsonb)', acc, pat_ctx), 0);
+  PERFORM pg_temp.act_chk('receive: a signed-in user cannot record an incoming message (FORBIDDEN)', pg_temp.act_code(r2) IN ('raised:42501', 'FORBIDDEN'), 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('forged', format('SELECT public.act_message_receive(%L, ''9801000001'', ''spoof'', ''in-y'', NULL, %L::jsonb)', acc, pat_ctx), 0);
+  PERFORM pg_temp.act_chk('receive: a forged service_role claim is not enough', pg_temp.act_code(r2) IN ('raised:42501', 'FORBIDDEN') AND NOT EXISTS (SELECT 1 FROM messages WHERE provider_message_id = 'in-y'), 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('anon', format('SELECT public.act_message_receive(%L, ''9801000001'', ''spoof'', ''in-z'', NULL, %L::jsonb)', acc, pat_ctx), 0);
+  PERFORM pg_temp.act_chk('receive: anon cannot execute it', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_receive(%L, ''9801000001'', ''hi'', ''in-w'', NULL, %L::jsonb)', acc, patb_ctx));
+  PERFORM pg_temp.act_chk('receive: an account of another org (ACCOUNT_NOT_FOUND)', pg_temp.act_code(r2) = 'ACCOUNT_NOT_FOUND', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_message_receive(%L, ''9801000001'', '''', ''in-v'', NULL, %L::jsonb)', acc, pat_ctx));
+  PERFORM pg_temp.act_chk('receive: an empty text (INVALID_INPUT)', pg_temp.act_code(r2) = 'INVALID_INPUT', 'got ' || coalesce(r2::text, 'null'));
+
+  -- the webhook helpers
+  r2 := pg_temp.act_run('service', format('SELECT to_jsonb(f) FROM public.hub_find_account(''test'', (SELECT sender FROM public.channel_accounts WHERE id = %L)) f', acc), 0);
+  PERFORM pg_temp.act_chk('webhook: hub_find_account finds the account by provider and recipient', (r2 ->> 'id')::uuid = acc, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT to_jsonb(f) FROM public.hub_find_account(''aakash'', (SELECT sender FROM public.channel_accounts WHERE id = %L)) f', acc), 0);
+  PERFORM pg_temp.act_chk('webhook: ...and not under another provider', r2 IS NULL OR r2 = 'null'::jsonb, 'got ' || coalesce(r2::text, 'null'));
+  cnt_before := 0;
+  FOR n IN 1..60 LOOP
+    IF (pg_temp.act_run('service', format('SELECT to_jsonb(public.hub_rate_check(%L, 60))', acc), 0)) = 'true'::jsonb THEN cnt_before := cnt_before + 1; END IF;
+  END LOOP;
+  r2 := pg_temp.act_run('service', format('SELECT to_jsonb(public.hub_rate_check(%L, 60))', acc), 0);
+  PERFORM pg_temp.act_chk('rate limit: 60 per minute are accepted, the 61st is dropped and counted', cnt_before = 60 AND r2 = 'false'::jsonb AND (SELECT dropped FROM hub_inbound_rate WHERE channel_account_id = acc ORDER BY bucket DESC LIMIT 1) >= 1, 'accepted ' || cnt_before || ', then ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT to_jsonb(public.hub_rate_check(%L, 60))', acc), 0);
+  PERFORM pg_temp.act_chk('rate limit: only the service role can call it', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+
+  -- ═══ conversation actions ═══
+  UPDATE conversations SET state = 'agent', handled_by = NULL, needs_person_since = NULL WHERE id = conv1;
+  r := pg_temp.act_run('staff', format('SELECT public.act_conversation_take_over(%L)', conv1));
+  PERFORM pg_temp.act_chk('take over: the person becomes handled_by, state person, one event line, one log row', pg_temp.act_code(r) = 'ok' AND (SELECT (state, handled_by) FROM conversations WHERE id = conv1) = ('person'::text, u_staff)
+    AND EXISTS (SELECT 1 FROM messages WHERE conversation_id = conv1 AND event_type = 'took_over' AND action_id = (r ->> 'action_id')::uuid AND body LIKE '% took over'), 'got ' || coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_conversation_take_over(%L)', conv1));
+  PERFORM pg_temp.act_chk('take over: a manager can take it over from front desk', pg_temp.act_code(r2) = 'ok' AND (SELECT handled_by FROM conversations WHERE id = conv1) = u_mgr, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_conversation_take_over(%L)', conv1));
+  PERFORM pg_temp.act_chk('take over: front desk cannot take it back from a manager (ALREADY_HANDLED)', pg_temp.act_code(r2) = 'ALREADY_HANDLED', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_staff_a2', format('SELECT public.act_conversation_take_over(%L)', conv1));
+  PERFORM pg_temp.act_chk('take over: front desk of another branch cannot see it (CONVERSATION_NOT_FOUND)', pg_temp.act_code(r2) = 'CONVERSATION_NOT_FOUND', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('admin_viewer', format('SELECT public.act_conversation_take_over(%L)', conv1));
+  PERFORM pg_temp.act_chk('take over: admin_viewer is read-only (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_p2', format('SELECT public.act_conversation_take_over(%L)', conv1));
+  PERFORM pg_temp.act_chk('take over: a practitioner cannot take over another practitioner''s patient''s thread (CONVERSATION_NOT_FOUND)', pg_temp.act_code(r2) = 'CONVERSATION_NOT_FOUND', 'got ' || coalesce(r2::text, 'null'));
+  UPDATE conversations SET state = 'agent', handled_by = NULL WHERE id = conv1;
+  r2 := pg_temp.act_run('hub_p1', format('SELECT public.act_conversation_take_over(%L)', conv1));
+  PERFORM pg_temp.act_chk('take over: a practitioner can for their own patient', pg_temp.act_code(r2) = 'ok' AND (SELECT handled_by FROM conversations WHERE id = conv1) = u_p1, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_conversation_take_over(%L, %L::jsonb)', conv1, agent_ctx));
+  PERFORM pg_temp.act_chk('take over: an agent cannot (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+
+  -- hand back, and its undo
+  UPDATE conversations SET handled_by = u_staff WHERE id = conv1;
+  r := pg_temp.act_run('hub_p1', format('SELECT public.act_conversation_hand_back(%L)', conv1));
+  PERFORM pg_temp.act_chk('hand back: state agent, event line, one log row', pg_temp.act_code(r) = 'ok' AND (SELECT (state, handled_by) FROM conversations WHERE id = conv1) IS NOT DISTINCT FROM ('agent'::text, NULL::uuid)
+    AND EXISTS (SELECT 1 FROM messages WHERE conversation_id = conv1 AND event_type = 'handed_back' AND action_id = (r ->> 'action_id')::uuid), 'got ' || coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('hub_p1', format('SELECT public.act_conversation_hand_back(%L)', conv1));
+  PERFORM pg_temp.act_chk('hand back: when the agent already has it (NOT_HANDLED)', pg_temp.act_code(r2) = 'NOT_HANDLED', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_p1', format('SELECT public.act_undo(%L, ''oops'')', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('hand back UNDO: the practitioner who handed back can undo it; state and handler are restored, and an event line is added', pg_temp.act_code(r2) = 'ok' AND (SELECT (state, handled_by) FROM conversations WHERE id = conv1) = ('person'::text, u_staff)
+    AND EXISTS (SELECT 1 FROM messages WHERE conversation_id = conv1 AND event_type = 'handed_back_undone'), 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_p1', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('hand back UNDO: a second undo is refused (UNDO_ALREADY)', pg_temp.act_code(r2) = 'UNDO_ALREADY', 'got ' || coalesce(r2::text, 'null'));
+  r := pg_temp.act_run('staff', format('SELECT public.act_conversation_hand_back(%L)', conv1));
+  PERFORM pg_temp.act_run('service', format('SELECT public.act_message_receive(%L, ''9801000001'', ''One more thing'', ''in-9'', NULL, %L::jsonb)', acc, pat_ctx));
+  ALTER TABLE public.conversations DISABLE TRIGGER trg_conversations_updated_at;
+  UPDATE conversations SET updated_at = now() + interval '1 second' WHERE id = conv1;   -- inside one test transaction now() never advances
+  ALTER TABLE public.conversations ENABLE TRIGGER trg_conversations_updated_at;
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('hand back UNDO: refused when the conversation changed since (UNDO_STALE)', pg_temp.act_code(r2) = 'UNDO_STALE', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_p2', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.act_chk('hand back UNDO: a practitioner who did not make it, and whose patient this is not (ACTION_NOT_FOUND / FORBIDDEN)', pg_temp.act_code(r2) IN ('ACTION_NOT_FOUND', 'FORBIDDEN'), 'got ' || coalesce(r2::text, 'null'));
+
+  -- assign
+  r := pg_temp.act_run('manager_2_branches', format('SELECT public.act_conversation_assign(%L, %L, ''He is a regular. Can you decide on the discount?'')', conv1, u_staff));
+  PERFORM pg_temp.act_chk('assign: a manager assigns to front desk with a note; who, when and why are stored, and the note is in the event', pg_temp.act_code(r) = 'ok'
+    AND (SELECT (assigned_to, assigned_by, assign_note) FROM conversations WHERE id = conv1) = (u_staff, u_mgr, 'He is a regular. Can you decide on the discount?'::text)
+    AND (SELECT meta ->> 'note' FROM messages WHERE conversation_id = conv1 AND event_type = 'assigned' AND action_id = (r ->> 'action_id')::uuid) = 'He is a regular. Can you decide on the discount?', 'got ' || coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_conversation_assign(%L, %L, ''Please decide'')', conv1, u_mgr));
+  PERFORM pg_temp.act_chk('assign: front desk can assign to a manager ("Assign to manager")', pg_temp.act_code(r2) = 'ok' AND (SELECT assigned_by FROM conversations WHERE id = conv1) = u_staff, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_conversation_assign(%L, %L)', conv1, u_staff));
+  PERFORM pg_temp.act_chk('assign: front desk cannot assign to another front desk (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_p1', format('SELECT public.act_conversation_assign(%L, %L)', conv1, u_mgr));
+  PERFORM pg_temp.act_chk('assign: a practitioner cannot assign (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_conversation_assign(%L, %L)', conv1, u_staff2));
+  PERFORM pg_temp.act_chk('assign: to someone with no access to the branch (ASSIGNEE_NO_ACCESS)', pg_temp.act_code(r2) = 'ASSIGNEE_NO_ACCESS', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_conversation_assign(%L, %L)', conv1, u_adminb));
+  PERFORM pg_temp.act_chk('assign: to a user of another org (ASSIGNEE_NOT_FOUND)', pg_temp.act_code(r2) = 'ASSIGNEE_NOT_FOUND', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_conversation_assign(%L, %L)', conv1, u_p2));
+  PERFORM pg_temp.act_chk('assign: to a practitioner who does not see this patient (ASSIGNEE_NO_ACCESS)', pg_temp.act_code(r2) = 'ASSIGNEE_NO_ACCESS', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_conversation_assign(%L, %L)', conv1, u_p1));
+  PERFORM pg_temp.act_chk('assign: to the practitioner of this patient', pg_temp.act_code(r2) = 'ok', 'got ' || coalesce(r2::text, 'null'));
+
+  -- handoff (agents and rules only)
+  UPDATE conversations SET state = 'agent', handled_by = NULL, needs_person_since = NULL, urgent = false, practitioner_id = NULL WHERE id = conv1;
+  r := pg_temp.act_run('service', format('SELECT public.act_conversation_handoff(%L, ''clinical'', ''It is still bleeding after the extraction.'', true, NULL, %L::jsonb)', conv1, agent_ctx));
+  PERFORM pg_temp.act_chk('handoff: an agent hands off as clinical and urgent; needs_person_since is set; the practitioner is the dentist who sees this patient', pg_temp.act_code(r) = 'ok'
+    AND (SELECT (state, handoff_reason, urgent, practitioner_id, needs_person_since IS NOT NULL, handoff_summary) FROM conversations WHERE id = conv1) = ('needs_person'::text, 'clinical'::text, true, d1, true, 'It is still bleeding after the extraction.'::text)
+    AND EXISTS (SELECT 1 FROM messages WHERE conversation_id = conv1 AND event_type = 'handoff' AND author_kind = 'agent' AND author_agent = 'follow_up'), 'got ' || coalesce(r::text, 'null') || ' / ' || coalesce((SELECT row_to_json(c)::text FROM conversations c WHERE id = conv1), ''));
+  r2 := pg_temp.act_run('hub_p1', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.conversations WHERE id = %L', conv1), 0);
+  PERFORM pg_temp.act_chk('handoff: that practitioner can read the thread', (r2 ->> 'n')::int = 1, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_p2', format('SELECT jsonb_build_object(''n'', count(*), ''m'', (SELECT count(*) FROM public.messages WHERE conversation_id = %L)) FROM public.conversations WHERE id = %L', conv1, conv1), 0);
+  PERFORM pg_temp.act_chk('handoff: a second practitioner can read neither the thread nor its messages', (r2 ->> 'n')::int = 0 AND (r2 ->> 'm')::int = 0, 'got ' || coalesce(r2::text, 'null'));
+  SELECT needs_person_since INTO v_when FROM conversations WHERE id = conv1;
+  r2 := pg_temp.act_run('service', format('SELECT public.act_conversation_handoff(%L, ''urgent'', ''Second handoff.'', true, NULL, %L::jsonb)', conv1, agent_ctx));
+  PERFORM pg_temp.act_chk('handoff: a second handoff keeps the original "waiting since"', pg_temp.act_code(r2) = 'ok' AND (SELECT needs_person_since FROM conversations WHERE id = conv1) = v_when, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_conversation_handoff(%L, ''clinical'', ''x'', true)', conv1));
+  PERFORM pg_temp.act_chk('handoff: a person cannot (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_conversation_handoff(%L, ''whatever'', ''x'', false, NULL, %L::jsonb)', conv1, agent_ctx));
+  PERFORM pg_temp.act_chk('handoff: an unknown reason (INVALID_INPUT)', pg_temp.act_code(r2) = 'INVALID_INPUT', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_conversation_handoff(%L, ''clinical'', ''x'', false, %L, %L::jsonb)', conv1, (SELECT s.pk FROM t_seed s WHERE s.tbl = 'dentists' AND s.org = ob LIMIT 1), agent_ctx));
+  PERFORM pg_temp.act_chk('handoff: a practitioner of another org is refused (INVALID_INPUT)', pg_temp.act_code(r2) = 'INVALID_INPUT', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_conversation_handoff(%L, ''clinical'', ''x'', false, NULL, %L::jsonb)', conv1, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', ob)));
+  PERFORM pg_temp.act_chk('handoff: an agent of another org (CONVERSATION_NOT_FOUND)', pg_temp.act_code(r2) = 'CONVERSATION_NOT_FOUND', 'got ' || coalesce(r2::text, 'null'));
+  r := pg_temp.act_run('staff', format('SELECT public.act_conversation_take_over(%L)', conv1));
+  PERFORM pg_temp.act_chk('take over clears "waiting since"', (SELECT needs_person_since FROM conversations WHERE id = conv1) IS NULL, 'got ' || coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_conversation_handoff(%L, ''clinical'', ''x'', false, NULL, %L::jsonb)', conv1, agent_ctx));
+  PERFORM pg_temp.act_chk('handoff: when a person is already handling it (ALREADY_HANDLED)', pg_temp.act_code(r2) = 'ALREADY_HANDLED', 'got ' || coalesce(r2::text, 'null'));
+
+  -- consent.record
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_consent_record(p_customer => %L, p_evidence => '''')', pat3));
+  PERFORM pg_temp.act_chk('consent: evidence is required (INVALID_INPUT)', pg_temp.act_code(r2) = 'INVALID_INPUT', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_consent_record(p_customer => %L, p_evidence => ''Agreed at the front desk, 4 Feb'')', pat3));
+  PERFORM pg_temp.act_chk('consent: front desk cannot record for another branch''s patient (PATIENT_NOT_FOUND)', pg_temp.act_code(r2) = 'PATIENT_NOT_FOUND', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_consent_record(p_customer => %L, p_evidence => ''Agreed at the front desk, 4 Feb'')', pat3));
+  PERFORM pg_temp.act_chk('consent: a manager records service consent with its evidence', pg_temp.act_code(r2) = 'ok' AND (SELECT (status, source, recorded_by, evidence) FROM patient_channels WHERE org_id = oa AND address = '+9779801000003' AND channel = 'sms' AND purpose = 'service') = ('agreed'::text, 'front_desk'::text, u_mgr, 'Agreed at the front desk, 4 Feb'::text), 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_message_send(p_customer => %L, p_text => ''Hello'')', pat3));
+  PERFORM pg_temp.act_chk('consent: and the patient can now be messaged', pg_temp.act_code(r2) = 'ok', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_p1', format('SELECT public.act_consent_record(p_customer => %L, p_evidence => ''Agreed at the front desk, 4 Feb'')', pat1));
+  PERFORM pg_temp.act_chk('consent: a practitioner cannot record it (FORBIDDEN)', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('service', format('SELECT public.act_consent_record(p_customer => %L, p_evidence => ''Agent says so'', p_ctx => %L::jsonb)', pat1, agent_ctx));
+  PERFORM pg_temp.act_chk('consent: an agent cannot record it (FORBIDDEN): only the patient''s own reply or a person can', pg_temp.act_code(r2) = 'FORBIDDEN', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_consent_record(p_customer => %L, p_purpose => ''marketing'', p_evidence => ''Ticked the marketing box on the paper form'')', pat1));
+  PERFORM pg_temp.act_chk('consent: marketing agreement is recorded separately and only when explicit', pg_temp.act_code(r2) = 'ok' AND (SELECT status FROM patient_channels WHERE org_id = oa AND address = '+9779801000001' AND channel = 'sms' AND purpose = 'marketing') = 'agreed', 'got ' || coalesce(r2::text, 'null'));
+
+  -- ═══ RLS ═══
+  FOR l IN SELECT * FROM (VALUES ('conversations'), ('messages'), ('patient_channels'), ('channel_accounts'), ('message_templates'), ('conversation_reads')) v(t) LOOP
+    PERFORM pg_temp.act_chk('RLS on ' || l.t, (SELECT relrowsecurity FROM pg_class WHERE oid = ('public.' || l.t)::regclass), l.t);
+  END LOOP;
+  FOR l IN SELECT * FROM (VALUES ('staff'), ('admin'), ('hub_p1'), ('service'), ('manager_2_branches')) v(who) LOOP
+    BEGIN
+      r2 := pg_temp.act_run(l.who, 'INSERT INTO public.conversations (org_id, channel, address) SELECT org_id, channel, address || ''x'' FROM public.conversations LIMIT 1 RETURNING to_jsonb(conversations)', 0);
+      PERFORM pg_temp.act_chk(l.who || ': direct INSERT into conversations is denied', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+      r2 := pg_temp.act_run(l.who, 'UPDATE public.messages SET body = body RETURNING to_jsonb(messages)', 0);
+      PERFORM pg_temp.act_chk(l.who || ': direct UPDATE of messages is denied', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+      r2 := pg_temp.act_run(l.who, 'DELETE FROM public.patient_channels RETURNING to_jsonb(patient_channels)', 0);
+      PERFORM pg_temp.act_chk(l.who || ': direct DELETE from patient_channels is denied', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+      r2 := pg_temp.act_run(l.who, 'UPDATE public.channel_accounts SET status = status RETURNING to_jsonb(channel_accounts)', 0);
+      PERFORM pg_temp.act_chk(l.who || ': direct UPDATE of channel_accounts is denied', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+      r2 := pg_temp.act_run(l.who, 'INSERT INTO public.message_templates (org_id, name, body) SELECT org_id, ''x'', ''x'' FROM public.message_templates LIMIT 1 RETURNING to_jsonb(message_templates)', 0);
+      PERFORM pg_temp.act_chk(l.who || ': direct INSERT into message_templates is denied', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+    END;
+  END LOOP;
+  r2 := pg_temp.act_run('hub_staff_a2', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.conversations WHERE id = %L', conv1), 0);
+  PERFORM pg_temp.act_chk('RLS: front desk of branch A2 cannot read a branch A1 thread', (r2 ->> 'n')::int = 0, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_staff_a2', format('SELECT jsonb_build_object(''n'', (SELECT count(*) FROM public.messages WHERE conversation_id = %L), ''c'', (SELECT count(*) FROM public.patient_channels WHERE customer_id IN (%L, %L))) ', conv1, pat1, pat2), 0);
+  PERFORM pg_temp.act_chk('RLS: ...nor its messages, nor branch A1 patients'' consent rows', (r2 ->> 'n')::int = 0 AND (r2 ->> 'c')::int = 0, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT jsonb_build_object(''n'', (SELECT count(*) FROM public.conversations WHERE id = %L), ''m'', (SELECT count(*) FROM public.messages WHERE conversation_id = %L), ''c'', (SELECT count(*) FROM public.patient_channels WHERE customer_id = %L))', conv1, conv1, pat1), 0);
+  PERFORM pg_temp.act_chk('RLS: front desk of branch A1 reads the thread, its messages and the patient''s consent', (r2 ->> 'n')::int = 1 AND (r2 ->> 'm')::int > 0 AND (r2 ->> 'c')::int > 0, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('admin_viewer', format('SELECT jsonb_build_object(''n'', (SELECT count(*) FROM public.conversations WHERE org_id = %L), ''t'', (SELECT count(*) FROM public.conversations))', oa), 0);
+  PERFORM pg_temp.act_chk('RLS: admin_viewer reads the whole org (read-only)', (r2 ->> 'n')::int = (r2 ->> 't')::int AND (r2 ->> 'n')::int >= 3, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('admin_of_OTHER_org', format('SELECT jsonb_build_object(''c'', (SELECT count(*) FROM public.conversations WHERE org_id = %L), ''m'', (SELECT count(*) FROM public.messages WHERE org_id = %L), ''p'', (SELECT count(*) FROM public.patient_channels WHERE org_id = %L), ''a'', (SELECT count(*) FROM public.channel_accounts WHERE org_id = %L), ''t'', (SELECT count(*) FROM public.message_templates WHERE org_id = %L))', oa, oa, oa, oa, oa), 0);
+  PERFORM pg_temp.act_chk('RLS: another org sees nothing of org A in any hub table', (r2 ->> 'c')::int + (r2 ->> 'm')::int + (r2 ->> 'p')::int + (r2 ->> 'a')::int + (r2 ->> 't')::int = 0, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('anon', 'SELECT jsonb_build_object(''n'', count(*)) FROM public.conversations', 0);
+  PERFORM pg_temp.act_chk('RLS: anon reads nothing', pg_temp.act_code(r2) = 'raised:42501' OR (r2 ->> 'n')::int = 0, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('customer_no_staff_row', 'SELECT jsonb_build_object(''c'', (SELECT count(*) FROM public.conversations), ''m'', (SELECT count(*) FROM public.messages), ''t'', (SELECT count(*) FROM public.message_templates), ''p'', (SELECT count(*) FROM public.patient_channels))', 0);
+  PERFORM pg_temp.act_chk('RLS: a signed-in patient (no users row) reads none of it', (r2 ->> 'c')::int + (r2 ->> 'm')::int + (r2 ->> 't')::int + (r2 ->> 'p')::int = 0, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_p1', format('SELECT jsonb_build_object(''mine'', (SELECT count(*) FROM public.conversations WHERE customer_id = %L), ''others'', (SELECT count(*) FROM public.conversations WHERE customer_id IS DISTINCT FROM %L), ''consent_other'', (SELECT count(*) FROM public.patient_channels WHERE customer_id IS DISTINCT FROM %L), ''tpl'', (SELECT count(*) FROM public.message_templates))', pat1, pat1, pat1), 0);
+  PERFORM pg_temp.act_chk('RLS: a practitioner reads ONLY their own patients'' threads and consent, plus the templates', (r2 ->> 'mine')::int >= 1 AND (r2 ->> 'others')::int = 0 AND (r2 ->> 'consent_other')::int = 0 AND (r2 ->> 'tpl')::int >= 4, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_p2', format('SELECT jsonb_build_object(''mine'', (SELECT count(*) FROM public.conversations WHERE customer_id = %L), ''pat1'', (SELECT count(*) FROM public.conversations WHERE customer_id = %L))', pat2, pat1), 0);
+  PERFORM pg_temp.act_chk('RLS: the second practitioner sees their own patient''s thread, never the first one''s', (r2 ->> 'pat1')::int = 0, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_p1', format('SELECT jsonb_build_object(''a'', public.is_my_patient(%L), ''b'', public.is_my_patient(%L), ''c'', public.is_my_patient(NULL))', pat1, pat2), 0);
+  PERFORM pg_temp.act_chk('is_my_patient: true for my patient, false for another''s and for NULL', r2 = '{"a": true, "b": false, "c": false}'::jsonb, 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('anon', format('SELECT to_jsonb(public.is_my_patient(%L))', pat1), 0);
+  PERFORM pg_temp.act_chk('is_my_patient: anon cannot execute it', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+
+  -- read state
+  r2 := pg_temp.act_run('staff', format('SELECT to_jsonb(public.hub_mark_read(%L))', conv1), 0);
+  PERFORM pg_temp.act_chk('read state: marking a visible thread read stores my row', EXISTS (SELECT 1 FROM conversation_reads WHERE conversation_id = conv1 AND user_id = u_staff), 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('hub_p2', format('SELECT to_jsonb(public.hub_mark_read(%L))', conv1), 0);
+  PERFORM pg_temp.act_chk('read state: a thread I cannot see stores nothing and reveals nothing', NOT EXISTS (SELECT 1 FROM conversation_reads WHERE conversation_id = conv1 AND user_id = u_p2), 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('anon', format('SELECT to_jsonb(public.hub_mark_read(%L))', conv1), 0);
+  PERFORM pg_temp.act_chk('read state: anon cannot execute it', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT jsonb_build_object(''n'', count(*)) FROM public.conversation_reads WHERE user_id = %L', u_staff), 0);
+  PERFORM pg_temp.act_chk('read state: I read only my own rows', (r2 ->> 'n')::int >= 1, 'got ' || coalesce(r2::text, 'null'));
+
+  -- ═══ the consent backfill ═══
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Hub Backfill One', oa, '+9779801000041') RETURNING id INTO x_id;
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status)
+    VALUES (a1, tr, x_id, 'Hub Backfill One', current_date + 40, '10:00', '10:30', (current_date + 40)::timestamp + time '10:00', (current_date + 40)::timestamp + time '10:30', 1000, 1000, 'Pending');
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Hub Backfill Stopped', oa, '+9779801000042') RETURNING id INTO pat4;
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status)
+    VALUES (a1, tr, pat4, 'Hub Backfill Stopped', current_date + 41, '10:00', '10:30', (current_date + 41)::timestamp + time '10:00', (current_date + 41)::timestamp + time '10:30', 1000, 1000, 'Pending');
+  INSERT INTO patient_channels (org_id, customer_id, channel, address, purpose, status, source, evidence) VALUES (oa, pat4, 'sms', '+9779801000042', 'service', 'stopped', 'patient_reply', 'STOP')
+    ON CONFLICT (org_id, channel, address, purpose) DO UPDATE SET status = 'stopped', source = 'patient_reply', evidence = 'STOP';   -- 015's booking trigger may have recorded 'agreed' first
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Hub Backfill NoBooking', oa, '+9779801000043');
+  DELETE FROM patient_channels WHERE org_id = oa AND address = '+9779801000041';   -- the backfill is for bookings made BEFORE 015's trigger: remove the row the trigger just recorded
+  r2 := pg_temp.act_run('service', format('SELECT public.hub_backfill_booking_consent(%L, true)', oa), 0);
+  PERFORM pg_temp.act_chk('backfill: not callable by the service role (owner only)', pg_temp.act_code(r2) = 'raised:42501', 'got ' || coalesce(r2::text, 'null'));
+  r2 := public.hub_backfill_booking_consent(oa, true);
+  PERFORM pg_temp.act_chk('backfill: a dry run counts and inserts nothing', (r2 ->> 'would_insert')::int >= 1 AND (r2 ->> 'inserted')::int = 0
+    AND NOT EXISTS (SELECT 1 FROM patient_channels WHERE address = '+9779801000041'), 'got ' || coalesce(r2::text, 'null'));
+  r2 := public.hub_backfill_booking_consent(oa, false);
+  PERFORM pg_temp.act_chk('backfill: a patient with a phone and a booking gets service sms "agreed", source booking, with evidence', (SELECT (status, source, purpose, recorded_by IS NULL, evidence LIKE 'Phone given when booking%') FROM patient_channels WHERE org_id = oa AND address = '+9779801000041' AND channel = 'sms' AND purpose = 'service') = ('agreed'::text, 'booking'::text, 'service'::text, true, true), 'got ' || coalesce(r2::text, 'null'));
+  PERFORM pg_temp.act_chk('backfill: never touches a stopped row', (SELECT status FROM patient_channels WHERE org_id = oa AND address = '+9779801000042' AND purpose = 'service') = 'stopped', 'stopped row');
+  PERFORM pg_temp.act_chk('backfill: never creates a marketing row, and skips patients with no booking', NOT EXISTS (SELECT 1 FROM patient_channels WHERE org_id = oa AND address IN ('+9779801000041', '+9779801000043') AND purpose = 'marketing')
+    AND NOT EXISTS (SELECT 1 FROM patient_channels WHERE address = '+9779801000043'), 'marketing / no booking');
+  n := (r2 ->> 'inserted')::int;
+  r2 := public.hub_backfill_booking_consent(oa, false);
+  PERFORM pg_temp.act_chk('backfill: running it twice inserts nothing new', (r2 ->> 'inserted')::int = 0 AND n >= 1, 'got ' || coalesce(r2::text, 'null'));
+
+  -- every hub action wrote exactly one log row (asserted on each call above); the log is still append-only
+  r2 := pg_temp.act_run('staff', 'SELECT jsonb_build_object(''n'', count(*)) FROM public.action_log WHERE action LIKE ''message.%'' OR action LIKE ''conversation.%'' OR action = ''consent.record''', 0);
+  PERFORM pg_temp.act_chk('hub actions are in the log and staff of the branch can read their own', (r2 ->> 'n')::int >= 10, 'got ' || coalesce(r2::text, 'null'));
+
+  -- clean up everything this section created (action_log rows stay until the final ROLLBACK: the log is append-only)
+  EXECUTE 'RESET ROLE';
+  DELETE FROM conversations WHERE org_id IN (oa, ob);   -- messages and reads go with them
+  DELETE FROM patient_channels WHERE org_id IN (oa, ob);
+  DELETE FROM channel_accounts WHERE org_id IN (oa, ob);
+  DELETE FROM message_templates WHERE org_id IN (oa, ob);
+  DELETE FROM bookings WHERE customer_id IN (SELECT id FROM customers WHERE full_name LIKE 'Hub %');
+  DELETE FROM customers WHERE full_name LIKE 'Hub %';
+  DELETE FROM t_actor WHERE name IN ('hub_p1', 'hub_p2', 'hub_prof', 'hub_staff_a2');
+  DELETE FROM public.users WHERE id IN (u_p1, u_p2, u_prof, u_staff2);
+  DELETE FROM auth.users WHERE id IN (u_p1, u_p2, u_prof, u_staff2);
+  DELETE FROM dentists WHERE id IN (d1, d2, dprof);
+END $hub$;
+-- HUB-END
+
 -- ───────────────────────────── 3c. PER-CLINIC AI SWITCH + PHONE CODE LIMITS (migration-010) ─────────────────────────────
 DO $ai$
 DECLARE
@@ -591,6 +1467,785 @@ BEGIN
   r := pg_temp.fn_try('customer_no_staff_row', format('UPDATE bookings SET status = status WHERE id = %L', bk_none));
   INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient booking UPDATE not newly blocked by an error', CASE WHEN r IN ('ok:0', 'ok:1', 'denied') THEN 'PASS' ELSE 'FAIL' END, 'got ' || r || ' (same as before: patients have no UPDATE policy)');
 END $prac$;
+
+-- ───────────────────────────── 3c. MONEY FUNCTION GUARD (migration-014, CMD-83) ─────────────────────────────
+-- SECURITY DEFINER money functions skip RLS, so each must refuse roles that may not touch money. practitioner: no money at all;
+-- admin_viewer: money reads only. Needs 011 (practitioner) and 014; otherwise skipped. Seeds its own rows (rolled back with the script).
+CREATE FUNCTION pg_temp.m_val(p_actor text, p_sql text) RETURNS text LANGUAGE plpgsql AS $$
+DECLARE a record; claims text; res text;
+BEGIN
+  SELECT * INTO a FROM t_actor WHERE name = p_actor;
+  claims := CASE WHEN a.uid IS NULL THEN '{"role":"anon"}' ELSE json_build_object('sub', a.uid, 'role', 'authenticated')::text END;
+  BEGIN
+    EXECUTE format('SET LOCAL ROLE %I', a.db_role);
+    PERFORM set_config('request.jwt.claims', claims, true);
+    EXECUTE p_sql INTO res;
+    res := 'ok:' || coalesce(res, 'NULL');
+  EXCEPTION WHEN OTHERS THEN res := CASE WHEN SQLSTATE = '42501' THEN 'denied' ELSE 'raised:' || SQLSTATE END;
+  END;
+  EXECUTE 'RESET ROLE';
+  RETURN res;
+END $$;
+CREATE FUNCTION pg_temp.m_chk(p_label text, p_ok boolean, p_detail text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO t_res VALUES ('MONEY', '-', p_label, CASE WHEN COALESCE(p_ok, false) THEN 'PASS' ELSE 'FAIL' END, p_detail);
+  IF NOT COALESCE(p_ok, false) THEN RAISE NOTICE 'FAILED CHECK: % -- %', p_label, left(p_detail, 300); END IF;
+END $$;
+
+DO $money$
+DECLARE
+  oa uuid; ob uuid; a1 uuid; tr uuid; cu uuid; cu2 uuid; cu3 uuid; d1 uuid; u_staff uuid; u_adm uuid; sfx text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+  u_prac uuid := gen_random_uuid(); bk uuid; bk2 uuid; bk_b uuid; tier uuid; vt uuid; ref uuid; ref2 uuid; r jsonb; v text; z uuid := gen_random_uuid();
+  t record; w record; cnt int; bad text;
+BEGIN
+  IF to_regprocedure('public.can_write_money()') IS NULL OR to_regprocedure('public.is_my_booking_row(uuid,uuid)') IS NULL THEN
+    INSERT INTO t_res VALUES ('MONEY', '-', 'migration-011/014 checks', 'INFO', 'skipped: can_write_money() (014) or the practitioner role (011) not present');
+    RETURN;
+  END IF;
+  SELECT org, uid INTO oa, u_staff FROM t_actor WHERE name = 'staff'; SELECT uid INTO u_adm FROM t_actor WHERE name = 'admin';
+  SELECT org INTO ob FROM t_actor WHERE name = 'admin_of_OTHER_org';
+  SELECT s.pk::uuid INTO a1 FROM t_seed s JOIN branches b ON b.id = s.pk::uuid WHERE s.tbl = 'branches' AND s.org = oa AND b.name = 'A1';
+  SELECT s.pk::uuid INTO tr FROM t_seed s WHERE s.tbl = 'treatments' AND s.org = oa LIMIT 1;
+  SELECT s.pk::uuid INTO cu FROM t_seed s JOIN customers c ON c.id = s.pk::uuid WHERE s.tbl = 'customers' AND s.org = oa AND c.branch_id = a1 LIMIT 1;
+  SELECT d.id INTO d1 FROM dentists d JOIN t_seed s ON s.tbl = 'dentists' AND s.pk = d.id::text WHERE d.branch_id = a1 AND d.name = 'Dr A1';
+  SELECT s.pk::uuid INTO bk_b FROM t_seed s WHERE s.tbl = 'bookings' AND s.org = ob LIMIT 1;
+
+  INSERT INTO auth.users (id, instance_id, aud, role, email, created_at, updated_at) VALUES (u_prac, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-mprac-' || sfx || '@test.invalid', now(), now());
+  INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES (u_prac, 'rls-mprac-' || sfx || '@test.invalid', 'RLS money practitioner', 'practitioner', a1, oa, true, d1);
+  INSERT INTO t_actor VALUES ('money_practitioner', u_prac, oa, 'authenticated');
+  INSERT INTO customers (branch_id, full_name, org_id) VALUES (a1, 'Referred Cust', oa) RETURNING id INTO cu2;
+
+  -- 1. helpers: allow-lists, and not executable by anon
+  PERFORM pg_temp.m_chk('can_read_money: staff, admin, admin_viewer yes; practitioner no',
+    pg_temp.m_val('staff', 'SELECT can_read_money()') = 'ok:true' AND pg_temp.m_val('admin', 'SELECT can_read_money()') = 'ok:true'
+    AND pg_temp.m_val('admin_viewer', 'SELECT can_read_money()') = 'ok:true' AND pg_temp.m_val('money_practitioner', 'SELECT can_read_money()') = 'ok:false', 'allow-list');
+  PERFORM pg_temp.m_chk('can_write_money: staff, manager, admin yes; admin_viewer and practitioner no',
+    pg_temp.m_val('staff', 'SELECT can_write_money()') = 'ok:true' AND pg_temp.m_val('manager_2_branches', 'SELECT can_write_money()') = 'ok:true'
+    AND pg_temp.m_val('admin', 'SELECT can_write_money()') = 'ok:true' AND pg_temp.m_val('admin_viewer', 'SELECT can_write_money()') = 'ok:false'
+    AND pg_temp.m_val('money_practitioner', 'SELECT can_write_money()') = 'ok:false', 'allow-list');
+  PERFORM pg_temp.m_chk('can_*_money: customer with no staff row gets false (unknown role = false)',
+    pg_temp.m_val('customer_no_staff_row', 'SELECT can_read_money()') = 'ok:false' AND pg_temp.m_val('customer_no_staff_row', 'SELECT can_write_money()') = 'ok:false', 'no role');
+  PERFORM pg_temp.m_chk('can_read_money / can_write_money are not executable by anon',
+    pg_temp.m_val('anon', 'SELECT can_read_money()') = 'denied' AND pg_temp.m_val('anon', 'SELECT can_write_money()') = 'denied', 'anon');
+
+  -- 2. every guarded WRITE function is refused for practitioner and admin_viewer, and not refused by the guard for staff
+  FOR t IN SELECT * FROM (VALUES
+    ('record_membership_payment',            format('SELECT record_membership_payment(%L, 10, NULL)', z)),
+    ('record_voucher_wallet_payment',        format('SELECT record_voucher_wallet_payment(%L, %L, 10, NULL)', z, z)),
+    ('record_voucher_wallet_payment_pooled', format('SELECT record_voucher_wallet_payment_pooled(%L, 10, NULL)', z)),
+    ('record_referral_wallet_payment',       format('SELECT record_referral_wallet_payment(%L, 10, NULL)', z)),
+    ('redeem_referral_voucher',              format('SELECT redeem_referral_voucher(%L, %L)', z, z)),
+    ('record_customer_referral (7 args)',    format('SELECT record_customer_referral(%L, %L, %L, NULL::text, NULL::text, NULL::numeric, NULL::uuid)', z, z, z))
+  ) x(label, q) LOOP
+    PERFORM pg_temp.m_chk('write ' || t.label || ': practitioner refused', pg_temp.m_val('money_practitioner', t.q) = 'denied', pg_temp.m_val('money_practitioner', t.q));
+    PERFORM pg_temp.m_chk('write ' || t.label || ': admin_viewer refused', pg_temp.m_val('admin_viewer', t.q) = 'denied', pg_temp.m_val('admin_viewer', t.q));
+    v := pg_temp.m_val('staff', t.q);
+    PERFORM pg_temp.m_chk('write ' || t.label || ': staff is past the guard (fails later on the dummy ids, not with 42501)', v LIKE 'raised:%' AND v <> 'denied', v);
+  END LOOP;
+
+  -- the 4- and 6-argument overloads cannot be called unambiguously with dummy ids (Postgres sees 42725 between the defaulted overloads), so check their bodies
+  PERFORM pg_temp.m_chk('write record_customer_referral (' || o.nargs || ' args): body starts with the can_write_money() guard',
+    pg_get_functiondef(o.oid) ~ 'BEGIN\s+IF NOT public\.can_write_money\(\) THEN', pg_get_functiondef(o.oid))
+    FROM (SELECT oid, pronargs AS nargs FROM pg_proc WHERE proname = 'record_customer_referral' AND pronamespace = 'public'::regnamespace) o;
+
+  -- 3. READ functions: practitioner gets nothing; admin_viewer and staff still read. Seed rows so "reads work" is a real signal.
+  INSERT INTO membership_tiers (org_id, name, code_prefix, advance_amount) VALUES (oa, 'Money tier ' || sfx, 'MT', 100) RETURNING id INTO tier;
+  INSERT INTO memberships (org_id, customer_id, tier_id) VALUES (oa, cu, tier);
+  INSERT INTO voucher_types (org_id, name, code_prefix) VALUES (oa, 'Money vt ' || sfx, 'MV') RETURNING id INTO vt;
+  INSERT INTO vouchers (org_id, branch_id, customer_id, voucher_type_id, voucher_code, guest_name, actual_price, total_amount_issued, issued_date, expiry_date)
+    VALUES (oa, a1, cu, vt, 'MV-' || sfx, 'Money Guest', 100, 100, current_date, current_date + 30);
+  UPDATE users SET pin = '1234' WHERE id = u_adm;
+  INSERT INTO customer_referrals (org_id, referring_customer_id, referred_customer_id, booking_id, reward_status, reward_type, requested_reward_amount)
+    SELECT oa, cu, cu2, b.id, 'pending', 'wallet', 50 FROM bookings b WHERE b.customer_id = cu LIMIT 1 RETURNING id INTO ref;
+  FOR t IN SELECT * FROM (VALUES
+    ('list_membership_status_for_org', format('SELECT count(*)::text FROM list_membership_status_for_org(%L)', cu)),
+    ('list_vouchers_for_customer',     format('SELECT count(*)::text FROM list_vouchers_for_customer(%L)', cu)),
+    ('search_vouchers_for_payment',    format('SELECT count(*)::text FROM search_vouchers_for_payment(%L)', 'MV-' || sfx)),
+    ('list_discount_approvers',        'SELECT count(*)::text FROM list_discount_approvers()')
+  ) x(label, q) LOOP
+    v := pg_temp.m_val('money_practitioner', t.q);
+    PERFORM pg_temp.m_chk('read ' || t.label || ': practitioner gets no rows', v = 'ok:0', v);
+    v := pg_temp.m_val('admin_viewer', t.q);
+    PERFORM pg_temp.m_chk('read ' || t.label || ': admin_viewer still reads', v LIKE 'ok:%' AND v <> 'ok:0', v);
+    v := pg_temp.m_val('staff', t.q);
+    PERFORM pg_temp.m_chk('read ' || t.label || ': staff still reads', v LIKE 'ok:%' AND v <> 'ok:0', v);
+  END LOOP;
+  INSERT INTO customer_referral_credits (org_id, referral_id, customer_id, amount) VALUES (oa, ref, cu, 25);
+  PERFORM pg_temp.m_chk('read get_referral_credit_balance: practitioner NULL, admin_viewer and staff 25',
+    pg_temp.m_val('money_practitioner', format('SELECT get_referral_credit_balance(%L)', cu)) = 'ok:NULL'
+    AND pg_temp.m_val('admin_viewer', format('SELECT get_referral_credit_balance(%L)', cu)) = 'ok:25.00'
+    AND pg_temp.m_val('staff', format('SELECT get_referral_credit_balance(%L)', cu)) = 'ok:25.00', 'balance');
+  DELETE FROM customer_referral_credits WHERE referral_id = ref;
+  DELETE FROM customer_referrals WHERE id = ref;
+
+  -- 4. referral credit: the public name is a guarded wrapper; the body is internal. Complete a paid booking with a pending referral.
+  PERFORM pg_temp.m_chk('internal _credit_pending_referral_for_booking: not executable by anon or authenticated',
+    NOT has_function_privilege('anon', 'public._credit_pending_referral_for_booking(uuid)', 'execute')
+    AND NOT has_function_privilege('authenticated', 'public._credit_pending_referral_for_booking(uuid)', 'execute')
+    AND pg_temp.m_val('staff', format('SELECT _credit_pending_referral_for_booking(%L)', z)) = 'denied', 'internal');
+  -- (a) a practitioner completes their own paid booking -> the referrer is credited (through act_booking_set_status)
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status, dentist_id, payment_status)
+    VALUES (a1, tr, cu2, 'Referred Cust', '2031-04-01', '10:00', '10:30', '2031-04-01 10:00+00', '2031-04-01 10:30+00', 1000, 1000, 'In-Progress', d1, 'paid') RETURNING id INTO bk;
+  INSERT INTO booking_dentists (booking_id, dentist_id) VALUES (bk, d1);
+  INSERT INTO customer_referrals (org_id, referring_customer_id, referred_customer_id, booking_id, reward_status, reward_type, requested_reward_amount)
+    VALUES (oa, cu, cu2, bk, 'pending', 'wallet', 50) RETURNING id INTO ref;
+  r := pg_temp.act_run('money_practitioner', format('SELECT public.act_booking_set_status(%L, ''Completed'')', bk));
+  PERFORM pg_temp.m_chk('practitioner completes a paid booking with a pending referral: the credit happens',
+    pg_temp.act_code(r) = 'ok' AND (SELECT reward_status FROM customer_referrals WHERE id = ref) = 'credited'
+    AND (SELECT amount FROM customer_referral_credits WHERE referral_id = ref) = 50, 'got ' || coalesce(r::text, 'null'));
+  -- (b) the service role (an agent) completes one -> the credit happens
+  INSERT INTO customers (branch_id, full_name, org_id) VALUES (a1, 'Referred Cust 3', oa) RETURNING id INTO cu3;
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status, dentist_id, payment_status)
+    VALUES (a1, tr, cu3, 'Referred Cust 3', '2031-04-02', '10:00', '10:30', '2031-04-02 10:00+00', '2031-04-02 10:30+00', 1000, 1000, 'In-Progress', d1, 'paid') RETURNING id INTO bk2;
+  INSERT INTO customer_referrals (org_id, referring_customer_id, referred_customer_id, booking_id, reward_status, reward_type, requested_reward_amount)
+    VALUES (oa, cu, cu3, bk2, 'pending', 'wallet', 50) RETURNING id INTO ref2;
+  -- today an agent cannot set Completed at all (act_booking_set_status refuses it), so this path never reaches the credit; check that, then
+  -- check the internal function itself works without a signed-in user (auth.uid() NULL) for any future agent / rule caller
+  r := pg_temp.act_run('service', format('SELECT public.act_booking_set_status(%L, ''Completed'', NULL, %L::jsonb)', bk2, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa)));
+  PERFORM pg_temp.m_chk('service role (agent) cannot complete a booking (FORBIDDEN): booking and referral untouched',
+    pg_temp.act_code(r) = 'FORBIDDEN' AND (SELECT status FROM bookings WHERE id = bk2) = 'In-Progress' AND (SELECT reward_status FROM customer_referrals WHERE id = ref2) = 'pending', 'got ' || coalesce(r::text, 'null'));
+  UPDATE bookings SET status = 'Completed' WHERE id = bk2;
+  EXECUTE 'RESET ROLE';
+  PERFORM set_config('request.jwt.claims', '', true);
+  PERFORM public._credit_pending_referral_for_booking(bk2);
+  PERFORM pg_temp.m_chk('internal credit function works with no signed-in user (auth.uid() NULL): the credit happens',
+    (SELECT reward_status FROM customer_referrals WHERE id = ref2) = 'credited' AND (SELECT amount FROM customer_referral_credits WHERE referral_id = ref2) = 50
+    AND (SELECT credited_by FROM customer_referrals WHERE id = ref2) IS NULL, 'internal');
+  -- (c) another org's user calling the public wrapper is a no-op; the referral stays pending (reset the first referral; the booking is Completed and paid)
+  DELETE FROM customer_referral_credits WHERE referral_id = ref;
+  UPDATE customer_referrals SET reward_status = 'pending', reward_amount = NULL, credited_at = NULL, credited_by = NULL WHERE id = ref;
+  v := pg_temp.m_val('admin_of_OTHER_org', format('SELECT credit_pending_referral_for_booking(%L)', bk));
+  PERFORM pg_temp.m_chk('another org''s admin calling credit_pending_referral_for_booking: no-op, referral still pending',
+    v = 'ok:NULL' AND (SELECT reward_status FROM customer_referrals WHERE id = ref) = 'pending'
+    AND NOT EXISTS (SELECT 1 FROM customer_referral_credits WHERE referral_id = ref), v);
+  -- (d) admin_viewer gets no credit trigger; a same-org staff call still credits
+  v := pg_temp.m_val('admin_viewer', format('SELECT credit_pending_referral_for_booking(%L)', bk));
+  PERFORM pg_temp.m_chk('admin_viewer calling credit_pending_referral_for_booking: no-op', v = 'ok:NULL' AND (SELECT reward_status FROM customer_referrals WHERE id = ref) = 'pending', v);
+  v := pg_temp.m_val('staff', format('SELECT credit_pending_referral_for_booking(%L)', bk));
+  PERFORM pg_temp.m_chk('staff calling credit_pending_referral_for_booking (booking Completed and paid): credits',
+    v LIKE 'ok:%' AND v <> 'ok:NULL' AND (SELECT reward_status FROM customer_referrals WHERE id = ref) = 'credited', v);
+
+  -- 5. role coverage: no SECURITY DEFINER function executable by authenticated that reads a money table lacks a role check
+  SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.oid::regprocedure::text) INTO bad
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.prosecdef AND p.prokind = 'f' AND has_function_privilege('authenticated', p.oid, 'execute')
+    AND pg_get_functiondef(p.oid) ~* '\m(memberships|membership_transactions|membership_tiers|vouchers|voucher_claims|voucher_types|packages|customer_packages|payments|payroll[a-z_]*|commission[a-z_]*|expenses|customer_referral_credits|customer_referral_debits|customer_referrals|reward_catalog)\M'
+    AND pg_get_functiondef(p.oid) !~* '(not in \(|in \(''|can_(read|write)_money|is_platform_admin|is distinct from ''(admin|manager|staff)|_act_resolve|_hub_scope)'
+    -- named exceptions: anon-executable booking-flow function, tracked in CMD-44 (not fixed by CMD-83)
+    AND p.oid::regprocedure::text <> 'public_record_customer_referral(text,uuid,uuid,uuid)';
+  PERFORM pg_temp.m_chk('role coverage: every authenticated-executable definer function reading a money table has a role check', bad IS NULL, coalesce(bad, 'none'));
+END $money$;
+
+-- ───────────────────────────── 3d. BOOKING CONSENT (migration-015, CMD-93) ─────────────────────────────
+-- A booking records service-SMS consent for the patient's phone (patient_channels: sms / service / agreed / booking) by trigger, unless the
+-- clinic's switch is off. It never changes an existing row, never creates marketing, and never fails the booking. Skipped if 015 is absent.
+CREATE FUNCTION pg_temp.c_book(p_branch uuid, p_tr uuid, p_cust uuid) RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE i uuid := gen_random_uuid(); d date := date '2032-01-01' + (random() * 3000)::int;
+BEGIN
+  INSERT INTO bookings (id, branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status, payment_status)
+    VALUES (i, p_branch, p_tr, p_cust, 'Consent test', d, '10:00', '10:30', (d || ' 10:00+00')::timestamptz, (d || ' 10:30+00')::timestamptz, 1000, 1000, 'Pending', 'unpaid');
+  RETURN i;
+END $$;
+CREATE FUNCTION pg_temp.c_chk(p_label text, p_ok boolean, p_detail text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO t_res VALUES ('CONSENT', '-', p_label, CASE WHEN COALESCE(p_ok, false) THEN 'PASS' ELSE 'FAIL' END, p_detail);
+  IF NOT COALESCE(p_ok, false) THEN RAISE NOTICE 'FAILED CHECK: % -- %', p_label, left(p_detail, 300); END IF;
+END $$;
+
+DO $consent$
+DECLARE
+  oa uuid; a1 uuid; tr uuid; sfx text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+  c1 uuid; c2 uuid; c3 uuid; c4 uuid; c5 uuid; c6 uuid; c7 uuid; ca uuid; bk uuid;
+  p1 text; p2 text; p4 text; p6 text; p7 text; pa text; a1e text; r record; n int; ok boolean;
+BEGIN
+  IF to_regprocedure('public.trg_booking_record_service_consent()') IS NULL OR to_regclass('public.patient_channels') IS NULL THEN
+    INSERT INTO t_res VALUES ('CONSENT', '-', 'migration-015 checks', 'INFO', 'skipped: trg_booking_record_service_consent (015) not present');
+    RETURN;
+  END IF;
+  SELECT org INTO oa FROM t_actor WHERE name = 'admin';
+  SELECT s.pk::uuid INTO a1 FROM t_seed s JOIN branches b ON b.id = s.pk::uuid WHERE s.tbl = 'branches' AND s.org = oa AND b.name = 'A1';
+  SELECT s.pk::uuid INTO tr FROM t_seed s WHERE s.tbl = 'treatments' AND s.org = oa LIMIT 1;
+  p1 := '98' || lpad((random() * 99999999)::int::text, 8, '0'); p2 := '97' || lpad((random() * 99999999)::int::text, 8, '0');
+  p4 := '98' || lpad((random() * 99999999)::int::text, 8, '0'); p6 := '97' || lpad((random() * 99999999)::int::text, 8, '0');
+  p7 := '98' || lpad((random() * 99999999)::int::text, 8, '0'); pa := '97' || lpad((random() * 99999999)::int::text, 8, '0');
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Consent new ' || sfx, oa, p1) RETURNING id INTO c1;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Consent stopped ' || sfx, oa, p2) RETURNING id INTO c2;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Consent nophone ' || sfx, oa, NULL) RETURNING id INTO c3;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Consent switchoff ' || sfx, oa, p4) RETURNING id INTO c4;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Consent badphone ' || sfx, oa, 'n/a') RETURNING id INTO c5;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Consent rowfail ' || sfx, oa, p6) RETURNING id INTO c6;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Consent later ' || sfx, oa, p7) RETURNING id INTO c7;
+
+  -- 1. a new booking for a patient with a phone and no row: one agreed service-sms row from 'booking'
+  bk := pg_temp.c_book(a1, tr, c1);
+  SELECT count(*) AS n, min(status) AS st, min(source) AS src, min(evidence) AS ev, min(customer_id::text) AS cu INTO r FROM patient_channels
+    WHERE org_id = oa AND channel = 'sms' AND address = public.normalize_phone_e164(p1) AND purpose = 'service';
+  PERFORM pg_temp.c_chk('new booking, patient with a phone, no row: one agreed service-sms row (source booking, evidence names the booking)',
+    r.n = 1 AND r.st = 'agreed' AND r.src = 'booking' AND r.ev LIKE 'Phone given when booking %' AND r.cu = c1::text, row_to_json(r)::text);
+  -- 1b. a second booking for the same patient changes nothing
+  bk := pg_temp.c_book(a1, tr, c1);
+  SELECT count(*) INTO n FROM patient_channels WHERE org_id = oa AND address = public.normalize_phone_e164(p1);
+  PERFORM pg_temp.c_chk('a second booking for the same patient adds no row', n = 1, n::text);
+  -- 2. already stopped: stays stopped, no new row
+  INSERT INTO patient_channels (org_id, customer_id, channel, address, purpose, status, source, evidence)
+    VALUES (oa, c2, 'sms', public.normalize_phone_e164(p2), 'service', 'stopped', 'patient_reply', 'replied STOP');
+  bk := pg_temp.c_book(a1, tr, c2);
+  SELECT count(*) AS n, min(status) AS st, min(source) AS src INTO r FROM patient_channels WHERE org_id = oa AND address = public.normalize_phone_e164(p2);
+  PERFORM pg_temp.c_chk('patient already stopped: still stopped after a new booking, no new row, source unchanged', r.n = 1 AND r.st = 'stopped' AND r.src = 'patient_reply', row_to_json(r)::text);
+  -- 3. marketing is never created
+  SELECT count(*) INTO n FROM patient_channels WHERE org_id = oa AND purpose = 'marketing' AND address IN (public.normalize_phone_e164(p1), public.normalize_phone_e164(p2));
+  PERFORM pg_temp.c_chk('marketing consent is never created by a booking', n = 0, n::text);
+  -- 4. switch off for the clinic: no row; back on: the next booking records it
+  UPDATE organizations SET booking_phone_is_service_consent = false WHERE id = oa;
+  bk := pg_temp.c_book(a1, tr, c4);
+  SELECT count(*) INTO n FROM patient_channels WHERE org_id = oa AND address = public.normalize_phone_e164(p4);
+  PERFORM pg_temp.c_chk('clinic switch false: no row', n = 0, n::text);
+  UPDATE organizations SET booking_phone_is_service_consent = true WHERE id = oa;
+  bk := pg_temp.c_book(a1, tr, c4);
+  SELECT count(*) INTO n FROM patient_channels WHERE org_id = oa AND address = public.normalize_phone_e164(p4) AND status = 'agreed';
+  PERFORM pg_temp.c_chk('clinic switch back on: the next booking records the row', n = 1, n::text);
+  SELECT booking_phone_is_service_consent INTO ok FROM organizations WHERE id = oa;
+  PERFORM pg_temp.c_chk('the switch defaults to true', (SELECT column_default FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'booking_phone_is_service_consent') = 'true' AND ok, 'default');
+  -- 5. no phone / unparseable phone: the booking succeeds, no row
+  bk := pg_temp.c_book(a1, tr, c3);
+  PERFORM pg_temp.c_chk('patient with no phone: booking succeeds, no row', EXISTS (SELECT 1 FROM bookings WHERE id = bk) AND NOT EXISTS (SELECT 1 FROM patient_channels WHERE customer_id = c3), 'no phone');
+  bk := pg_temp.c_book(a1, tr, c5);
+  PERFORM pg_temp.c_chk('patient with an unparseable phone: booking succeeds, no row', EXISTS (SELECT 1 FROM bookings WHERE id = bk) AND NOT EXISTS (SELECT 1 FROM patient_channels WHERE customer_id = c5), 'bad phone');
+  -- 6. a booking that gets its patient later (UPDATE customer_id)
+  INSERT INTO bookings (id, branch_id, treatment_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status, payment_status)
+    VALUES (gen_random_uuid(), a1, tr, 'Walk-in', '2033-05-05', '10:00', '10:30', '2033-05-05 10:00+00', '2033-05-05 10:30+00', 1000, 1000, 'Pending', 'unpaid') RETURNING id INTO bk;
+  PERFORM pg_temp.c_chk('walk-in booking (no patient) records nothing', NOT EXISTS (SELECT 1 FROM patient_channels WHERE address = public.normalize_phone_e164(p7)), 'before');
+  UPDATE bookings SET customer_id = c7 WHERE id = bk;
+  PERFORM pg_temp.c_chk('booking that gets its patient later (UPDATE customer_id) records the row',
+    EXISTS (SELECT 1 FROM patient_channels WHERE org_id = oa AND address = public.normalize_phone_e164(p7) AND status = 'agreed' AND purpose = 'service'), 'after');
+  -- 7. never fails a booking: make the consent insert fail (a constraint nothing satisfies), the booking must still succeed, with a WARNING
+  ALTER TABLE patient_channels ADD CONSTRAINT zz_consent_test_fail CHECK (false) NOT VALID;
+  bk := pg_temp.c_book(a1, tr, c6);
+  ALTER TABLE patient_channels DROP CONSTRAINT zz_consent_test_fail;
+  PERFORM pg_temp.c_chk('consent insert fails: the booking still succeeds, no row', EXISTS (SELECT 1 FROM bookings WHERE id = bk) AND NOT EXISTS (SELECT 1 FROM patient_channels WHERE customer_id = c6), 'error became a warning');
+  -- 8. the public booking flow (anon): upsert_customer_for_booking, then a direct booking insert with the customer id
+  EXECUTE 'SET LOCAL ROLE anon';
+  PERFORM set_config('request.jwt.claims', '{"role":"anon"}', true);
+  BEGIN
+    ca := public.upsert_customer_for_booking(oa, a1, 'Consent anon ' || sfx, pa, NULL, NULL);
+    bk := gen_random_uuid();
+    INSERT INTO bookings (id, branch_id, treatment_id, customer_id, customer_name, customer_phone, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status, payment_status)
+      VALUES (bk, a1, tr, ca, 'Consent anon ' || sfx, pa, '2033-06-06', '10:00', '10:30', '2033-06-06 10:00+00', '2033-06-06 10:30+00', 1000, 1000, 'Pending', 'unpaid');
+    ok := true;
+  EXCEPTION WHEN OTHERS THEN ok := false; RAISE NOTICE 'anon booking failed: % %', SQLSTATE, SQLERRM;
+  END;
+  EXECUTE 'RESET ROLE';
+  PERFORM pg_temp.c_chk('public booking flow (anon): the booking is created', ok, 'anon');
+  PERFORM pg_temp.c_chk('public booking flow (anon): the service-sms row is recorded',
+    EXISTS (SELECT 1 FROM patient_channels WHERE org_id = oa AND address = public.normalize_phone_e164(pa) AND purpose = 'service' AND status = 'agreed' AND source = 'booking' AND customer_id = ca), 'anon row');
+  -- 9. the trigger function is not callable by anon or authenticated
+  PERFORM pg_temp.c_chk('trg_booking_record_service_consent is not executable by anon or authenticated',
+    NOT has_function_privilege('anon', 'public.trg_booking_record_service_consent()', 'execute')
+    AND NOT has_function_privilege('authenticated', 'public.trg_booking_record_service_consent()', 'execute'), 'revoked');
+END $consent$;
+
+-- ───────────────────────────── 3e. AGENT PLATFORM (migration-016, CMD-90) ─────────────────────────────
+-- Settings / ceiling / playbooks / AI switch and budget actions, the work queue (propose, approve with the one-use grant, reject, expire), the
+-- budget states, undo ('restore') and the read policies. Seeds its own rows (rolled back with the test). Skipped if 016 is absent.
+CREATE FUNCTION pg_temp.g_chk(p_label text, p_ok boolean, p_detail text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO t_res VALUES ('AGENT', '-', p_label, CASE WHEN COALESCE(p_ok, false) THEN 'PASS' ELSE 'FAIL' END, p_detail);
+  IF NOT COALESCE(p_ok, false) THEN RAISE NOTICE 'FAILED CHECK: % -- %', p_label, left(p_detail, 300); END IF;
+END $$;
+
+DO $agent$
+DECLARE
+  oa uuid; ob uuid; a1 uuid; a2 uuid; a3 uuid; b1 uuid; tr uuid; sfx text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+  u_adm uuid; u_mgr uuid; u_staff uuid; u_view uuid; u_admb uuid; u_pr1 uuid := gen_random_uuid(); u_pr2 uuid := gen_random_uuid(); u_sa2 uuid := gen_random_uuid();
+  d_pr1 uuid; d_pr2 uuid; pat uuid; pat_pr uuid; pat_stop uuid; pat_b uuid; bk uuid; bk_pr uuid; bk_pend uuid; acc uuid; t1 uuid; t2 uuid;
+  pb1 uuid; pb2 uuid; pbb uuid; pb_off uuid; it uuid; it2 uuid; it3 uuid; it_pr uuid; it_exp uuid; it_stop uuid; it_ed uuid; it_st uuid; it_rej uuid;
+  r jsonb; r2 jsonb; l record; n bigint; s jsonb; acts_a uuid; acts_b uuid; x text; svc_a text;
+  ctx_fu text; ctx_sc text; ctx_b text; okx boolean;
+  e_org uuid; e_br uuid; e_uid uuid := gen_random_uuid(); e_seed timestamptz; e_sfx text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+BEGIN
+  IF to_regprocedure('public.act_work_approve(uuid,jsonb,jsonb)') IS NULL OR to_regclass('public.agent_work_items') IS NULL THEN
+    INSERT INTO t_res VALUES ('AGENT', '-', 'migration-016 checks', 'INFO', 'skipped: the agent platform (016) is not present');
+    RETURN;
+  END IF;
+  SELECT org, uid INTO oa, u_staff FROM t_actor WHERE name = 'staff';
+  SELECT uid INTO u_adm FROM t_actor WHERE name = 'admin'; SELECT uid INTO u_mgr FROM t_actor WHERE name = 'manager_2_branches'; SELECT uid INTO u_view FROM t_actor WHERE name = 'admin_viewer';
+  SELECT org, uid INTO ob, u_admb FROM t_actor WHERE name = 'admin_of_OTHER_org';
+  SELECT s2.pk::uuid INTO a1 FROM t_seed s2 JOIN branches b ON b.id = s2.pk::uuid WHERE s2.tbl = 'branches' AND s2.org = oa AND b.name = 'A1';
+  SELECT s2.pk::uuid INTO a2 FROM t_seed s2 JOIN branches b ON b.id = s2.pk::uuid WHERE s2.tbl = 'branches' AND s2.org = oa AND b.name = 'A2';
+  SELECT s2.pk::uuid INTO b1 FROM t_seed s2 JOIN branches b ON b.id = s2.pk::uuid WHERE s2.tbl = 'branches' AND s2.org = ob AND b.name = 'B1';
+  SELECT s2.pk::uuid INTO tr FROM t_seed s2 WHERE s2.tbl = 'treatments' AND s2.org = oa LIMIT 1;
+  INSERT INTO branches (name, org_id) VALUES ('A3 agent test', oa) RETURNING id INTO a3;   -- a branch the manager does NOT work in
+  ctx_fu := jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa)::text;
+  ctx_sc := jsonb_build_object('actor_kind', 'agent', 'agent', 'scribe', 'org_id', oa)::text;
+  ctx_b  := jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', ob)::text;
+
+  -- people: two practitioners, front desk of A2 only
+  INSERT INTO dentists (branch_id, name, gender, org_id) VALUES (a1, 'Dr Agent1', 'Male', oa) RETURNING id INTO d_pr1;
+  INSERT INTO dentists (branch_id, name, gender, org_id) VALUES (a1, 'Dr Agent2', 'Female', oa) RETURNING id INTO d_pr2;
+  INSERT INTO auth.users (id, instance_id, aud, role, email, created_at, updated_at) VALUES
+    (u_pr1, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-agpr1-' || sfx || '@test.invalid', now(), now()),
+    (u_pr2, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-agpr2-' || sfx || '@test.invalid', now(), now()),
+    (u_sa2, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-agsa2-' || sfx || '@test.invalid', now(), now());
+  INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES
+    (u_pr1, 'rls-agpr1-' || sfx || '@test.invalid', 'Agent Practitioner One', 'practitioner', a1, oa, true, d_pr1),
+    (u_pr2, 'rls-agpr2-' || sfx || '@test.invalid', 'Agent Practitioner Two', 'practitioner', a1, oa, true, d_pr2),
+    (u_sa2, 'rls-agsa2-' || sfx || '@test.invalid', 'Agent Front Desk A2', 'staff', a2, oa, true, NULL);
+  INSERT INTO t_actor VALUES ('g_pr1', u_pr1, oa, 'authenticated'), ('g_pr2', u_pr2, oa, 'authenticated'), ('g_staff_a2', u_sa2, oa, 'authenticated');
+
+  -- patients with consent (pat: any; pat_pr: Dr Agent1's patient; pat_stop: replied STOP), bookings, an sms test account, two templates
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Agent Pat', oa, '+9779802000001') RETURNING id INTO pat;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Agent Pat PR', oa, '+9779802000002') RETURNING id INTO pat_pr;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (a1, 'Agent Pat Stop', oa, '+9779802000003') RETURNING id INTO pat_stop;
+  INSERT INTO customers (branch_id, full_name, org_id, phone) VALUES (b1, 'Agent Pat B', ob, '+9779802000009') RETURNING id INTO pat_b;
+  DELETE FROM patient_channels WHERE customer_id IN (pat, pat_pr, pat_stop);
+  INSERT INTO patient_channels (org_id, customer_id, channel, address, purpose, status, source, evidence) VALUES
+    (oa, pat, 'sms', '+9779802000001', 'service', 'agreed', 'booking', 'test'), (oa, pat_pr, 'sms', '+9779802000002', 'service', 'agreed', 'booking', 'test'),
+    (oa, pat_stop, 'sms', '+9779802000003', 'service', 'stopped', 'patient_reply', 'replied STOP')
+  ON CONFLICT (org_id, channel, address, purpose) DO UPDATE SET status = EXCLUDED.status;
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status, customer_phone)
+    VALUES (a1, tr, pat, 'Agent Pat', current_date + 200, '10:00', '10:30', (current_date + 200)::timestamp + time '10:00', (current_date + 200)::timestamp + time '10:30', 1000, 1000, 'Confirmed', '+9779802000001') RETURNING id INTO bk;
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status, dentist_id)
+    VALUES (a1, tr, pat_pr, 'Agent Pat PR', current_date + 201, '10:00', '10:30', (current_date + 201)::timestamp + time '10:00', (current_date + 201)::timestamp + time '10:30', 1000, 1000, 'Pending', d_pr1) RETURNING id INTO bk_pr;
+  INSERT INTO booking_dentists (booking_id, dentist_id) VALUES (bk_pr, d_pr1);
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status)
+    VALUES (a1, tr, pat, 'Agent Pat', current_date + 202, '10:00', '10:30', (current_date + 202)::timestamp + time '10:00', (current_date + 202)::timestamp + time '10:30', 1000, 1000, 'Pending') RETURNING id INTO bk_pend;
+  SELECT id INTO acc FROM channel_accounts WHERE org_id = oa AND channel = 'sms' AND provider = 'test' AND status = 'connected' LIMIT 1;
+  IF acc IS NULL THEN
+    INSERT INTO channel_accounts (org_id, channel, provider, sender, status, priority, credit_cost_npr)
+      VALUES (oa, 'sms', 'test', '+977972' || lpad((random() * 999999)::int::text, 6, '0'), 'connected', 100, 1.5) RETURNING id INTO acc;
+  END IF;
+  UPDATE channel_accounts SET quiet_start = NULL, quiet_end = NULL WHERE id = acc;
+  INSERT INTO message_templates (org_id, name, channel, language, body, purpose, clinical) VALUES
+    (oa, 'agent-a-' || sfx, NULL, 'en', 'Hi {patient_name}, see you at {clinic}.', 'service', false) RETURNING id INTO t1;
+  INSERT INTO message_templates (org_id, name, channel, language, body, purpose, clinical) VALUES
+    (oa, 'agent-b-' || sfx, NULL, 'en', 'Hello {patient_name}, a reminder from {clinic}.', 'service', false) RETURNING id INTO t2;
+
+  -- playbooks: clinic-wide (A), branch A2 only, switched off, and another org's
+  INSERT INTO playbooks (org_id, branch_id, agent, key, name, event, level, enabled) VALUES (oa, NULL, 'follow_up', 'day_before_reminder', 'Day before reminder', 'day_before', 1, true) RETURNING id INTO pb1;
+  INSERT INTO playbooks (org_id, branch_id, agent, key, name, event, level, enabled) VALUES (oa, a2, 'follow_up', 'aftercare_check_in', 'Aftercare check-in', 'visit_completed', 2, true) RETURNING id INTO pb2;
+  INSERT INTO playbooks (org_id, branch_id, agent, key, name, event, level, enabled) VALUES (oa, NULL, 'follow_up', 'booking_confirmation', 'Booking confirmation', 'booking_created', 1, false) RETURNING id INTO pb_off;
+  INSERT INTO playbooks (org_id, branch_id, agent, key, name, event, level, enabled) VALUES (ob, NULL, 'follow_up', 'day_before_reminder', 'Day before reminder B', 'day_before', 1, true) RETURNING id INTO pbb;
+
+  -- ═══ 0. structure ═══
+  PERFORM pg_temp.g_chk('no API role can write the five agent tables directly',
+    NOT EXISTS (SELECT 1 FROM unnest(ARRAY['agent_settings', 'playbooks', 'agent_work_items', 'ai_spend', 'ai_budgets']) t, unnest(ARRAY['anon', 'authenticated', 'service_role']) ro, unnest(ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) pr
+                WHERE has_table_privilege(ro, 'public.' || t, pr)), 'grants');
+  PERFORM pg_temp.g_chk('private.approval_grants: no API role has any privilege',
+    NOT EXISTS (SELECT 1 FROM unnest(ARRAY['anon', 'authenticated', 'service_role']) ro WHERE has_schema_privilege(ro, 'private', 'USAGE') OR has_table_privilege(ro, 'private.approval_grants', 'SELECT')), 'grants');
+  PERFORM pg_temp.g_chk('helper functions are not callable by API roles',
+    NOT EXISTS (SELECT 1 FROM unnest(ARRAY['_agent_snap(text,jsonb)', '_agent_apply(text,jsonb,jsonb)', '_ai_block_reason(uuid,uuid,text)', '_work_keys(text,boolean)']) f, unnest(ARRAY['anon', 'authenticated', 'service_role']) ro
+                WHERE has_function_privilege(ro, 'public.' || f, 'EXECUTE')), 'helpers closed');
+  PERFORM pg_temp.g_chk('service functions are service_role only (not authenticated, not anon)',
+    has_function_privilege('service_role', 'public.ai_record_spend(uuid,uuid,text,text,text,text,jsonb,numeric,uuid,uuid)', 'EXECUTE')
+    AND NOT has_function_privilege('authenticated', 'public.ai_record_spend(uuid,uuid,text,text,text,text,jsonb,numeric,uuid,uuid)', 'EXECUTE')
+    AND NOT has_function_privilege('authenticated', 'public.ai_budget_status(uuid)', 'EXECUTE') AND NOT has_function_privilege('authenticated', 'public.ai_may_run(uuid,uuid,text)', 'EXECUTE')
+    AND NOT has_function_privilege('authenticated', 'public.agent_expire_work_items()', 'EXECUTE')
+    AND NOT has_function_privilege('authenticated', 'public.act_work_propose(text,text,uuid,text,text,text,jsonb,uuid,jsonb,uuid,uuid,uuid,boolean,timestamptz,jsonb)', 'EXECUTE')
+    AND NOT has_function_privilege('anon', 'public.act_work_approve(uuid,jsonb,jsonb)', 'EXECUTE'), 'grants');
+  -- A seeded row nobody has changed since: every app write sets updated_by and updated_at = now() (an undo restores both exactly), local setup scripts
+  -- bump updated_at, and the seed wrote neither; all seed rows share the 016 transaction's now(), the earliest updated_at of any clinic-wide row.
+  e_seed := (SELECT min(s0.updated_at) FROM agent_settings s0 WHERE s0.branch_id IS NULL AND s0.org_id NOT IN (SELECT org FROM t_seed));
+  PERFORM pg_temp.g_chk('seed (decision f): every organization that existed before the test has a scribe and a follow_up clinic-wide row; every row still as seeded (updated_by NULL, updated_at = the seed time) has the scribe ENABLED (CMD-109: the AI switch alone gates it, as with no row) and follow_up DISABLED, ceiling 1; at least one such row exists',
+    NOT EXISTS (SELECT 1 FROM organizations o WHERE o.id NOT IN (SELECT org FROM t_seed)
+                AND (NOT EXISTS (SELECT 1 FROM agent_settings s WHERE s.org_id = o.id AND s.branch_id IS NULL AND s.agent = 'scribe')
+                  OR NOT EXISTS (SELECT 1 FROM agent_settings s WHERE s.org_id = o.id AND s.branch_id IS NULL AND s.agent = 'follow_up')))
+    AND NOT EXISTS (SELECT 1 FROM agent_settings s WHERE s.branch_id IS NULL AND s.org_id NOT IN (SELECT org FROM t_seed) AND s.updated_by IS NULL AND s.updated_at = e_seed
+                      AND ((s.agent = 'scribe' AND (NOT s.enabled OR s.max_level IS DISTINCT FROM 1)) OR (s.agent = 'follow_up' AND (s.enabled OR s.max_level IS DISTINCT FROM 1))))
+    AND EXISTS (SELECT 1 FROM agent_settings s WHERE s.branch_id IS NULL AND s.agent = 'follow_up' AND s.org_id NOT IN (SELECT org FROM t_seed) AND s.updated_by IS NULL AND s.updated_at = e_seed)
+    AND EXISTS (SELECT 1 FROM agent_settings s WHERE s.branch_id IS NULL AND s.agent = 'scribe' AND s.org_id NOT IN (SELECT org FROM t_seed) AND s.updated_by IS NULL AND s.updated_at = e_seed),
+    'seed rows');
+  -- CMD-109, end to end on a row 016 really seeded: a clinic whose AI is off switches it on, and its Scribe may run (no AGENT_OFF from the seeded row).
+  -- Picks an organization whose scribe row is still as seeded (a disabled one first); AI is turned off for it inside this rolled-back transaction.
+  SELECT s.org_id INTO e_org FROM agent_settings s WHERE s.branch_id IS NULL AND s.agent = 'scribe' AND s.org_id NOT IN (SELECT org FROM t_seed) AND s.updated_by IS NULL AND s.updated_at = e_seed
+   ORDER BY s.enabled, s.org_id LIMIT 1;
+  IF e_org IS NULL THEN
+    PERFORM pg_temp.g_chk('CMD-109: a clinic switching AI on can run the Scribe (seeded row)', false, 'no organization with a scribe row still as seeded');
+  ELSE
+    SELECT b.id INTO e_br FROM branches b WHERE b.org_id = e_org ORDER BY b.id LIMIT 1;
+    IF e_br IS NULL THEN INSERT INTO branches (name, org_id) VALUES ('CMD-109 test', e_org) RETURNING id INTO e_br; END IF;
+    UPDATE organizations SET ai_consultation_enabled = false WHERE id = e_org;   -- as owner; rolled back with the test
+    INSERT INTO auth.users (id, instance_id, aud, role, email, created_at, updated_at)
+      VALUES (e_uid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-cmd109-' || e_sfx || '@test.invalid', now(), now());
+    INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active) VALUES (e_uid, 'rls-cmd109-' || e_sfx || '@test.invalid', 'RLS admin CMD-109', 'admin', e_br, e_org, true);
+    INSERT INTO t_actor VALUES ('cmd109_admin', e_uid, e_org, 'authenticated');
+    PERFORM pg_temp.g_chk('CMD-109: with the AI switch off, the Scribe is blocked by the switch (AI_OFF)', public._ai_block_reason(e_org, e_br, 'scribe') = 'AI_OFF',
+      coalesce(public._ai_block_reason(e_org, e_br, 'scribe'), 'null'));
+    r := pg_temp.act_run('cmd109_admin', 'SELECT public.act_ai_budget_set(1000)');
+    r := pg_temp.act_run('cmd109_admin', 'SELECT public.act_ai_set_enabled(true)');
+    PERFORM pg_temp.g_chk('CMD-109: after the owner sets a budget and switches AI on, the Scribe may run: the scribe row 016 seeded does not keep it off (no AGENT_OFF)',
+      pg_temp.act_code(r) = 'ok' AND public._ai_block_reason(e_org, e_br, 'scribe') IS NULL AND public.ai_may_run(e_org, e_br, 'scribe'),
+      pg_temp.act_code(r) || ' / block reason ' || coalesce(public._ai_block_reason(e_org, e_br, 'scribe'), 'null') || ' / org ' || e_org);
+  END IF;
+  PERFORM pg_temp.g_chk('seed: a Scribe with no row follows the AI switch (on), follow_up with no row is off',
+    public._agent_org_enabled(oa, 'scribe') AND NOT public._agent_org_enabled(oa, 'follow_up') AND public._agent_ceiling(oa, 'follow_up') = 1, 'defaults');
+
+  -- ═══ 1. who may do what: ceiling, levels, enable ═══
+  r := pg_temp.act_run('manager_2_branches', format('SELECT public.act_playbook_set_level(%L, 2)', pb1));
+  PERFORM pg_temp.g_chk('ceiling default 1: manager asks for level 2 -> LEVEL_ABOVE_CEILING, level unchanged', pg_temp.act_code(r) = 'LEVEL_ABOVE_CEILING' AND (SELECT level FROM playbooks WHERE id = pb1) = 1, pg_temp.act_code(r));
+  FOR x IN SELECT unnest(ARRAY['manager_2_branches', 'staff', 'admin_viewer', 'g_pr1']) LOOP
+    r := pg_temp.act_run(x, format('SELECT public.act_agent_set_ceiling(%L, 3)', 'follow_up'));
+    PERFORM pg_temp.g_chk('set_ceiling: ' || x || ' refused', pg_temp.act_code(r) = 'FORBIDDEN' AND NOT EXISTS (SELECT 1 FROM agent_settings WHERE org_id = oa AND agent = 'follow_up' AND max_level = 3), pg_temp.act_code(r));
+  END LOOP;
+  r := pg_temp.act_run('service', format('SELECT public.act_agent_set_ceiling(%L, 3, %L::jsonb)', 'follow_up', ctx_fu));
+  PERFORM pg_temp.g_chk('set_ceiling: an agent (service role) is refused', pg_temp.act_code(r) = 'FORBIDDEN', pg_temp.act_code(r));
+  r := pg_temp.act_run('admin', format('SELECT public.act_agent_set_ceiling(%L, 3)', 'follow_up'));
+  PERFORM pg_temp.g_chk('set_ceiling: the owner (admin) sets 3; a new row keeps the agent off', pg_temp.act_code(r) = 'ok'
+    AND (SELECT max_level FROM agent_settings WHERE org_id = oa AND branch_id IS NULL AND agent = 'follow_up') = 3
+    AND NOT (SELECT enabled FROM agent_settings WHERE org_id = oa AND branch_id IS NULL AND agent = 'follow_up'), coalesce(r::text, 'null'));
+  r := pg_temp.act_run('admin', format('SELECT public.act_agent_set_ceiling(%L, 4)', 'follow_up'));
+  PERFORM pg_temp.g_chk('set_ceiling: level 4 -> INVALID_INPUT', pg_temp.act_code(r) = 'INVALID_INPUT', pg_temp.act_code(r));
+  r := pg_temp.act_run('admin', format('SELECT public.act_agent_set_ceiling(%L, 2)', 'scribe'));
+  PERFORM pg_temp.g_chk('set_ceiling on the scribe keeps it ON (a new row takes the effective default)', pg_temp.act_code(r) = 'ok' AND public._agent_org_enabled(oa, 'scribe'), 'scribe still on');
+
+  r := pg_temp.act_run('manager_2_branches', format('SELECT public.act_playbook_set_level(%L, 2)', pb1));
+  PERFORM pg_temp.g_chk('set_level: the manager sets a CLINIC-WIDE playbook to 2 within the ceiling (logged with branch NULL)', pg_temp.act_code(r) = 'ok' AND (SELECT level FROM playbooks WHERE id = pb1) = 2
+    AND (SELECT branch_id FROM action_log WHERE id = (r ->> 'action_id')::uuid) IS NULL, coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.g_chk('undo: the manager undoes their own clinic-wide level change; level back to 1', pg_temp.act_code(r2) = 'ok' AND (SELECT level FROM playbooks WHERE id = pb1) = 1, coalesce(r2::text, 'null'));
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.g_chk('undo: a second undo -> UNDO_ALREADY', pg_temp.act_code(r2) = 'UNDO_ALREADY', pg_temp.act_code(r2));
+  FOR x IN SELECT unnest(ARRAY['staff', 'admin_viewer', 'g_pr1']) LOOP
+    r := pg_temp.act_run(x, format('SELECT public.act_playbook_set_level(%L, 1)', pb1));
+    PERFORM pg_temp.g_chk('set_level: ' || x || ' refused', pg_temp.act_code(r) = 'FORBIDDEN', pg_temp.act_code(r));
+    r := pg_temp.act_run(x, format('SELECT public.act_playbook_set_enabled(%L, false)', pb1));
+    PERFORM pg_temp.g_chk('set_enabled (playbook): ' || x || ' refused', pg_temp.act_code(r) = 'FORBIDDEN' AND (SELECT enabled FROM playbooks WHERE id = pb1), pg_temp.act_code(r));
+  END LOOP;
+  r := pg_temp.act_run('manager_2_branches', format('SELECT public.act_playbook_set_level(%L, 2)', pbb));
+  PERFORM pg_temp.g_chk('set_level: another organization''s playbook -> PLAYBOOK_NOT_FOUND', pg_temp.act_code(r) = 'PLAYBOOK_NOT_FOUND' AND (SELECT level FROM playbooks WHERE id = pbb) = 1, pg_temp.act_code(r));
+  r := pg_temp.act_run('admin_of_OTHER_org', format('SELECT public.act_playbook_set_enabled(%L, false)', pb1));
+  PERFORM pg_temp.g_chk('set_enabled (playbook): another organization''s admin -> PLAYBOOK_NOT_FOUND', pg_temp.act_code(r) = 'PLAYBOOK_NOT_FOUND' AND (SELECT enabled FROM playbooks WHERE id = pb1), pg_temp.act_code(r));
+  r := pg_temp.act_run('manager_2_branches', format('SELECT public.act_playbook_set_level(%L, 4)', pb1));
+  PERFORM pg_temp.g_chk('set_level: level 4 -> INVALID_INPUT', pg_temp.act_code(r) = 'INVALID_INPUT', pg_temp.act_code(r));
+  r := pg_temp.act_run('manager_2_branches', format('SELECT public.act_playbook_set_enabled(%L, false)', pb1));
+  PERFORM pg_temp.g_chk('set_enabled (playbook): the manager switches it off', pg_temp.act_code(r) = 'ok' AND NOT (SELECT enabled FROM playbooks WHERE id = pb1), pg_temp.act_code(r));
+  r := pg_temp.act_run('manager_2_branches', format('SELECT public.act_playbook_set_enabled(%L, true)', pb1));
+  PERFORM pg_temp.g_chk('set_enabled (playbook): and on again', pg_temp.act_code(r) = 'ok' AND (SELECT enabled FROM playbooks WHERE id = pb1), pg_temp.act_code(r));
+
+  -- ceiling lowering lowers playbooks; undo restores them; undo is the owner's; a later change makes it stale
+  PERFORM pg_temp.act_run('admin', format('SELECT public.act_playbook_set_level(%L, 3)', pb1));
+  r := pg_temp.act_run('admin', format('SELECT public.act_agent_set_ceiling(%L, 1)', 'follow_up'), 1);
+  PERFORM pg_temp.g_chk('set_ceiling 1: every follow_up playbook above it is lowered in the same action (2 here), others untouched',
+    pg_temp.act_code(r) = 'ok' AND (r #>> '{data,playbooks_lowered}')::int = 2 AND (SELECT level FROM playbooks WHERE id = pb1) = 1 AND (SELECT level FROM playbooks WHERE id = pb2) = 1
+    AND (SELECT level FROM playbooks WHERE id = pbb) = 1, coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.g_chk('undo of a ceiling change: the manager is refused', pg_temp.act_code(r2) = 'FORBIDDEN' AND (SELECT max_level FROM agent_settings WHERE org_id = oa AND branch_id IS NULL AND agent = 'follow_up') = 1, pg_temp.act_code(r2));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.g_chk('undo of a ceiling change: staff are refused (it is outside their branch scope)', pg_temp.act_code(r2) IN ('FORBIDDEN', 'ACTION_NOT_FOUND') AND (SELECT max_level FROM agent_settings WHERE org_id = oa AND branch_id IS NULL AND agent = 'follow_up') = 1, pg_temp.act_code(r2));
+  r2 := pg_temp.act_run('admin', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.g_chk('undo of a ceiling change: the owner restores the ceiling AND the lowered levels (3 and 2)', pg_temp.act_code(r2) = 'ok'
+    AND (SELECT max_level FROM agent_settings WHERE org_id = oa AND branch_id IS NULL AND agent = 'follow_up') = 3 AND (SELECT level FROM playbooks WHERE id = pb1) = 3 AND (SELECT level FROM playbooks WHERE id = pb2) = 2, coalesce(r2::text, 'null'));
+  r := pg_temp.act_run('admin', format('SELECT public.act_agent_set_ceiling(%L, 2)', 'follow_up'));
+  PERFORM pg_temp.act_run('manager_2_branches', format('SELECT public.act_playbook_set_level(%L, 1)', pb1));
+  r2 := pg_temp.act_run('admin', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.g_chk('undo is refused as stale when a lowered playbook changed again', pg_temp.act_code(r2) = 'UNDO_STALE'
+    AND (SELECT max_level FROM agent_settings WHERE org_id = oa AND branch_id IS NULL AND agent = 'follow_up') = 2, pg_temp.act_code(r2));
+  PERFORM pg_temp.act_run('admin', format('SELECT public.act_agent_set_ceiling(%L, 3)', 'follow_up'));
+  PERFORM pg_temp.act_run('admin', format('SELECT public.act_playbook_set_level(%L, 1)', pb1));
+
+  -- agent on / off
+  FOR x IN SELECT unnest(ARRAY['staff', 'admin_viewer', 'g_pr1']) LOOP
+    r := pg_temp.act_run(x, format('SELECT public.act_agent_set_enabled(%L, NULL, true)', 'follow_up'));
+    PERFORM pg_temp.g_chk('agent set_enabled: ' || x || ' refused', pg_temp.act_code(r) = 'FORBIDDEN', pg_temp.act_code(r));
+  END LOOP;
+  r := pg_temp.act_run('manager_2_branches', format('SELECT public.act_agent_set_enabled(%L, NULL, true)', 'follow_up'));
+  PERFORM pg_temp.g_chk('agent set_enabled: a manager cannot switch the whole clinic', pg_temp.act_code(r) = 'FORBIDDEN', pg_temp.act_code(r));
+  r := pg_temp.act_run('manager_2_branches', format('SELECT public.act_agent_set_enabled(%L, %L, true)', 'follow_up', a3));
+  PERFORM pg_temp.g_chk('agent set_enabled: a manager cannot act in a branch that is not theirs', pg_temp.act_code(r) = 'FORBIDDEN', pg_temp.act_code(r));
+  r := pg_temp.act_run('manager_2_branches', format('SELECT public.act_agent_set_enabled(%L, %L, true)', 'follow_up', b1));
+  PERFORM pg_temp.g_chk('agent set_enabled: another organization''s branch -> BRANCH_NOT_FOUND', pg_temp.act_code(r) = 'BRANCH_NOT_FOUND', pg_temp.act_code(r));
+  r := pg_temp.act_run('manager_2_branches', format('SELECT public.act_agent_set_enabled(%L, %L, true)', 'follow_up', a1));
+  PERFORM pg_temp.g_chk('agent set_enabled: a branch cannot switch on what the owner left off -> CLINIC_AGENT_OFF', pg_temp.act_code(r) = 'CLINIC_AGENT_OFF', pg_temp.act_code(r));
+  r := pg_temp.act_run('admin', format('SELECT public.act_agent_set_enabled(%L, NULL, true)', 'follow_up'));
+  PERFORM pg_temp.g_chk('agent set_enabled: the owner switches follow_up on for the clinic', pg_temp.act_code(r) = 'ok' AND public._agent_enabled(oa, a1, 'follow_up') AND public._agent_enabled(oa, a2, 'follow_up'), coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.g_chk('agent set_enabled: undo of a clinic-wide switch is the owner''s (manager refused)', pg_temp.act_code(r2) = 'FORBIDDEN' AND public._agent_org_enabled(oa, 'follow_up'), pg_temp.act_code(r2));
+  r := pg_temp.act_run('manager_2_branches', format('SELECT public.act_agent_set_enabled(%L, %L, false)', 'follow_up', a1));
+  PERFORM pg_temp.g_chk('agent set_enabled: the manager switches follow_up off in THEIR branch only', pg_temp.act_code(r) = 'ok' AND NOT public._agent_enabled(oa, a1, 'follow_up') AND public._agent_enabled(oa, a2, 'follow_up'), coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.g_chk('agent set_enabled: staff cannot undo it', pg_temp.act_code(r2) = 'FORBIDDEN' AND NOT public._agent_enabled(oa, a1, 'follow_up'), pg_temp.act_code(r2));
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.g_chk('agent set_enabled: the manager undoes it (the branch row is removed)', pg_temp.act_code(r2) = 'ok' AND public._agent_enabled(oa, a1, 'follow_up')
+    AND NOT EXISTS (SELECT 1 FROM agent_settings WHERE org_id = oa AND branch_id = a1 AND agent = 'follow_up'), coalesce(r2::text, 'null'));
+  INSERT INTO agent_settings (org_id, branch_id, agent, enabled) VALUES (oa, a2, 'follow_up', true);
+  UPDATE agent_settings SET enabled = false WHERE org_id = oa AND branch_id IS NULL AND agent = 'follow_up';
+  PERFORM pg_temp.g_chk('a branch can only NARROW: org row off + branch row on = off', NOT public._agent_enabled(oa, a2, 'follow_up'), 'narrow only');
+  UPDATE agent_settings SET enabled = true WHERE org_id = oa AND branch_id IS NULL AND agent = 'follow_up';
+  DELETE FROM agent_settings WHERE org_id = oa AND branch_id = a2 AND agent = 'follow_up';
+
+  -- ═══ 2. AI switch and budget ═══
+  s := public.ai_budget_status(oa);
+  PERFORM pg_temp.g_chk('budget status with no budget at all is none', s ->> 'state' = 'none' AND s -> 'amount' = 'null'::jsonb, s::text);
+  UPDATE organizations SET ai_consultation_enabled = true WHERE id = oa;   -- already ON when the budget is missing (decision g)
+  PERFORM pg_temp.g_chk('(g) none: the Scribe still runs and the switch stays on; follow_up is blocked',
+    public.ai_may_run(oa, a1, 'scribe') AND NOT public.ai_may_run(oa, a1, 'follow_up') AND public._ai_block_reason(oa, a1, 'follow_up') = 'BUDGET_USED_UP'
+    AND (SELECT ai_consultation_enabled FROM organizations WHERE id = oa), 'none state');
+  UPDATE organizations SET ai_consultation_enabled = false WHERE id = oa;
+  r := pg_temp.act_run('admin', 'SELECT public.act_ai_set_enabled(true)');
+  PERFORM pg_temp.g_chk('(g) none blocks switching AI ON -> NO_BUDGET', pg_temp.act_code(r) = 'NO_BUDGET' AND NOT (SELECT ai_consultation_enabled FROM organizations WHERE id = oa), pg_temp.act_code(r));
+  FOR x IN SELECT unnest(ARRAY['manager_2_branches', 'staff', 'admin_viewer', 'g_pr1']) LOOP
+    r := pg_temp.act_run(x, 'SELECT public.act_ai_budget_set(1000)');
+    PERFORM pg_temp.g_chk('ai budget_set: ' || x || ' refused', pg_temp.act_code(r) = 'FORBIDDEN' AND NOT EXISTS (SELECT 1 FROM ai_budgets WHERE org_id = oa), pg_temp.act_code(r));
+    r := pg_temp.act_run(x, 'SELECT public.act_ai_set_enabled(true)');
+    PERFORM pg_temp.g_chk('ai set_enabled: ' || x || ' refused', pg_temp.act_code(r) = 'FORBIDDEN' AND NOT (SELECT ai_consultation_enabled FROM organizations WHERE id = oa), pg_temp.act_code(r));
+  END LOOP;
+  r := pg_temp.act_run('admin', 'SELECT public.act_ai_budget_set(-5)');
+  PERFORM pg_temp.g_chk('ai budget_set: a negative amount -> INVALID_INPUT', pg_temp.act_code(r) = 'INVALID_INPUT', pg_temp.act_code(r));
+  r := pg_temp.act_run('admin', 'SELECT public.act_ai_budget_set(1000)');
+  s := public.ai_budget_status(oa);
+  PERFORM pg_temp.g_chk('ai budget_set: the owner sets 1000; state ok, 0 spent', pg_temp.act_code(r) = 'ok' AND s ->> 'state' = 'ok' AND (s ->> 'amount')::numeric = 1000 AND (s ->> 'spent')::numeric = 0, s::text);
+  r2 := pg_temp.act_run('manager_2_branches', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.g_chk('ai budget_set: undo is the owner''s (manager refused)', pg_temp.act_code(r2) = 'FORBIDDEN', pg_temp.act_code(r2));
+  r := pg_temp.act_run('admin', 'SELECT public.act_ai_set_enabled(true)');
+  PERFORM pg_temp.g_chk('ai set_enabled: the owner switches AI on (010''s switch, through the action)', pg_temp.act_code(r) = 'ok' AND (SELECT ai_consultation_enabled FROM organizations WHERE id = oa), coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('admin', format('SELECT public.act_undo(%L)', r ->> 'action_id'));
+  PERFORM pg_temp.g_chk('ai set_enabled: undo puts it back off', pg_temp.act_code(r2) = 'ok' AND NOT (SELECT ai_consultation_enabled FROM organizations WHERE id = oa), coalesce(r2::text, 'null'));
+  PERFORM pg_temp.act_run('admin', 'SELECT public.act_ai_set_enabled(true)');
+  PERFORM pg_temp.g_chk('010''s rule still holds: an admin''s direct UPDATE of the switch touches 0 rows',
+    pg_temp.fn_try('admin', format('UPDATE organizations SET ai_consultation_enabled = false WHERE id = %L RETURNING 1', oa)) IN ('ok:0', 'denied')
+    AND (SELECT ai_consultation_enabled FROM organizations WHERE id = oa), 'still on');
+  r2 := pg_temp.act_run('manager_2_branches', 'SELECT public.act_ai_set_enabled(false)');
+  PERFORM pg_temp.g_chk('ai set_enabled(false): the manager cannot switch it off either', pg_temp.act_code(r2) = 'FORBIDDEN' AND (SELECT ai_consultation_enabled FROM organizations WHERE id = oa), pg_temp.act_code(r2));
+
+  -- budget states: ok below 80%, warn at 80%, used_up at 100%; the ledger is written by the service role only
+  PERFORM pg_temp.g_chk('ai_record_spend is refused to signed-in users', pg_temp.fn_try('admin', format('SELECT public.ai_record_spend(%L, NULL, ''follow_up'', ''text'', ''p'', ''m'', ''{}'', 1)', oa)) = 'denied', 'denied');
+  PERFORM public.ai_record_spend(oa, a1, 'follow_up', 'text', 'anthropic', 'm', '{"in":10,"out":5}', 799.99);
+  s := public.ai_budget_status(oa);
+  PERFORM pg_temp.g_chk('budget state: 79.999% is ok', s ->> 'state' = 'ok', s::text);
+  PERFORM public.ai_record_spend(oa, a1, 'follow_up', 'text', 'anthropic', 'm', '{}', 0.01);
+  s := public.ai_budget_status(oa);
+  PERFORM pg_temp.g_chk('budget state: exactly 80% is warn', s ->> 'state' = 'warn' AND (s ->> 'pct')::numeric = 80, s::text);
+  PERFORM pg_temp.g_chk('budget warn: agents still run', public.ai_may_run(oa, a1, 'follow_up'), 'warn still runs');
+  PERFORM public.ai_record_spend(oa, NULL, 'scribe', 'transcription', 'whisper', 'm', '{"seconds":60}', 199.99);
+  s := public.ai_budget_status(oa);
+  PERFORM pg_temp.g_chk('budget state: 99.99% is still warn', s ->> 'state' = 'warn', s::text);
+  PERFORM public.ai_record_spend(oa, NULL, 'scribe', 'vision', 'p', 'm', '{}', 0.01);
+  s := public.ai_budget_status(oa);
+  PERFORM pg_temp.g_chk('budget state: 100% is used_up', s ->> 'state' = 'used_up' AND (s ->> 'pct')::numeric = 100, s::text);
+  PERFORM pg_temp.g_chk('used up: follow_up is blocked, the Scribe still runs',
+    NOT public.ai_may_run(oa, a1, 'follow_up') AND public._ai_block_reason(oa, a1, 'follow_up') = 'BUDGET_USED_UP' AND public.ai_may_run(oa, a1, 'scribe'), 'used up');
+  UPDATE organizations SET ai_consultation_enabled = false WHERE id = ob;   -- (the 010 section above left org B on)
+  PERFORM pg_temp.g_chk('ai_may_run: false when the clinic''s AI is off, for every agent', NOT public.ai_may_run(ob, b1, 'scribe') AND NOT public.ai_may_run(ob, b1, 'follow_up'), 'org B AI off');
+  okx := false;
+  BEGIN PERFORM public.ai_record_spend(oa, b1, 'follow_up', 'text', 'p', 'm', '{}', 1); EXCEPTION WHEN OTHERS THEN okx := true; END;
+  PERFORM pg_temp.g_chk('ai_record_spend: a branch of another organization is refused', okx, 'cross-org spend');
+
+  -- last month's amount carries over; last month's spending does not count
+  INSERT INTO ai_budgets (org_id, month, amount_npr, warn_pct) VALUES (ob, (public._ai_month_start() - interval '1 month')::date, 500, 50);
+  INSERT INTO ai_spend (org_id, agent, job, provider, model, cost_npr, created_at) VALUES (ob, 'follow_up', 'text', 'p', 'm', 400, now() - interval '40 days');
+  s := public.ai_budget_status(ob);
+  PERFORM pg_temp.g_chk('budget carry-over: no row this month uses last month''s amount and warn %; last month''s spend is not counted',
+    (s ->> 'amount')::numeric = 500 AND (s ->> 'spent')::numeric = 0 AND s ->> 'state' = 'ok', s::text);
+  INSERT INTO ai_spend (org_id, agent, job, provider, model, cost_npr) VALUES (ob, 'follow_up', 'text', 'p', 'm', 250);
+  PERFORM pg_temp.g_chk('budget carry-over: the carried warn_pct (50) applies: 250 of 500 is warn', public.ai_budget_status(ob) ->> 'state' = 'warn', public.ai_budget_status(ob)::text);
+
+  -- raise the budget so the queue tests below run in state ok again
+  r := pg_temp.act_run('admin', 'SELECT public.act_ai_budget_set(100000)');
+  PERFORM pg_temp.g_chk('ai budget_set: raising it brings the state back to ok', pg_temp.act_code(r) = 'ok' AND public.ai_budget_status(oa) ->> 'state' = 'ok', public.ai_budget_status(oa)::text);
+
+  -- ═══ 3. the work queue: propose ═══
+  FOR x IN SELECT unnest(ARRAY['staff', 'admin', 'forged', 'forged_nosub', 'anon']) LOOP
+    r := pg_temp.act_run(x, format('SELECT public.act_work_propose(%L, ''approval'', %L, ''t'', ''s'', ''act_message_send'', ''{"template":"%s"}''::jsonb, NULL, NULL, %L, %L)', 'follow_up', a1, t1, pat, bk), 0);
+    PERFORM pg_temp.g_chk('propose: ' || x || ' cannot call it (service role only)', pg_temp.act_code(r) LIKE 'raised:%', pg_temp.act_code(r));
+  END LOOP;
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''Send the day-before reminder'', ''I drafted a reminder for Agent Pat.'', ''act_message_send'', %L::jsonb, %L, NULL, %L, %L, NULL, false, NULL, %L::jsonb)',
+                      'follow_up', a1, jsonb_build_object('template', t1, 'purpose', 'service')::text, pb1, pat, bk, ctx_fu));
+  it := (r #>> '{data,item_id}')::uuid;
+  PERFORM pg_temp.g_chk('propose: the agent puts a draft in the queue (open, 48 h expiry, logged as the agent)', pg_temp.act_code(r) = 'ok'
+    AND (SELECT status FROM agent_work_items WHERE id = it) = 'open' AND (SELECT expires_at FROM agent_work_items WHERE id = it) > now() + interval '47 hours'
+    AND (SELECT actor_kind || ':' || actor_agent FROM action_log WHERE id = (r ->> 'action_id')::uuid) = 'agent:follow_up', coalesce(r::text, 'null'));
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''t'', ''s'', ''act_message_send'', ''{}''::jsonb, NULL, NULL, %L, NULL, NULL, false, NULL, %L::jsonb)', 'scribe', a1, pat, ctx_fu));
+  PERFORM pg_temp.g_chk('propose: an agent can propose only as itself', pg_temp.act_code(r) = 'FORBIDDEN', pg_temp.act_code(r));
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''t'', ''s'', ''act_booking_reschedule'', ''{}''::jsonb, NULL, NULL, %L, %L, NULL, false, NULL, %L::jsonb)', 'follow_up', a1, pat, bk, ctx_fu));
+  PERFORM pg_temp.g_chk('propose: an action outside the allow-list -> ACTION_NOT_ALLOWED', pg_temp.act_code(r) = 'ACTION_NOT_ALLOWED', pg_temp.act_code(r));
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''t'', ''s'', ''act_message_send'', %L::jsonb, NULL, NULL, %L, NULL, NULL, false, NULL, %L::jsonb)', 'follow_up', a1, jsonb_build_object('template', t1, 'customer_id', pat_b)::text, pat, ctx_fu));
+  PERFORM pg_temp.g_chk('propose: a target id inside the inputs is an unknown key -> INVALID_INPUT', pg_temp.act_code(r) = 'INVALID_INPUT', pg_temp.act_code(r));
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''t'', ''s'', ''act_message_send'', %L::jsonb, NULL, NULL, %L, NULL, NULL, false, NULL, %L::jsonb)', 'follow_up', a1, jsonb_build_object('template', t1)::text, pat_b, ctx_fu));
+  PERFORM pg_temp.g_chk('propose: another organization''s patient -> TARGET_NOT_FOUND', pg_temp.act_code(r) = 'TARGET_NOT_FOUND', pg_temp.act_code(r));
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''t'', ''s'', ''act_message_send'', %L::jsonb, NULL, NULL, %L, NULL, NULL, false, NULL, %L::jsonb)', 'follow_up', b1, jsonb_build_object('template', t1)::text, pat, ctx_fu));
+  PERFORM pg_temp.g_chk('propose: another organization''s branch -> BRANCH_NOT_FOUND', pg_temp.act_code(r) = 'BRANCH_NOT_FOUND', pg_temp.act_code(r));
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''t'', ''s'', ''act_message_send'', %L::jsonb, %L, NULL, %L, NULL, NULL, false, NULL, %L::jsonb)', 'follow_up', a1, jsonb_build_object('template', t1)::text, pb_off, pat, ctx_fu));
+  PERFORM pg_temp.g_chk('propose: a playbook that is switched off -> PLAYBOOK_OFF', pg_temp.act_code(r) = 'PLAYBOOK_OFF', pg_temp.act_code(r));
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''t'', ''s'', ''act_message_send'', %L::jsonb, %L, NULL, %L, NULL, NULL, false, NULL, %L::jsonb)', 'follow_up', a1, jsonb_build_object('template', t1)::text, pbb, pat, ctx_fu));
+  PERFORM pg_temp.g_chk('propose: another organization''s playbook -> PLAYBOOK_NOT_FOUND', pg_temp.act_code(r) = 'PLAYBOOK_NOT_FOUND', pg_temp.act_code(r));
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''t'', ''s'', ''act_message_send'', %L::jsonb, NULL, NULL, %L, NULL, NULL, false, NULL, %L::jsonb)', 'follow_up', a1, jsonb_build_object('template', t1)::text, pat, ctx_b));
+  PERFORM pg_temp.g_chk('propose: an agent of organization B cannot propose into organization A''s branch -> BRANCH_NOT_FOUND', pg_temp.act_code(r) = 'BRANCH_NOT_FOUND', pg_temp.act_code(r));
+  -- the three refusals
+  UPDATE agent_settings SET enabled = false WHERE org_id = oa AND branch_id IS NULL AND agent = 'follow_up';
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''t'', ''s'', ''act_message_send'', %L::jsonb, NULL, NULL, %L, NULL, NULL, false, NULL, %L::jsonb)', 'follow_up', a1, jsonb_build_object('template', t1)::text, pat, ctx_fu));
+  PERFORM pg_temp.g_chk('propose: refused when the agent is off -> AGENT_OFF', pg_temp.act_code(r) = 'AGENT_OFF', pg_temp.act_code(r));
+  UPDATE agent_settings SET enabled = true WHERE org_id = oa AND branch_id IS NULL AND agent = 'follow_up';
+  UPDATE organizations SET ai_consultation_enabled = false WHERE id = oa;
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''t'', ''s'', ''act_message_send'', %L::jsonb, NULL, NULL, %L, NULL, NULL, false, NULL, %L::jsonb)', 'follow_up', a1, jsonb_build_object('template', t1)::text, pat, ctx_fu));
+  PERFORM pg_temp.g_chk('propose: refused when the clinic''s AI is off -> AI_OFF', pg_temp.act_code(r) = 'AI_OFF', pg_temp.act_code(r));
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''exception'', %L, ''Scribe note'', ''s'', NULL, ''{}''::jsonb, NULL, NULL, NULL, NULL, NULL, false, NULL, %L::jsonb)', 'scribe', a1, ctx_sc));
+  PERFORM pg_temp.g_chk('propose: the Scribe is refused too when AI is off', pg_temp.act_code(r) = 'AI_OFF', pg_temp.act_code(r));
+  UPDATE organizations SET ai_consultation_enabled = true WHERE id = oa;
+  PERFORM pg_temp.act_run('admin', 'SELECT public.act_ai_budget_set(10)');   -- 10 NPR: already far past it
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''t'', ''s'', ''act_message_send'', %L::jsonb, NULL, NULL, %L, NULL, NULL, false, NULL, %L::jsonb)', 'follow_up', a1, jsonb_build_object('template', t1)::text, pat, ctx_fu));
+  PERFORM pg_temp.g_chk('propose: refused when the budget is used up -> BUDGET_USED_UP', pg_temp.act_code(r) = 'BUDGET_USED_UP', pg_temp.act_code(r));
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''exception'', %L, ''Scribe note'', ''I could not read the X-ray.'', NULL, ''{}''::jsonb, NULL, NULL, NULL, NULL, NULL, false, NULL, %L::jsonb)', 'scribe', a1, ctx_sc));
+  PERFORM pg_temp.g_chk('propose: the Scribe is still allowed when the budget is used up', pg_temp.act_code(r) = 'ok', pg_temp.act_code(r));
+  PERFORM pg_temp.act_run('admin', 'SELECT public.act_ai_budget_set(100000)');
+
+  -- ═══ 4. approve / reject ═══
+  r := pg_temp.act_run('admin_viewer', format('SELECT public.act_work_approve(%L)', it));
+  PERFORM pg_temp.g_chk('approve: admin_viewer refused', pg_temp.act_code(r) = 'FORBIDDEN' AND (SELECT status FROM agent_work_items WHERE id = it) = 'open', pg_temp.act_code(r));
+  r := pg_temp.act_run('g_staff_a2', format('SELECT public.act_work_approve(%L)', it));
+  PERFORM pg_temp.g_chk('approve: front desk of another branch -> ITEM_NOT_FOUND', pg_temp.act_code(r) = 'ITEM_NOT_FOUND' AND (SELECT status FROM agent_work_items WHERE id = it) = 'open', pg_temp.act_code(r));
+  r := pg_temp.act_run('admin_of_OTHER_org', format('SELECT public.act_work_approve(%L)', it));
+  PERFORM pg_temp.g_chk('approve: another organization''s admin -> ITEM_NOT_FOUND', pg_temp.act_code(r) = 'ITEM_NOT_FOUND' AND (SELECT status FROM agent_work_items WHERE id = it) = 'open', pg_temp.act_code(r));
+  r := pg_temp.act_run('g_pr2', format('SELECT public.act_work_approve(%L)', it));
+  PERFORM pg_temp.g_chk('approve: a practitioner who is not this patient''s dentist -> ITEM_NOT_FOUND', pg_temp.act_code(r) = 'ITEM_NOT_FOUND' AND (SELECT status FROM agent_work_items WHERE id = it) = 'open', pg_temp.act_code(r));
+  r := pg_temp.act_run('forged_nosub', format('SELECT public.act_work_approve(%L)', it), 0);
+  PERFORM pg_temp.g_chk('approve: a service_role claim without a signed-in person cannot approve', pg_temp.act_code(r) IN ('INVALID_CONTEXT', 'FORBIDDEN') AND (SELECT status FROM agent_work_items WHERE id = it) = 'open', pg_temp.act_code(r));
+  r := pg_temp.act_run('service', format('SELECT public.act_work_approve(%L, NULL, %L::jsonb)', it, ctx_fu), 1);
+  PERFORM pg_temp.g_chk('approve: an agent (service role) cannot approve its own draft', pg_temp.act_code(r) = 'FORBIDDEN' AND (SELECT status FROM agent_work_items WHERE id = it) = 'open', pg_temp.act_code(r));
+
+  r := pg_temp.act_run('staff', format('SELECT public.act_work_approve(%L)', it), 2);
+  PERFORM pg_temp.g_chk('approve: staff of the branch approves; item approved by them; the action ran', pg_temp.act_code(r) = 'ok' AND (SELECT status FROM agent_work_items WHERE id = it) = 'approved'
+    AND (SELECT decided_by FROM agent_work_items WHERE id = it) = u_staff AND (SELECT final_inputs FROM agent_work_items WHERE id = it) IS NULL, coalesce(r::text, 'null'));
+  SELECT * INTO l FROM action_log WHERE id = (SELECT result_action_id FROM agent_work_items WHERE id = it);
+  PERFORM pg_temp.g_chk('approve: the inner action_log row is the AGENT acting, approved by the person (not the person acting)',
+    l.action = 'message.send' AND l.actor_kind = 'agent' AND l.actor_agent = 'follow_up' AND l.approved_by = u_staff AND l.actor_user_id IS NULL AND l.ok, row_to_json(l)::text);
+  PERFORM pg_temp.g_chk('approve: the message is queued with the agent as its author', EXISTS (SELECT 1 FROM messages m WHERE m.action_id = l.id AND m.author_kind = 'agent' AND m.author_agent = 'follow_up' AND m.status = 'queued' AND m.direction = 'out'), 'message');
+  PERFORM pg_temp.g_chk('approve: the grant is gone after use', NOT EXISTS (SELECT 1 FROM private.approval_grants), 'grants empty');
+  PERFORM pg_temp.g_chk('approve: its own work.approve row is logged for the person', EXISTS (SELECT 1 FROM action_log a WHERE a.id = (r ->> 'action_id')::uuid AND a.action = 'work.approve' AND a.actor_kind = 'person' AND a.actor_user_id = u_staff AND a.target_id = it), 'approve row');
+  r := pg_temp.act_run('staff', format('SELECT public.act_work_approve(%L)', it));
+  PERFORM pg_temp.g_chk('approve: a second approval -> ITEM_NOT_OPEN, nothing else queued', pg_temp.act_code(r) = 'ITEM_NOT_OPEN' AND (SELECT count(*) FROM messages m WHERE m.action_id = l.id) = 1, pg_temp.act_code(r));
+  r := pg_temp.act_run('staff', format('SELECT public.act_work_reject(%L, ''changed my mind'')', it));
+  PERFORM pg_temp.g_chk('reject: an approved item cannot be rejected -> ITEM_NOT_OPEN', pg_temp.act_code(r) = 'ITEM_NOT_OPEN' AND (SELECT status FROM agent_work_items WHERE id = it) = 'approved', pg_temp.act_code(r));
+
+  -- a forged agent p_ctx from a signed-in call with NO grant is ignored: the call is logged as the person
+  r := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_template => %L, p_booking => %L, p_ctx => %L::jsonb)', pat, t1, bk,
+                                       jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa, 'approved_by', u_staff)::text));
+  SELECT * INTO l FROM action_log WHERE id = (r ->> 'action_id')::uuid;
+  PERFORM pg_temp.g_chk('forged: an agent p_ctx without a grant is ignored (logged as the person, no approved_by, p_ctx noted as ignored)',
+    pg_temp.act_code(r) = 'ok' AND l.actor_kind = 'person' AND l.actor_user_id = u_staff AND l.actor_agent IS NULL AND l.approved_by IS NULL AND (l.inputs ->> 'ctx_ignored')::boolean, row_to_json(l)::text);
+  r := pg_temp.act_run('staff', format('SELECT public.act_message_send(p_customer => %L, p_template => %L, p_booking => %L, p_ctx => %L::jsonb)', pat, t1, bk,
+                                       jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa, 'approved_by', u_adm)::text));
+  SELECT * INTO l FROM action_log WHERE id = (r ->> 'action_id')::uuid;
+  PERFORM pg_temp.g_chk('forged: naming someone else as approver changes nothing either', l.actor_kind = 'person' AND l.approved_by IS NULL, row_to_json(l)::text);
+
+  -- edits: content keys only; ids come from the stored item
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''Reminder'', ''A reminder.'', ''act_message_send'', %L::jsonb, %L, NULL, %L, NULL, NULL, false, NULL, %L::jsonb)',
+                      'follow_up', a1, jsonb_build_object('template', t1)::text, pb1, pat, ctx_fu));
+  it_ed := (r #>> '{data,item_id}')::uuid;
+  r := pg_temp.act_run('staff', format('SELECT public.act_work_approve(%L, %L::jsonb)', it_ed, jsonb_build_object('customer_id', pat_pr)::text));
+  PERFORM pg_temp.g_chk('approve: an edit that changes customer_id is refused (EDIT_NOT_ALLOWED), the item stays open', pg_temp.act_code(r) = 'EDIT_NOT_ALLOWED' AND (SELECT status FROM agent_work_items WHERE id = it_ed) = 'open', pg_temp.act_code(r));
+  r := pg_temp.act_run('staff', format('SELECT public.act_work_approve(%L, %L::jsonb)', it_ed, jsonb_build_object('channel', 'email')::text));
+  PERFORM pg_temp.g_chk('approve: an edit of the channel is refused too', pg_temp.act_code(r) = 'EDIT_NOT_ALLOWED' AND (SELECT status FROM agent_work_items WHERE id = it_ed) = 'open', pg_temp.act_code(r));
+  r := pg_temp.act_run('staff', format('SELECT public.act_work_approve(%L, %L::jsonb)', it_ed, jsonb_build_object('booking_id', bk_pr)::text));
+  PERFORM pg_temp.g_chk('approve: an edit that changes booking_id is refused too', pg_temp.act_code(r) = 'EDIT_NOT_ALLOWED', pg_temp.act_code(r));
+  r := pg_temp.act_run('staff', format('SELECT public.act_work_approve(%L, %L::jsonb)', it_ed, jsonb_build_object('template', t2)::text), 2);
+  PERFORM pg_temp.g_chk('approve: an edited approval runs with the edit, status edited, final_inputs stored',
+    pg_temp.act_code(r) = 'ok' AND (SELECT status FROM agent_work_items WHERE id = it_ed) = 'edited' AND (SELECT final_inputs ->> 'template' FROM agent_work_items WHERE id = it_ed) = t2::text
+    AND (SELECT proposed_inputs ->> 'template' FROM agent_work_items WHERE id = it_ed) = t1::text
+    AND EXISTS (SELECT 1 FROM messages m WHERE m.action_id = (SELECT result_action_id FROM agent_work_items WHERE id = it_ed) AND m.template_id = t2), coalesce(r::text, 'null'));
+
+  -- an inner refusal (the patient replied STOP): failed, nothing else changes
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''Reminder'', ''A reminder.'', ''act_message_send'', %L::jsonb, NULL, NULL, %L, NULL, NULL, false, NULL, %L::jsonb)',
+                      'follow_up', a1, jsonb_build_object('template', t1)::text, pat_stop, ctx_fu));
+  it_stop := (r #>> '{data,item_id}')::uuid;
+  SELECT count(*) INTO n FROM messages WHERE org_id = oa;
+  r := pg_temp.act_run('staff', format('SELECT public.act_work_approve(%L)', it_stop), 2);
+  PERFORM pg_temp.g_chk('approve: an inner refusal (patient replied STOP) marks the item failed with the code, nothing is queued',
+    pg_temp.act_code(r) = 'STOPPED' AND (SELECT status FROM agent_work_items WHERE id = it_stop) = 'failed' AND (SELECT decision_reason FROM agent_work_items WHERE id = it_stop) = 'STOPPED'
+    AND (SELECT decided_by FROM agent_work_items WHERE id = it_stop) = u_staff AND (SELECT count(*) FROM messages WHERE org_id = oa) = n AND NOT EXISTS (SELECT 1 FROM private.approval_grants), pg_temp.act_code(r));
+
+  -- an inner action with its own undo: set_status. The queue's approval is undone through act_undo on the inner action.
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''Confirm the booking'', ''She replied YES.'', ''act_booking_set_status'', %L::jsonb, NULL, NULL, %L, NULL, NULL, false, NULL, %L::jsonb)',
+                      'follow_up', a1, jsonb_build_object('status', 'Confirmed')::text, pat, ctx_fu));
+  -- (the booking is a target column of the item: set it directly, as the real agent code will through the same function's p_booking)
+  it_st := (r #>> '{data,item_id}')::uuid;
+  PERFORM pg_temp.g_chk('propose: a booking action without its booking is refused', pg_temp.act_code(r) = 'INVALID_INPUT', pg_temp.act_code(r));
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''Confirm the booking'', ''She replied YES.'', ''act_booking_set_status'', %L::jsonb, NULL, NULL, %L, %L, NULL, false, NULL, %L::jsonb)',
+                      'follow_up', a1, jsonb_build_object('status', 'Confirmed')::text, pat, bk_pend, ctx_fu));
+  it_st := (r #>> '{data,item_id}')::uuid;
+  r := pg_temp.act_run('staff', format('SELECT public.act_work_approve(%L)', it_st), 2);
+  SELECT * INTO l FROM action_log WHERE id = (SELECT result_action_id FROM agent_work_items WHERE id = it_st);
+  PERFORM pg_temp.g_chk('approve: set_status runs as the agent, approved by staff; the booking is Confirmed', pg_temp.act_code(r) = 'ok' AND l.action = 'booking.set_status' AND l.actor_kind = 'agent' AND l.approved_by = u_staff
+    AND (SELECT status FROM bookings WHERE id = bk_pend) = 'Confirmed', coalesce(r::text, 'null'));
+  r2 := pg_temp.act_run('staff', format('SELECT public.act_undo(%L)', l.id));
+  PERFORM pg_temp.g_chk('approve: the inner action''s own undo works (booking back to Pending)', pg_temp.act_code(r2) = 'ok' AND (SELECT status FROM bookings WHERE id = bk_pend) = 'Pending', coalesce(r2::text, 'null'));
+
+  -- practitioner: own patient's item yes, not another's; reject needs a reason
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''Flag it'', ''Not confirmed.'', ''act_booking_flag_not_confirmed'', ''{}''::jsonb, NULL, NULL, %L, %L, NULL, false, NULL, %L::jsonb)',
+                      'follow_up', a1, pat_pr, bk_pr, ctx_fu));
+  it_pr := (r #>> '{data,item_id}')::uuid;
+  r := pg_temp.act_run('g_pr2', format('SELECT public.act_work_reject(%L, ''no'')', it_pr));
+  PERFORM pg_temp.g_chk('reject: a practitioner cannot reject another dentist''s patient''s item', pg_temp.act_code(r) = 'ITEM_NOT_FOUND' AND (SELECT status FROM agent_work_items WHERE id = it_pr) = 'open', pg_temp.act_code(r));
+  r := pg_temp.act_run('g_pr1', format('SELECT public.act_work_reject(%L, '' '')', it_pr));
+  PERFORM pg_temp.g_chk('reject: a reason is required -> REASON_REQUIRED', pg_temp.act_code(r) = 'REASON_REQUIRED' AND (SELECT status FROM agent_work_items WHERE id = it_pr) = 'open', pg_temp.act_code(r));
+  r := pg_temp.act_run('admin_viewer', format('SELECT public.act_work_reject(%L, ''x'')', it_pr));
+  PERFORM pg_temp.g_chk('reject: admin_viewer refused', pg_temp.act_code(r) = 'FORBIDDEN', pg_temp.act_code(r));
+  r := pg_temp.act_run('g_pr1', format('SELECT public.act_work_approve(%L)', it_pr), 2);
+  PERFORM pg_temp.g_chk('approve: a practitioner approves their OWN patient''s item', pg_temp.act_code(r) = 'ok' AND (SELECT status FROM agent_work_items WHERE id = it_pr) = 'approved' AND (SELECT decided_by FROM agent_work_items WHERE id = it_pr) = u_pr1, coalesce(r::text, 'null'));
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''Reminder'', ''A reminder.'', ''act_message_send'', %L::jsonb, NULL, NULL, %L, NULL, NULL, false, NULL, %L::jsonb)',
+                      'follow_up', a1, jsonb_build_object('template', t1)::text, pat, ctx_fu));
+  it_rej := (r #>> '{data,item_id}')::uuid;
+  r := pg_temp.act_run('staff', format('SELECT public.act_work_reject(%L, ''Patient asked us not to'')', it_rej));
+  PERFORM pg_temp.g_chk('reject: staff reject with a reason; status rejected, reason kept, nothing sent', pg_temp.act_code(r) = 'ok' AND (SELECT status FROM agent_work_items WHERE id = it_rej) = 'rejected'
+    AND (SELECT decision_reason FROM agent_work_items WHERE id = it_rej) = 'Patient asked us not to' AND (SELECT result_action_id FROM agent_work_items WHERE id = it_rej) IS NULL, coalesce(r::text, 'null'));
+
+  -- expiry
+  r := pg_temp.act_run('service', format('SELECT public.act_work_propose(%L, ''approval'', %L, ''Old'', ''Too late.'', ''act_message_send'', %L::jsonb, NULL, NULL, %L, NULL, NULL, false, now() - interval ''1 hour'', %L::jsonb)',
+                      'follow_up', a1, jsonb_build_object('template', t1)::text, pat, ctx_fu));
+  it_exp := (r #>> '{data,item_id}')::uuid;
+  r := pg_temp.act_run('staff', format('SELECT public.act_work_approve(%L)', it_exp));
+  PERFORM pg_temp.g_chk('approve: an expired item -> ITEM_EXPIRED, status expired, nothing sent', pg_temp.act_code(r) = 'ITEM_EXPIRED' AND (SELECT status FROM agent_work_items WHERE id = it_exp) = 'expired', pg_temp.act_code(r));
+  INSERT INTO agent_work_items (org_id, branch_id, agent, kind, title, summary, proposed_action, customer_id, expires_at)
+    VALUES (oa, a1, 'follow_up', 'approval', 'old', 'old', 'act_message_send', pat, now() - interval '1 minute') RETURNING id INTO it2;
+  n := public.agent_expire_work_items();
+  PERFORM pg_temp.g_chk('expiry job: agent_expire_work_items expires open items past their time and not callable by signed-in users',
+    n >= 1 AND (SELECT status FROM agent_work_items WHERE id = it2) = 'expired' AND pg_temp.fn_try('admin', 'SELECT public.agent_expire_work_items()') = 'denied', 'expired ' || n);
+
+  -- ═══ 5. who reads what ═══
+  PERFORM public.ai_record_spend(ob, b1, 'follow_up', 'text', 'p', 'm', '{}', 1);
+  INSERT INTO agent_work_items (org_id, branch_id, agent, kind, title, summary, customer_id) VALUES (ob, b1, 'follow_up', 'exception', 'org B item', 's', pat_b);
+  INSERT INTO agent_work_items (org_id, branch_id, agent, kind, title, summary, customer_id) VALUES (oa, a2, 'follow_up', 'exception', 'A2 item', 's', NULL);
+  INSERT INTO agent_work_items (org_id, branch_id, agent, kind, title, summary, customer_id) VALUES (oa, a1, 'follow_up', 'exception', 'A1 item for practitioner 1', 's', pat_pr) RETURNING id INTO it3;
+  INSERT INTO conversations (org_id, branch_id, channel, address, state, needs_person_since, handoff_reason, handoff_summary, customer_id)
+    VALUES (oa, a1, 'sms', '+9779802000077', 'needs_person', now(), 'unclear', 'Asked something odd', pat);
+  FOR l IN SELECT * FROM (VALUES
+    ('admin',               'agent_work_items', 'org_id = ''' || oa || '''', 1),
+    ('admin_viewer',        'agent_work_items', 'org_id = ''' || oa || '''', 1),
+    ('admin_of_OTHER_org',  'agent_work_items', 'org_id = ''' || oa || '''', 0),
+    ('admin_of_OTHER_org',  'playbooks',        'org_id = ''' || oa || '''', 0),
+    ('admin_of_OTHER_org',  'agent_settings',   'org_id = ''' || oa || '''', 0),
+    ('admin_of_OTHER_org',  'ai_spend',         'org_id = ''' || oa || '''', 0),
+    ('admin_of_OTHER_org',  'ai_budgets',       'org_id = ''' || oa || '''', 0),
+    ('admin_of_OTHER_org',  'work_queue',       'org_id = ''' || oa || '''', 0),
+    ('staff',               'agent_work_items', 'title = ''A2 item''', 0),
+    ('staff',               'agent_work_items', 'title = ''A1 item for practitioner 1''', 1),
+    ('g_staff_a2',          'agent_work_items', 'title = ''A2 item''', 1),
+    ('g_staff_a2',          'agent_work_items', 'title = ''A1 item for practitioner 1''', 0),
+    ('manager_2_branches',  'agent_work_items', 'title = ''A2 item''', 1),
+    ('g_pr1',               'agent_work_items', 'title = ''A1 item for practitioner 1''', 1),
+    ('g_pr2',               'agent_work_items', 'title = ''A1 item for practitioner 1''', 0),
+    ('g_pr1',               'agent_work_items', 'title = ''A2 item''', 0),
+    ('g_pr1',               'playbooks',        'id = ''' || pb1 || '''', 1),
+    ('g_pr1',               'agent_settings',   'org_id = ''' || oa || ''' AND branch_id IS NULL', 1),
+    ('staff',               'playbooks',        'id = ''' || pb2 || '''', 0),
+    ('g_staff_a2',          'playbooks',        'id = ''' || pb2 || '''', 1),
+    ('staff',               'playbooks',        'id = ''' || pb1 || '''', 1),
+    ('g_pr1',               'ai_spend',         'org_id = ''' || oa || '''', 0),
+    ('g_pr1',               'ai_budgets',       'org_id = ''' || oa || '''', 0),
+    ('staff',               'ai_spend',         'org_id = ''' || oa || '''', 1),
+    ('manager_2_branches',  'ai_budgets',       'org_id = ''' || oa || '''', 1),
+    ('admin_viewer',        'ai_spend',         'org_id = ''' || oa || '''', 1),
+    ('g_pr1',               'work_queue',       'title = ''A1 item for practitioner 1''', 1),
+    ('g_pr2',               'work_queue',       'title = ''A1 item for practitioner 1''', 0),
+    ('staff',               'work_queue',       'source = ''conversation''', 1),
+    ('g_staff_a2',          'work_queue',       'source = ''conversation''', 0),
+    ('admin',               'work_queue',       'source = ''conversation''', 1),
+    ('anon',                'agent_work_items', 'true', -1),
+    ('anon',                'ai_spend',         'true', -1)
+  ) v(actor, tbl, cond, want) LOOP
+    x := pg_temp.fn_try(l.actor, format('SELECT 1 FROM public.%I WHERE %s', l.tbl, l.cond));
+    PERFORM pg_temp.g_chk('read: ' || l.actor || ' on ' || l.tbl || ' where ' || l.cond || CASE WHEN l.want = 0 THEN ' sees nothing' WHEN l.want < 0 THEN ' is denied' ELSE ' sees it' END,
+      CASE WHEN l.want < 0 THEN x = 'denied' WHEN l.want = 0 THEN x IN ('ok:0', 'denied') ELSE x LIKE 'ok:%' AND x <> 'ok:0' END, 'got ' || x);
+  END LOOP;
+END $agent$;
 
 -- COVERAGE: RLS tables that this test does not seed (static checks above still apply)
 INSERT INTO t_res

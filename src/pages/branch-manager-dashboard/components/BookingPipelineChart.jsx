@@ -86,7 +86,7 @@ const BookingPipelineChart = ({ branchId, period }) => {
     return (
       <div className="bg-white rounded-lg p-4 sm:p-6 border border-gray-200">
         <div className="flex items-center space-x-3 mb-4 sm:mb-6">
-          <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-50 rounded-lg flex items-center justify-center shrink-0">
             <Icon name="TrendingUp" size={18} className="sm:w-5 sm:h-5 text-blue-600" />
           </div>
           <div>
@@ -100,9 +100,9 @@ const BookingPipelineChart = ({ branchId, period }) => {
         </div>
         <div className="h-40 sm:h-48 flex items-center justify-center">
           <div className="animate-pulse space-y-3 w-full">
-            <div className="h-4 bg-gray-100 rounded w-full" />
-            <div className="h-4 bg-gray-100 rounded w-3/4" />
-            <div className="h-4 bg-gray-100 rounded w-1/2" />
+            <div className="h-4 bg-gray-100 rounded-sm w-full" />
+            <div className="h-4 bg-gray-100 rounded-sm w-3/4" />
+            <div className="h-4 bg-gray-100 rounded-sm w-1/2" />
           </div>
         </div>
       </div>
@@ -133,7 +133,7 @@ const BookingPipelineChart = ({ branchId, period }) => {
     <div className="bg-white rounded-lg p-4 sm:p-6 border border-gray-200">
       <div className="flex items-center justify-between mb-4 sm:mb-6 gap-2">
         <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
-          <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-50 rounded-lg flex items-center justify-center shrink-0">
             <Icon name="TrendingUp" size={18} className="sm:w-5 sm:h-5 text-blue-600" />
           </div>
           <div className="min-w-0">
@@ -145,8 +145,8 @@ const BookingPipelineChart = ({ branchId, period }) => {
             </p>
           </div>
         </div>
-        <div className="flex items-center flex-shrink-0">
-          <button className="px-2.5 sm:px-3 py-1 bg-blue-50 text-blue-600 rounded text-xs font-medium">
+        <div className="flex items-center shrink-0">
+          <button className="px-2.5 sm:px-3 py-1 bg-blue-50 text-blue-600 rounded-sm text-xs font-medium">
             Today
           </button>
         </div>

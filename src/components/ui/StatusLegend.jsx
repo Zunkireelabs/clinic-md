@@ -20,7 +20,7 @@ const StatusLegend = ({ showPayment = false, compact = false }) => {
       {STATUS_ITEMS.map((item) => (
         <div key={item.key} className="flex items-center space-x-1.5">
           <span
-            className="inline-block w-2.5 h-2.5 rounded-sm"
+            className="inline-block w-2.5 h-2.5 rounded-xs"
             style={{ backgroundColor: item.color }}
           />
           <span className="font-caption font-caption-normal text-xs text-text-secondary">
@@ -31,7 +31,7 @@ const StatusLegend = ({ showPayment = false, compact = false }) => {
       {showPayment && PAYMENT_ITEMS.map((item) => (
         <div key={item.key} className="flex items-center space-x-1.5">
           <span
-            className="inline-block w-2.5 h-2.5 rounded-sm border-2"
+            className="inline-block w-2.5 h-2.5 rounded-xs border-2"
             style={{ borderColor: item.borderColor, backgroundColor: 'transparent' }}
           />
           <span className="font-caption font-caption-normal text-xs text-text-secondary">

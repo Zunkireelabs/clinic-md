@@ -18,7 +18,7 @@ const STATUS_COLORS = {
 function StatCard({ icon, iconBg, iconColor, label, value }) {
   return (
     <div className="bg-surface rounded-spa-lg border border-border p-4 flex items-center space-x-3">
-      <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center flex-shrink-0`}>
+      <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center shrink-0`}>
         <Icon name={icon} size={18} className={iconColor} />
       </div>
       <div className="min-w-0">
@@ -72,7 +72,7 @@ const AttendanceTab = ({ dentistId, branchId, range }) => {
   if (error) {
     return (
       <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
         <p className="font-body text-sm text-error">{error}</p>
         <button onClick={loadData} className="ml-auto font-body font-body-medium text-sm text-error underline">
           Retry
@@ -135,7 +135,7 @@ const AttendanceTab = ({ dentistId, branchId, range }) => {
                     <span className="font-data font-data-normal text-sm text-text-secondary">{row.workedHours != null ? `${row.workedHours}h` : '—'}</span>
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <span className={`inline-flex px-2 py-0.5 rounded text-[11px] font-caption font-caption-medium ${STATUS_COLORS[row.status] || 'bg-background text-text-secondary'}`}>
+                    <span className={`inline-flex px-2 py-0.5 rounded-sm text-[11px] font-caption font-caption-medium ${STATUS_COLORS[row.status] || 'bg-background text-text-secondary'}`}>
                       {row.status}
                     </span>
                   </td>
@@ -151,7 +151,7 @@ const AttendanceTab = ({ dentistId, branchId, range }) => {
             <div key={row.date} className="p-4 space-y-1.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-data font-data-normal text-sm text-text-primary">{formatPrettyDate(row.date)}</span>
-                <span className={`inline-flex px-2 py-0.5 rounded text-[11px] font-caption font-caption-medium ${STATUS_COLORS[row.status] || 'bg-background text-text-secondary'}`}>
+                <span className={`inline-flex px-2 py-0.5 rounded-sm text-[11px] font-caption font-caption-medium ${STATUS_COLORS[row.status] || 'bg-background text-text-secondary'}`}>
                   {row.status}
                 </span>
               </div>

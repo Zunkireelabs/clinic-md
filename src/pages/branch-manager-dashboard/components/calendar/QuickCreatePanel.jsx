@@ -597,7 +597,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
           onClick={() => setDateOpen((v) => !v)}
           aria-haspopup="dialog"
           aria-expanded={dateOpen}
-          className="w-full h-9 pl-8 pr-2 flex items-center text-[13px] font-body text-text-primary bg-surface border border-border rounded-spa hover:bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 text-left"
+          className="w-full h-9 pl-8 pr-2 flex items-center text-[13px] font-body text-text-primary bg-surface border border-border rounded-spa hover:bg-background focus:outline-hidden focus:ring-2 focus:ring-primary/30 text-left"
         >
           <Icon name="Calendar" size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none" />
           <span className="truncate">{dateLabel}</span>
@@ -627,7 +627,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
           onBlur={() => { setTimeText(bookingTime ? format12h(bookingTime) : ''); }}
           placeholder="--:--"
           autoComplete="off"
-          className="w-full h-9 pl-8 pr-2 text-[13px] font-body text-text-primary bg-surface border border-border rounded-spa focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+          className="w-full h-9 pl-8 pr-2 text-[13px] font-body text-text-primary bg-surface border border-border rounded-spa focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
         />
         {timeDropdownOpen && (
           <div
@@ -778,7 +778,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
                     value={dentistSearch}
                     onChange={(e) => setDentistSearch(e.target.value)}
                     placeholder="Search dentists..."
-                    className="w-full pl-7 pr-3 py-1.5 bg-surface border border-border rounded text-sm focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    className="w-full pl-7 pr-3 py-1.5 bg-surface border border-border rounded-sm text-sm focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
                 <div className="space-y-1 max-h-[140px] overflow-y-auto p-2">
@@ -802,7 +802,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
                       const isChecked = selectedDentistIds.includes(t.id);
                       const name = t.full_name || t.name;
                       return (
-                        <label key={t.id} className={`flex items-center gap-2.5 px-2 py-1.5 rounded cursor-pointer hover:bg-primary/5 ${isChecked ? 'bg-primary/5' : ''}`}>
+                        <label key={t.id} className={`flex items-center gap-2.5 px-2 py-1.5 rounded-sm cursor-pointer hover:bg-primary/5 ${isChecked ? 'bg-primary/5' : ''}`}>
                           <input
                             type="checkbox"
                             checked={isChecked}
@@ -813,7 +813,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
                                 setSelectedDentistIds(prev => prev.filter(id => id !== t.id));
                               }
                             }}
-                            className="text-primary focus:ring-primary w-3.5 h-3.5 rounded"
+                            className="text-primary focus:ring-primary w-3.5 h-3.5 rounded-sm"
                           />
                           <span className="font-body text-sm text-text-primary truncate">
                             {name}
@@ -855,14 +855,14 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
                   onBlur={() => checkPreviousDue(`${customerCountryCode}${customerPhone.replace(/\D/g, '')}`)}
                   branchId={branchId}
                   searchBy="phone"
-                  inputClassName="flex-1 px-3 py-2 text-sm border border-border rounded-r-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  inputClassName="flex-1 px-3 py-2 text-sm border border-border rounded-r-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 />
               </div>
             </div>
 
             {previousDue && (
               <div className="flex items-start gap-2 p-3 bg-warning/5 border border-warning/20 rounded-spa">
-                <Icon name="AlertTriangle" size={14} className="text-warning flex-shrink-0 mt-0.5" />
+                <Icon name="AlertTriangle" size={14} className="text-warning shrink-0 mt-0.5" />
                 <p className="font-body font-body-normal text-sm text-warning">
                   <span className="font-body-medium">{customerName.trim() || 'This customer'}</span> has an outstanding
                   balance — NPR {previousDue.totalDue.toLocaleString('en-IN')} across {previousDue.bookingCount} earlier
@@ -882,7 +882,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
                 value={customerEmail}
                 onChange={(e) => setCustomerEmail(e.target.value)}
                 placeholder="customer@email.com"
-                className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
               />
             </div>
 
@@ -950,7 +950,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
                       }}
                       onFocus={(e) => { e.target.select(); setCountDropdownOpen(true); }}
                       onBlur={() => commitCount(countText)}
-                      className="w-full h-10 pl-3 pr-8 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                      className="w-full h-10 pl-3 pr-8 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-hidden focus:ring-1 focus:ring-primary"
                     />
                     <button
                       type="button"
@@ -1073,7 +1073,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
                     value={p.name}
                     onChange={(e) => setPerson(idx, { name: e.target.value })}
                     placeholder={idx === 0 ? 'Name (required)' : 'Name (optional — uses booking contact if blank)'}
-                    className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                   />
 
                   <div className="flex">
@@ -1086,7 +1086,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
                       value={p.phone}
                       onChange={(e) => setPerson(idx, { phone: e.target.value })}
                       placeholder={idx === 0 ? 'Phone (required)' : 'Phone (optional)'}
-                      className="flex-1 px-3 py-2 text-sm border border-border rounded-r-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      className="flex-1 px-3 py-2 text-sm border border-border rounded-r-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                     />
                   </div>
 
@@ -1095,7 +1095,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
                     value={p.email}
                     onChange={(e) => setPerson(idx, { email: e.target.value })}
                     placeholder="Email (optional)"
-                    className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                   />
 
                   <div className="flex gap-2">
@@ -1200,7 +1200,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
                       onSelect={handleReferringCustomerSelect}
                       branchId={branchId}
                       searchBy="phone"
-                      inputClassName="flex-1 px-3 py-2 text-sm border border-border rounded-r-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      inputClassName="flex-1 px-3 py-2 text-sm border border-border rounded-r-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                     />
                   </div>
                 </div>
@@ -1216,7 +1216,7 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
                       value={referringRewardAmount}
                       onChange={(e) => setReferringRewardAmount(e.target.value)}
                       placeholder="e.g. 500 (leave blank for the org default)"
-                      className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                     />
                   </div>
                 )}
@@ -1239,14 +1239,14 @@ const QuickCreatePanel = ({ slotInfo, treatments, treatmentsLoading, dentists, c
                 onChange={(e) => setSpecialRequests(e.target.value)}
                 placeholder="Any special requests or notes..."
                 rows={3}
-                className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
+                className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
               />
             </div>
 
             {/* Error display */}
             {error && (
               <div className="flex items-start gap-2 p-3 bg-error/10 border border-error/20 rounded-spa">
-                <Icon name="AlertCircle" size={16} className="text-error mt-0.5 flex-shrink-0" />
+                <Icon name="AlertCircle" size={16} className="text-error mt-0.5 shrink-0" />
                 <span className="font-body text-sm text-error">{error}</span>
               </div>
             )}

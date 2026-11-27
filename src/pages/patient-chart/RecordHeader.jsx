@@ -39,20 +39,20 @@ const RecordHeader = ({ customer, patient, ids, customerId, onBack, onGoTo, read
     <>
       {(
         <div className="flex items-center justify-between text-[13px]">
-          <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-[#8A8A90]">
+          <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-text-tertiary">
             <button type="button" onClick={onBack} className="inline-flex items-center gap-1 hover:text-text-primary"><Icon name="ChevronLeft" size={14} />Patients</button>
             <span>/</span>
             <span className="text-text-primary font-medium truncate">{customer.full_name}</span>
           </nav>
           {hasPager && (
-            <div className="flex items-center gap-2 text-[#8A8A90]">
+            <div className="flex items-center gap-2 text-text-tertiary">
               <span className="tabular-nums">{index + 1} of {ids.length}</span>{arrow('up', prev)}{arrow('down', next)}
             </div>
           )}
         </div>
       )}
       <div className={`flex items-center gap-4 flex-wrap mt-5`}>
-        <div className="w-14 h-14 rounded-full bg-[#F1F1F3] text-[#4A4A4F] text-[18px] font-semibold grid place-items-center flex-shrink-0">{initials(customer.full_name)}</div>
+        <div className="w-14 h-14 rounded-full bg-[#F1F1F3] text-[#4A4A4F] text-[18px] font-semibold grid place-items-center shrink-0">{initials(customer.full_name)}</div>
         <div className="min-w-0 flex-1">
           <h1 className="text-[24px] font-semibold tracking-[-0.5px] flex items-center gap-2.5 leading-tight text-text-primary">
             <span className="truncate">{customer.full_name}</span>

@@ -323,7 +323,7 @@ const OutstandingReportPanel = ({ branchId }) => {
         {filtered.length > 0 && (
           <button
             onClick={handleExportCSV}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-spa border border-border bg-surface font-body font-body-medium text-sm text-text-secondary hover:bg-background spa-transition-fast flex-shrink-0"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-spa border border-border bg-surface font-body font-body-medium text-sm text-text-secondary hover:bg-background spa-transition-fast shrink-0"
           >
             <Icon name="Download" size={16} />
             <span>Export CSV</span>
@@ -352,7 +352,7 @@ const OutstandingReportPanel = ({ branchId }) => {
 
       {/* Responsible person filter */}
       <div className="flex items-center gap-2">
-        <span className="font-body text-sm text-text-secondary flex-shrink-0">Responsible person</span>
+        <span className="font-body text-sm text-text-secondary shrink-0">Responsible person</span>
         <CustomSelect
           value={personFilter}
           onChange={setPersonFilter}
@@ -443,7 +443,7 @@ const OutstandingReportPanel = ({ branchId }) => {
                                 onBlur={() => setTimeout(() => setShowAssignSuggestions(false), 150)}
                                 onKeyDown={(e) => { if (e.key === 'Enter') saveAssign(r.bookingId); }}
                                 placeholder="Name…"
-                                className="w-full rounded-spa border border-border bg-surface px-2 py-1 font-body text-xs text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+                                className="w-full rounded-spa border border-border bg-surface px-2 py-1 font-body text-xs text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/50 focus:border-primary"
                               />
                               {showAssignSuggestions && filteredAssignSuggestions.length > 0 && (
                                 <div className="absolute z-dropdown left-0 right-0 mt-1 bg-surface border border-border rounded-spa shadow-spa-elevated max-h-44 overflow-y-auto">

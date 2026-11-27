@@ -158,7 +158,7 @@ const ChairManagementPanel = ({ branchId }) => {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={"Search " + locationLabelPlural + "..."}
-            className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-spa font-body text-sm focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+            className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-spa font-body text-sm focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary"
           />
         </div>
         {allUniqueAmenities.length > 1 && (
@@ -212,13 +212,13 @@ const ChairManagementPanel = ({ branchId }) => {
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1">
                       {chair.amenities?.map((a, i) => (
-                        <span key={i} className="px-2 py-0.5 rounded bg-primary/5 text-primary text-[10px] uppercase font-bold">{a}</span>
+                        <span key={i} className="px-2 py-0.5 rounded-sm bg-primary/5 text-primary text-[10px] uppercase font-bold">{a}</span>
                       )) || <span className="text-text-tertiary italic text-[10px]">No features added</span>}
                     </div>
                   </td>
                   <td className="px-4 py-3 text-sm text-text-secondary">{chair.capacity ?? 1}</td>
                   <td className="px-4 py-3">
-                    <span className={"px-2 py-0.5 rounded text-xs " + (chair.is_active ? 'bg-success/10 text-success' : 'bg-gray-100 text-gray-500')}>
+                    <span className={"px-2 py-0.5 rounded-sm text-xs " + (chair.is_active ? 'bg-success/10 text-success' : 'bg-gray-100 text-gray-500')}>
                       {chair.is_active ? 'Active' : 'Inactive'}
                     </span>
                   </td>

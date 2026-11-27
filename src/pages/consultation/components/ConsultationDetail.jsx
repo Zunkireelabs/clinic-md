@@ -46,7 +46,7 @@ const Section = ({ title, children }) => (
   </div>
 );
 
-const Text = ({ value }) => <p className="text-sm text-text-primary whitespace-pre-wrap break-words">{value}</p>;
+const Text = ({ value }) => <p className="text-sm text-text-primary whitespace-pre-wrap wrap-break-word">{value}</p>;
 
 // Read-only view of one past consultation.
 const ConsultationDetail = ({ row, orgName, onBack, onContinue }) => {
@@ -118,7 +118,7 @@ const ConsultationDetail = ({ row, orgName, onBack, onContinue }) => {
       </Button>
 
       {/* Always-visible close */}
-      <div className="fixed bottom-0 inset-x-0 z-10 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-background/95 backdrop-blur border-t border-gray-200">
+      <div className="fixed bottom-0 inset-x-0 z-10 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-background/95 backdrop-blur-sm border-t border-gray-200">
         <div className="max-w-sm mx-auto">
           <Button variant="primary" fullWidth size="lg" iconName="X" iconPosition="left" onClick={onBack}>Close</Button>
         </div>

@@ -97,15 +97,15 @@ const MembershipsPanel = ({ branchId }) => {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {[0, 1, 2, 3, 4].map((i) => (
             <div key={i} className="bg-surface rounded-spa-lg border border-border p-4 animate-pulse">
-              <div className="h-3 bg-background rounded w-12 mb-2" />
-              <div className="h-6 bg-background rounded w-8" />
+              <div className="h-3 bg-background rounded-sm w-12 mb-2" />
+              <div className="h-6 bg-background rounded-sm w-8" />
             </div>
           ))}
         </div>
         <div className="bg-surface rounded-spa-lg border border-border p-8 animate-pulse">
-          <div className="h-4 bg-background rounded w-48 mb-4" />
+          <div className="h-4 bg-background rounded-sm w-48 mb-4" />
           <div className="space-y-3">
-            {[0, 1, 2].map((i) => <div key={i} className="h-10 bg-background rounded" />)}
+            {[0, 1, 2].map((i) => <div key={i} className="h-10 bg-background rounded-sm" />)}
           </div>
         </div>
       </div>
@@ -115,7 +115,7 @@ const MembershipsPanel = ({ branchId }) => {
   if (error) {
     return (
       <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
         <p className="font-body text-sm text-error">{error}</p>
         <button onClick={loadData} className="ml-auto font-body font-body-medium text-sm text-error underline">
           Retry
@@ -132,12 +132,12 @@ const MembershipsPanel = ({ branchId }) => {
           <button
             key={card.key}
             onClick={() => setStatusFilter(card.key)}
-            className={`bg-surface rounded-spa-lg border p-4 text-left spa-transition-fast hover:shadow-sm ${
+            className={`bg-surface rounded-spa-lg border p-4 text-left spa-transition-fast hover:shadow-xs ${
               statusFilter === card.key ? 'border-primary/30 ring-1 ring-primary/10' : 'border-border'
             }`}
           >
             <div className="flex items-center space-x-2 mb-2">
-              <div className={`w-6 h-6 rounded flex items-center justify-center ${card.bg}`}>
+              <div className={`w-6 h-6 rounded-sm flex items-center justify-center ${card.bg}`}>
                 <Icon name={card.icon} size={14} className={card.color} />
               </div>
               <span className="font-caption font-caption-normal text-[11px] text-text-tertiary uppercase tracking-wide">
@@ -169,7 +169,7 @@ const MembershipsPanel = ({ branchId }) => {
             placeholder="Search by card no., name, or phone..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 bg-surface border border-border rounded-spa text-sm font-body text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-primary/30"
+            className="w-full pl-9 pr-3 py-2 bg-surface border border-border rounded-spa text-sm font-body text-text-primary placeholder:text-text-tertiary focus:outline-hidden focus:ring-1 focus:ring-primary/30"
           />
         </div>
         {statusFilter !== 'all' && (

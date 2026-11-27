@@ -64,7 +64,7 @@ const BookingHistory = ({ bookings }) => {
                       <h3 className="font-heading font-heading-medium text-base text-text-primary">
                         {booking.treatment}
                       </h3>
-                      <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-caption font-caption-normal border ${getStatusColor(booking.status)} capitalize`}>
+                      <span className={`inline-flex items-center px-2 py-1 rounded-sm text-xs font-caption font-caption-normal border ${getStatusColor(booking.status)} capitalize`}>
                         <Icon name={getStatusIcon(booking.status)} size={12} className="mr-1" />
                         {booking.status}
                       </span>

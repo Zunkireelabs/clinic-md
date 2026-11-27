@@ -44,7 +44,7 @@ const Spotlight = ({ id, eyebrow, title, body, primary, secondary, art, onDismis
           <Icon name="Sparkles" size={13} />{eyebrow}
         </span>
         <h3 className="text-[17px] font-semibold tracking-[-0.3px] mt-1.5 leading-snug">{title}</h3>
-        <p className="text-[13px] text-white/[.72] mt-1">{body}</p>
+        <p className="text-[13px] text-white/72 mt-1">{body}</p>
         <div className="flex gap-3.5 items-center mt-3 flex-wrap">
           <button type="button" onClick={click(primary)} className="h-7 px-3 rounded-full bg-white text-[#0E0D0C] text-[12.5px] font-medium hover:bg-white/90">{primary.label}</button>
           {secondary && <button type="button" onClick={click(secondary)} className="text-[12.5px] font-medium text-white/80 hover:text-white">{secondary.label}</button>}

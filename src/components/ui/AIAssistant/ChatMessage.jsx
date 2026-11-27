@@ -15,10 +15,10 @@ const ChatMessage = ({ message }) => {
     <div className={`flex items-start gap-3 px-4 ${isUser ? 'flex-row-reverse' : ''}`}>
       {/* Avatar */}
       <div
-        className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
           isUser
             ? 'bg-blue-600'
-            : 'bg-gradient-to-br from-purple-500 to-pink-500'
+            : 'bg-linear-to-br from-purple-500 to-pink-500'
         }`}
       >
         {isUser ? (

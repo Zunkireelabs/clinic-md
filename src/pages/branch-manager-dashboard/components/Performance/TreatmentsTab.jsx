@@ -33,7 +33,7 @@ const TreatmentsTab = ({ dentistId, branchId, range }) => {
   if (loading) {
     return (
       <div className="bg-surface rounded-spa-lg border border-border p-6 space-y-3 animate-pulse">
-        {[0, 1, 2].map(i => <div key={i} className="h-10 bg-background rounded" />)}
+        {[0, 1, 2].map(i => <div key={i} className="h-10 bg-background rounded-sm" />)}
       </div>
     );
   }
@@ -41,7 +41,7 @@ const TreatmentsTab = ({ dentistId, branchId, range }) => {
   if (error) {
     return (
       <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
         <p className="font-body text-sm text-error">{error}</p>
         <button onClick={loadData} className="ml-auto font-body font-body-medium text-sm text-error underline">
           Retry
@@ -108,7 +108,7 @@ const TreatmentsTab = ({ dentistId, branchId, range }) => {
           <div key={s.treatmentName} className="p-4 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <span className="font-body font-body-medium text-sm text-text-primary truncate min-w-0">{s.treatmentName}</span>
-              <span className="font-data font-data-normal text-sm text-text-primary flex-shrink-0">{formatNPR(s.revenue)}</span>
+              <span className="font-data font-data-normal text-sm text-text-primary shrink-0">{formatNPR(s.revenue)}</span>
             </div>
             <div className="flex items-center gap-3 text-xs text-text-tertiary">
               <span className="text-success">{s.completed} completed</span>

@@ -153,14 +153,14 @@ const VoucherDetailModal = ({ voucherId, onClose, onChanged }) => {
 
           {loading ? (
             <div className="p-8 space-y-3 animate-pulse">
-              <div className="h-4 bg-background rounded w-48" />
-              <div className="h-20 bg-background rounded" />
-              <div className="h-32 bg-background rounded" />
+              <div className="h-4 bg-background rounded-sm w-48" />
+              <div className="h-20 bg-background rounded-sm" />
+              <div className="h-32 bg-background rounded-sm" />
             </div>
           ) : loadError ? (
             <div className="p-5">
               <div className="bg-error/5 border border-error/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-                <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0 mt-0.5" />
+                <Icon name="AlertCircle" size={14} className="text-error shrink-0 mt-0.5" />
                 <p className="font-body text-xs text-error">{loadError}</p>
               </div>
             </div>
@@ -247,7 +247,7 @@ const VoucherDetailModal = ({ voucherId, onClose, onChanged }) => {
                             {c.guest_name_used_by ? ` · ${c.guest_name_used_by}` : ''}
                           </p>
                         </div>
-                        <span className="font-data font-data-medium text-sm text-warning flex-shrink-0">
+                        <span className="font-data font-data-medium text-sm text-warning shrink-0">
                           -{formatNPR(c.amount_claimed)}
                         </span>
                       </div>
@@ -268,7 +268,7 @@ const VoucherDetailModal = ({ voucherId, onClose, onChanged }) => {
                         type="date"
                         value={redeemedDate}
                         onChange={(e) => setRedeemedDate(e.target.value)}
-                        className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                        className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                       />
                     </div>
                     <div>
@@ -290,7 +290,7 @@ const VoucherDetailModal = ({ voucherId, onClose, onChanged }) => {
                         value={guestNameUsedBy}
                         onChange={(e) => setGuestNameUsedBy(e.target.value)}
                         placeholder="Who's redeeming"
-                        className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                        className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                       />
                     </div>
                     <div>
@@ -316,7 +316,7 @@ const VoucherDetailModal = ({ voucherId, onClose, onChanged }) => {
                       step="any"
                       value={amountClaimed}
                       onChange={(e) => setAmountClaimed(e.target.value)}
-                      className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                     />
                     {voucher.isWallet && (
                       <p className="mt-1.5 font-caption text-xs text-text-tertiary">
@@ -332,13 +332,13 @@ const VoucherDetailModal = ({ voucherId, onClose, onChanged }) => {
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
                       placeholder="Anything to remember for this claim..."
-                      className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                     />
                   </div>
 
                   {error && (
                     <div className="bg-error/5 border border-error/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-                      <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0 mt-0.5" />
+                      <Icon name="AlertCircle" size={14} className="text-error shrink-0 mt-0.5" />
                       <p className="font-body text-xs text-error">{error}</p>
                     </div>
                   )}
@@ -354,7 +354,7 @@ const VoucherDetailModal = ({ voucherId, onClose, onChanged }) => {
                 </form>
               ) : (
                 <div className="bg-success/5 border border-success/20 rounded-spa px-3 py-2.5 flex items-center space-x-2">
-                  <Icon name="CheckCircle2" size={14} className="text-success flex-shrink-0" />
+                  <Icon name="CheckCircle2" size={14} className="text-success shrink-0" />
                   <p className="font-body text-xs text-success">This voucher has been fully claimed.</p>
                 </div>
               )}

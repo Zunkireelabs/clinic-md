@@ -67,7 +67,7 @@ const SidePanel = ({ isOpen, title, onClose, children, footer, headerExtra, head
       className="h-full flex flex-col bg-surface"
       style={{ width: '100%' }}
     >
-      {header ? <div className="flex-shrink-0 bg-surface">{header}</div> : <div className="h-14 flex-shrink-0 flex items-center justify-between gap-2 px-5 border-b border-border bg-surface">
+      {header ? <div className="shrink-0 bg-surface">{header}</div> : <div className="h-14 shrink-0 flex items-center justify-between gap-2 px-5 border-b border-border bg-surface">
         <h3 id={titleId} className="font-heading font-heading-semibold text-[15px] text-text-primary truncate">{title}</h3>
         <div className="flex items-center gap-1">
           {headerExtra}
@@ -82,7 +82,7 @@ const SidePanel = ({ isOpen, title, onClose, children, footer, headerExtra, head
         </div>
       </div>}
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">{children}</div>
-      {footer && <div className="flex-shrink-0 border-t border-border bg-surface p-4">{footer}</div>}
+      {footer && <div className="shrink-0 border-t border-border bg-surface p-4">{footer}</div>}
     </div>
   );
 

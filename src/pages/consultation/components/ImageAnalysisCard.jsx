@@ -70,8 +70,8 @@ const ImageAnalysisCard = ({ title, icon, kind, bookingId, imagePaths, analysis,
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 bg-gradient-to-r from-primary/[0.05] to-transparent">
+    <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs hover:shadow-md transition-shadow overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 bg-linear-to-r from-primary/5 to-transparent">
         <div className="flex items-center gap-3">
           <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
             <Icon name={icon} size={18} />

@@ -659,7 +659,7 @@ const BookingActionModal = ({
         title={(
           <span className="flex items-center gap-2 min-w-0">
             <span className="truncate">{pv.customerName || 'Booking'}</span>
-            {pv.status && <span className="px-2 py-0.5 rounded-full text-[11px] font-medium capitalize flex-shrink-0" style={{ backgroundColor: pvColors.fill, color: pvColors.text }}>{pvStatusLabel.replace('-', ' ')}</span>}
+            {pv.status && <span className="px-2 py-0.5 rounded-full text-[11px] font-medium capitalize shrink-0" style={{ backgroundColor: pvColors.fill, color: pvColors.text }}>{pvStatusLabel.replace('-', ' ')}</span>}
           </span>
         )}
       >
@@ -670,9 +670,9 @@ const BookingActionModal = ({
           </div>
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="space-y-2 animate-pulse">
-              <div className="h-3 w-24 bg-gray-100 rounded" />
-              <div className="h-4 w-full bg-gray-100 rounded" />
-              <div className="h-4 w-2/3 bg-gray-100 rounded" />
+              <div className="h-3 w-24 bg-gray-100 rounded-sm" />
+              <div className="h-4 w-full bg-gray-100 rounded-sm" />
+              <div className="h-4 w-2/3 bg-gray-100 rounded-sm" />
             </div>
           ))}
         </div>
@@ -855,7 +855,7 @@ const BookingActionModal = ({
   const panelTitle = (
     <span className="flex items-center gap-2 min-w-0">
       <span className="truncate">{booking.customerName}</span>
-      <span className="px-2 py-0.5 rounded-full text-[11px] font-medium capitalize flex-shrink-0" style={{ backgroundColor: statusColors.fill, color: statusColors.text }}>
+      <span className="px-2 py-0.5 rounded-full text-[11px] font-medium capitalize shrink-0" style={{ backgroundColor: statusColors.fill, color: statusColors.text }}>
         {booking.status.replace('-', ' ')}
       </span>
     </span>
@@ -928,12 +928,12 @@ const BookingActionModal = ({
               key={it.key}
               type="button"
               onClick={it.run}
-              className="h-9 px-3 flex items-center gap-1.5 text-[13px] font-body font-body-medium text-text-primary border border-border rounded-spa hover:bg-background spa-transition-fast flex-shrink-0"
+              className="h-9 px-3 flex items-center gap-1.5 text-[13px] font-body font-body-medium text-text-primary border border-border rounded-spa hover:bg-background spa-transition-fast shrink-0"
             >
               {it.label}
             </button>
           ))}
-          <div className="relative flex-shrink-0" ref={moreRef}>
+          <div className="relative shrink-0" ref={moreRef}>
             <button
               type="button"
               aria-label="More actions"
@@ -1007,7 +1007,7 @@ const BookingActionModal = ({
   const tabsNode = (
     <>
           {/* Tabs - Horizontal scroll on mobile with padding for last item visibility */}
-          <div className={isPanel ? 'border-b border-border flex-shrink-0 sticky top-0 z-10 bg-surface' : 'border-b border-border flex-shrink-0'}>
+          <div className={isPanel ? 'border-b border-border shrink-0 sticky top-0 z-10 bg-surface' : 'border-b border-border shrink-0'}>
             <nav className={`flex overflow-x-auto scrollbar-hide gap-1 sm:gap-6 ${isPanel ? 'pl-3' : 'pl-4 sm:pl-6'}`}>
               {tabs.map((tab, index) => (
                 <button
@@ -1017,7 +1017,7 @@ const BookingActionModal = ({
                     setActionError(null);
                     if (tab.id !== 'details') setIsEditing(false);
                   }}
-                  className={`flex items-center gap-1.5 sm:gap-2 py-3 sm:py-4 px-3 sm:px-1 border-b-2 spa-transition-fast whitespace-nowrap flex-shrink-0 min-h-[44px] ${
+                  className={`flex items-center gap-1.5 sm:gap-2 py-3 sm:py-4 px-3 sm:px-1 border-b-2 spa-transition-fast whitespace-nowrap shrink-0 min-h-touch ${
                     index === tabs.length - 1 ? 'mr-4 sm:mr-6' : ''
                   } ${
                     activeTab === tab.id
@@ -1077,7 +1077,7 @@ const BookingActionModal = ({
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="flex items-center space-x-2">
                     <span className="font-body font-body-medium text-sm text-text-primary">Status:</span>
-                    <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-caption font-caption-normal capitalize ${STATUS_STYLES[booking.status] || 'bg-gray-100 text-gray-500'}`}>
+                    <span className={`inline-flex items-center px-2 py-1 rounded-sm text-xs font-caption font-caption-normal capitalize ${STATUS_STYLES[booking.status] || 'bg-gray-100 text-gray-500'}`}>
                       {booking.status.replace('-', ' ')}
                     </span>
                   </div>
@@ -1102,7 +1102,7 @@ const BookingActionModal = ({
                         return (
                           <Button
                             key={status}
-                            variant={needsConfirm ? 'outline' : 'primary'}
+                            variant={needsConfirm ? 'outline-solid' : 'primary'}
                             size="sm"
                             className="min-h-[40px] sm:min-h-0 sm:h-auto"
                             onClick={() => needsConfirm ? setPendingStatus(status) : handleStatusUpdate(status)}
@@ -1160,7 +1160,7 @@ const BookingActionModal = ({
                         {(dlist.length > 0 || booking.chairName) && (
                           <div className="flex items-center gap-2 text-[13px] text-text-primary min-w-0">
                             {dlist.length > 0 && (
-                              <span className="flex -space-x-1.5 flex-shrink-0">
+                              <span className="flex -space-x-1.5 shrink-0">
                                 {dlist.map((t) => (
                                   <span key={t.id} className="w-5 h-5 rounded-full bg-gray-100 text-gray-700 ring-2 ring-surface flex items-center justify-center text-[9px] font-medium">
                                     {String(t.name || '').split(/\s+/).filter((w) => w && !/^dr\.?$/i.test(w)).slice(0, 2).map((w) => w[0]).join('').toUpperCase()}
@@ -1199,14 +1199,14 @@ const BookingActionModal = ({
                         </div>
                         {phone && (
                           <div className="group flex items-center gap-2 text-[13px] text-text-primary">
-                            <Icon name="Phone" size={14} className="text-text-tertiary flex-shrink-0" />
+                            <Icon name="Phone" size={14} className="text-text-tertiary shrink-0" />
                             <a href={`tel:${String(booking.customerPhone).replace(/\s/g, '')}`} className="hover:underline tabular-nums">{phone}</a>
                             {copyBtn(phone, 'Copy phone')}
                           </div>
                         )}
                         {booking.customerEmail && (
                           <div className="group flex items-center gap-2 text-[13px] text-text-primary min-w-0">
-                            <Icon name="Mail" size={14} className="text-text-tertiary flex-shrink-0" />
+                            <Icon name="Mail" size={14} className="text-text-tertiary shrink-0" />
                             <span className="break-all">{booking.customerEmail}</span>
                             {copyBtn(booking.customerEmail, 'Copy email')}
                           </div>
@@ -1359,7 +1359,7 @@ const BookingActionModal = ({
                 {/* Dentist(s) */}
                 {(booking.dentists?.length > 0 || booking.dentist) && !isEditing && (
                   <div className="space-y-1.5 sm:space-y-2">
-                    <label className="font-body font-body-medium text-xs sm:text-sm text-text-secondary">
+                    <label className="inline-block font-body font-body-medium text-xs sm:text-sm text-text-secondary">
                       Assigned Dentist{(booking.dentists?.length || 0) > 1 ? 's' : ''}
                     </label>
                     <div className="font-body font-body-normal text-sm text-text-primary">
@@ -1375,7 +1375,7 @@ const BookingActionModal = ({
 
                 {/* Special Requests */}
                 <div className="space-y-1.5 sm:space-y-2">
-                  <label className="font-body font-body-medium text-xs sm:text-sm text-text-secondary">Special Requests</label>
+                  <label className="inline-block font-body font-body-medium text-xs sm:text-sm text-text-secondary">Special Requests</label>
                   {isEditing ? (
                     <textarea
                       value={editForm.specialRequests}
@@ -1395,7 +1395,7 @@ const BookingActionModal = ({
 
                 {/* Referred by — type freely or pick an existing dentist */}
                 <div className="space-y-1.5 sm:space-y-2">
-                  <label className="font-body font-body-medium text-xs sm:text-sm text-text-secondary">Referred by</label>
+                  <label className="inline-block font-body font-body-medium text-xs sm:text-sm text-text-secondary">Referred by</label>
                   {isEditing ? (
                     <div className="relative">
                       <input
@@ -1443,7 +1443,7 @@ const BookingActionModal = ({
                     booking was the referred customer's first booking. */}
                 {customerReferral && (
                   <div className="space-y-1.5 sm:space-y-2">
-                    <label className="font-body font-body-medium text-xs sm:text-sm text-text-secondary">Referred by (customer)</label>
+                    <label className="inline-block font-body font-body-medium text-xs sm:text-sm text-text-secondary">Referred by (customer)</label>
                     <div className="p-2.5 sm:p-3 bg-background rounded-spa flex items-center justify-between gap-2">
                       <div className="min-w-0">
                         <p className="font-body font-body-normal text-sm text-text-primary truncate">
@@ -1457,7 +1457,7 @@ const BookingActionModal = ({
                           {customerReferral.rewardAmount > 0 ? ` — NPR ${customerReferral.rewardAmount.toLocaleString('en-IN')}` : ''}
                         </p>
                       </div>
-                      <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-caption font-caption-medium ${
+                      <span className={`shrink-0 px-2 py-0.5 rounded-full text-[11px] font-caption font-caption-medium ${
                         customerReferral.rewardStatus === 'credited' ? 'bg-success/10 text-success' : 'bg-amber-100 text-amber-800'
                       }`}>
                         {customerReferral.rewardStatus === 'credited' ? 'Credited' : 'Pending'}
@@ -1474,7 +1474,7 @@ const BookingActionModal = ({
                           onWheel={(e) => e.target.blur()}
                           onChange={(e) => setRewardAmount(e.target.value)}
                           placeholder="e.g. 500 (leave blank for the org default)"
-                          className="w-full h-10 px-3 rounded-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                          className="w-full h-10 px-3 rounded-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary"
                         />
                         {rewardError && (
                           <p className="font-caption text-xs text-error">{rewardError}</p>
@@ -1523,7 +1523,7 @@ const BookingActionModal = ({
                 {/* Action error (status update failures) */}
                 {actionError && !editError && (
                   <div className="flex items-center space-x-2 px-3 py-2.5 rounded-spa bg-error/10 border border-error/20">
-                    <Icon name="AlertTriangle" size={14} className="text-error flex-shrink-0" />
+                    <Icon name="AlertTriangle" size={14} className="text-error shrink-0" />
                     <span className="font-body font-body-normal text-xs text-error">{actionError}</span>
                   </div>
                 )}
@@ -1531,7 +1531,7 @@ const BookingActionModal = ({
                 {/* Edit error */}
                 {editError && (
                   <div className="flex items-center space-x-2 px-3 py-2.5 rounded-spa bg-error/10 border border-error/20">
-                    <Icon name="AlertTriangle" size={14} className="text-error flex-shrink-0" />
+                    <Icon name="AlertTriangle" size={14} className="text-error shrink-0" />
                     <span className="font-body font-body-normal text-xs text-error">{editError}</span>
                   </div>
                 )}
@@ -1571,7 +1571,7 @@ const BookingActionModal = ({
                           value={dentistSearch}
                           onChange={(e) => setDentistSearch(e.target.value)}
                           placeholder="Search dentists..."
-                          className="w-full pl-8 pr-3 py-2 bg-background border border-border rounded-spa text-sm focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                          className="w-full pl-8 pr-3 py-2 bg-background border border-border rounded-spa text-sm focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary"
                         />
                       </div>
                     <div className="space-y-2 max-h-[200px] overflow-y-auto">
@@ -1603,17 +1603,17 @@ const BookingActionModal = ({
                                   setSelectedDentists(prev => prev.filter(id => id !== dentist.id));
                                 }
                               }}
-                              className="text-primary focus:ring-primary w-4 h-4 rounded disabled:cursor-not-allowed"
+                              className="text-primary focus:ring-primary w-4 h-4 rounded-sm disabled:cursor-not-allowed"
                             />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between gap-2">
                                 <span className="font-body font-body-medium text-sm text-text-primary truncate">
                                   {dentist.name}
                                   {isCurrentlyAssigned && (
-                                    <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-success/10 text-success">Assigned</span>
+                                    <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-bold uppercase bg-success/10 text-success">Assigned</span>
                                   )}
                                 </span>
-                                <span className="text-xs font-caption font-caption-normal text-text-secondary capitalize flex-shrink-0">
+                                <span className="text-xs font-caption font-caption-normal text-text-secondary capitalize shrink-0">
                                   {dentist.gender}
                                 </span>
                               </div>
@@ -1622,7 +1622,7 @@ const BookingActionModal = ({
                                   {dentist.specialties.map((specialty) => (
                                     <span
                                       key={specialty}
-                                      className="inline-flex items-center px-2 py-0.5 rounded text-xs font-caption font-caption-normal bg-accent/10 text-accent"
+                                      className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-caption font-caption-normal bg-accent/10 text-accent"
                                     >
                                       {specialty}
                                     </span>
@@ -1647,7 +1647,7 @@ const BookingActionModal = ({
                     <div className="space-y-2 max-h-[200px] overflow-y-auto">
                       {/* Unassign chair option */}
                       <label
-                        className={`flex items-center space-x-3 sm:space-x-4 p-3 rounded-spa border-2 spa-transition-fast min-h-[44px] ${
+                        className={`flex items-center space-x-3 sm:space-x-4 p-3 rounded-spa border-2 spa-transition-fast min-h-touch ${
                           isAssignmentBlocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
                         } ${
                           selectedChair === ''
@@ -1668,7 +1668,7 @@ const BookingActionModal = ({
                       {chairs.map((chair) => (
                         <label
                           key={chair.id}
-                          className={`flex items-center space-x-3 sm:space-x-4 p-3 rounded-spa border-2 spa-transition-fast min-h-[44px] ${
+                          className={`flex items-center space-x-3 sm:space-x-4 p-3 rounded-spa border-2 spa-transition-fast min-h-touch ${
                             isAssignmentBlocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
                           } ${
                             selectedChair === chair.id
@@ -1689,7 +1689,7 @@ const BookingActionModal = ({
                             <span className="font-body font-body-medium text-sm text-text-primary">
                               {chair.name}
                               {booking?.chairId === chair.id && (
-                                <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-primary/10 text-primary">Allocated</span>
+                                <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-bold uppercase bg-primary/10 text-primary">Allocated</span>
                               )}
                             </span>
                           </div>
@@ -1700,7 +1700,7 @@ const BookingActionModal = ({
                 )}
 
                 <div className="space-y-1.5 sm:space-y-2">
-                  <label className="font-body font-body-medium text-xs sm:text-sm text-text-primary">
+                  <label className="inline-block font-body font-body-medium text-xs sm:text-sm text-text-primary">
                     Assignment Notes
                   </label>
                   <textarea
@@ -1715,7 +1715,7 @@ const BookingActionModal = ({
 
                 {actionError && (
                   <div className="flex items-center space-x-2 px-3 py-2.5 rounded-spa bg-error/10 border border-error/20">
-                    <Icon name="AlertTriangle" size={14} className="text-error flex-shrink-0" />
+                    <Icon name="AlertTriangle" size={14} className="text-error shrink-0" />
                     <span className="font-body font-body-normal text-xs text-error">{actionError}</span>
                   </div>
                 )}
@@ -1731,7 +1731,7 @@ const BookingActionModal = ({
 
                 {!canDiscount ? (
                   <div className="flex items-center space-x-2 px-3 py-2.5 rounded-spa bg-gray-50 border border-gray-200">
-                    <Icon name="Lock" size={16} className="text-gray-500 flex-shrink-0" />
+                    <Icon name="Lock" size={16} className="text-gray-500 shrink-0" />
                     <span className="font-body font-body-medium text-xs text-gray-600">
                       {booking.paymentStatus === 'paid'
                         ? 'Cannot modify discount on a paid booking.'
@@ -1799,7 +1799,7 @@ const BookingActionModal = ({
                                       });
                                       if (!e.target.checked) clearRowOverride(booking.bookingId);
                                     }}
-                                    className="text-primary focus:ring-primary w-3.5 h-3.5 rounded mt-0.5"
+                                    className="text-primary focus:ring-primary w-3.5 h-3.5 rounded-sm mt-0.5"
                                   />
                                   <div className="flex-1 min-w-0">
                                     <span className="font-body font-body-medium text-xs text-text-primary">{booking.treatment}</span>
@@ -1875,7 +1875,7 @@ const BookingActionModal = ({
                                             });
                                             if (!e.target.checked) clearRowOverride(rb.id);
                                           }}
-                                          className="text-primary focus:ring-primary w-3.5 h-3.5 rounded mt-0.5"
+                                          className="text-primary focus:ring-primary w-3.5 h-3.5 rounded-sm mt-0.5"
                                         />
                                         <div className="flex-1 min-w-0">
                                           <div className="flex items-center justify-between">
@@ -1971,7 +1971,7 @@ const BookingActionModal = ({
 
                     {/* Role limit info */}
                     <div className="flex items-center space-x-2 px-3 py-2.5 rounded-spa bg-accent/5 border border-accent/20">
-                      <Icon name="Info" size={14} className="text-accent flex-shrink-0" />
+                      <Icon name="Info" size={14} className="text-accent shrink-0" />
                       <span className="font-caption font-caption-normal text-xs text-accent">
                         Your role ({userRole}) allows up to {discountLimitLabel} discount.
                       </span>
@@ -2003,7 +2003,7 @@ const BookingActionModal = ({
 
                     {/* Discount value */}
                     <div className="space-y-1.5 sm:space-y-2">
-                      <label className="font-body font-body-medium text-xs sm:text-sm text-text-primary">
+                      <label className="inline-block font-body font-body-medium text-xs sm:text-sm text-text-primary">
                         {discountType === 'percentage' ? 'Discount Percentage' : 'Discount Amount (NPR)'}
                         {relatedBookings.length > 0 && (
                           <span className="font-body font-body-normal text-text-secondary"> (shared default — override any treatment above for its own rate)</span>
@@ -2042,7 +2042,7 @@ const BookingActionModal = ({
 
                     {/* Reason / Remarks */}
                     <div className="space-y-1.5 sm:space-y-2">
-                      <label className="font-body font-body-medium text-xs sm:text-sm text-text-primary">
+                      <label className="inline-block font-body font-body-medium text-xs sm:text-sm text-text-primary">
                         {discountExceedsLimit ? 'Remarks' : 'Reason'} <span className="text-error">*</span>
                       </label>
                       <textarea
@@ -2084,7 +2084,7 @@ const BookingActionModal = ({
 
                         {/* Approver picker */}
                         <div className="space-y-1.5">
-                          <label className="font-body font-body-medium text-xs text-text-primary">
+                          <label className="inline-block font-body font-body-medium text-xs text-text-primary">
                             Send request to <span className="text-error">*</span>
                           </label>
                           {approvers.length === 0 ? (
@@ -2108,25 +2108,25 @@ const BookingActionModal = ({
                     {/* Error / Success */}
                     {discountError && (
                       <div className="flex items-center space-x-2 px-3 py-2.5 rounded-spa bg-error/10 border border-error/20">
-                        <Icon name="AlertTriangle" size={14} className="text-error flex-shrink-0" />
+                        <Icon name="AlertTriangle" size={14} className="text-error shrink-0" />
                         <span className="font-body font-body-normal text-xs text-error">{discountError}</span>
                       </div>
                     )}
                     {discountSuccess === 'approved' && (
                       <div className="flex items-center space-x-2 px-3 py-2.5 rounded-spa bg-success/10 border border-success/20">
-                        <Icon name="CheckCircle" size={14} className="text-success flex-shrink-0" />
+                        <Icon name="CheckCircle" size={14} className="text-success shrink-0" />
                         <span className="font-body font-body-normal text-xs text-success">Discount applied successfully.</span>
                       </div>
                     )}
                     {discountSuccess === 'removed' && (
                       <div className="flex items-center space-x-2 px-3 py-2.5 rounded-spa bg-success/10 border border-success/20">
-                        <Icon name="CheckCircle" size={14} className="text-success flex-shrink-0" />
+                        <Icon name="CheckCircle" size={14} className="text-success shrink-0" />
                         <span className="font-body font-body-normal text-xs text-success">Discount removed successfully.</span>
                       </div>
                     )}
                     {discountSuccess === 'pending' && (
                       <div className="flex items-center space-x-2 px-3 py-2.5 rounded-spa bg-amber-50 border border-amber-200">
-                        <Icon name="Clock" size={14} className="text-amber-600 flex-shrink-0" />
+                        <Icon name="Clock" size={14} className="text-amber-600 shrink-0" />
                         <span className="font-body font-body-normal text-xs text-amber-700">Discount request sent for approval.</span>
                       </div>
                     )}
@@ -2144,7 +2144,7 @@ const BookingActionModal = ({
                       }
                       iconName={discountExceedsLimit ? 'Send' : 'Percent'}
                       iconPosition="left"
-                      className="w-full sm:w-auto min-h-[44px]"
+                      className="w-full sm:w-auto min-h-touch"
                     >
                       {discountExceedsLimit
                         ? 'Send Discount Request'
@@ -2232,7 +2232,7 @@ const BookingActionModal = ({
                               {Number(rb.discount_amount) > 0 && ` · discount -NPR ${Number(rb.discount_amount).toLocaleString('en-IN')}`}
                             </div>
                           </div>
-                          <span className="font-data text-sm text-text-primary flex-shrink-0">NPR {relatedRemaining(rb).toLocaleString('en-IN')}</span>
+                          <span className="font-data text-sm text-text-primary shrink-0">NPR {relatedRemaining(rb).toLocaleString('en-IN')}</span>
                         </div>
                       ))}
                     </div>
@@ -2242,7 +2242,7 @@ const BookingActionModal = ({
                 {/* Pending bookings aren't payable yet — guide staff to confirm/complete first */}
                 {!canPay && booking.status === 'pending' && booking.paymentStatus !== 'paid' && !isLocked && (
                   <div className="flex items-start space-x-2 px-3 py-2.5 rounded-spa bg-warning/5 border border-warning/20">
-                    <Icon name="Info" size={14} className="text-warning flex-shrink-0 mt-0.5" />
+                    <Icon name="Info" size={14} className="text-warning shrink-0 mt-0.5" />
                     <span className="font-body font-body-normal text-xs sm:text-sm text-warning">
                       Confirm or complete this booking before recording payment.
                     </span>
@@ -2273,7 +2273,7 @@ const BookingActionModal = ({
                                   return next;
                                 });
                               }}
-                              className="text-primary focus:ring-primary w-4 h-4 rounded"
+                              className="text-primary focus:ring-primary w-4 h-4 rounded-sm"
                             />
                             <div className="flex-1 min-w-0">
                               <div className="font-body text-sm text-text-primary">{pb.treatmentName}</div>
@@ -2281,7 +2281,7 @@ const BookingActionModal = ({
                                 #{pb.bookingNumber} · {isPanel && pb.date && !Number.isNaN(new Date(`${pb.date}T00:00:00`).getTime()) ? new Date(`${pb.date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : pb.date}
                               </div>
                             </div>
-                            <span className="font-data text-sm text-warning flex-shrink-0">NPR {Number(pb.amountDue).toLocaleString('en-IN')}</span>
+                            <span className="font-data text-sm text-warning shrink-0">NPR {Number(pb.amountDue).toLocaleString('en-IN')}</span>
                           </label>
                         );
                       })}
@@ -2317,14 +2317,14 @@ const BookingActionModal = ({
                     onClick={() => setShowPaymentModal(true)}
                     iconName="CreditCard"
                     iconPosition="left"
-                    className="w-full sm:w-auto min-h-[44px]"
+                    className="w-full sm:w-auto min-h-touch"
                   >
                     {selectedCount > 0 ? `Pay ${1 + selectedCount} Treatments` : 'Record Payment'}
                   </Button>
                 )}
                 {booking.paymentStatus === 'paid' && (
                   <div className="flex items-center space-x-2 px-3 py-2.5 rounded-spa bg-success/10 border border-success/20">
-                    <Icon name="CheckCircle" size={14} className="text-success flex-shrink-0" />
+                    <Icon name="CheckCircle" size={14} className="text-success shrink-0" />
                     <span className="font-body font-body-normal text-xs sm:text-sm text-success">Payment has been recorded.</span>
                   </div>
                 )}
@@ -2352,7 +2352,7 @@ const BookingActionModal = ({
 
                 {extendError && (
                   <div className="flex items-center gap-2 px-3 py-2 rounded-spa bg-error/10 border border-error/20">
-                    <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0" />
+                    <Icon name="AlertCircle" size={14} className="text-error shrink-0" />
                     <span className="font-body text-xs text-error">{extendError}</span>
                   </div>
                 )}
@@ -2407,7 +2407,7 @@ const BookingActionModal = ({
 
                 {newBookingError && (
                   <div className="flex items-center gap-2 px-3 py-2 rounded-spa bg-error/10 border border-error/20">
-                    <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0" />
+                    <Icon name="AlertCircle" size={14} className="text-error shrink-0" />
                     <span className="font-body text-xs text-error">{newBookingError}</span>
                   </div>
                 )}
@@ -2416,7 +2416,7 @@ const BookingActionModal = ({
                   {/* Treatment — editable only for "add another treatment" */}
                   {newBookingMode === 'add-treatment' && (
                     <div className="sm:col-span-2">
-                      <label className="block font-body font-body-medium text-xs text-text-secondary mb-1">Treatment *</label>
+                      <label className="inline-block font-body font-body-medium text-xs text-text-secondary mb-1">Treatment *</label>
                       <CustomSelect
                         value={newBookingForm.treatmentId}
                         onChange={(val) => setNewBookingForm(f => ({ ...f, treatmentId: val }))}
@@ -2430,7 +2430,7 @@ const BookingActionModal = ({
 
                   {/* Date */}
                   <div>
-                    <label className="block font-body font-body-medium text-xs text-text-secondary mb-1">Date *</label>
+                    <label className="inline-block font-body font-body-medium text-xs text-text-secondary mb-1">Date *</label>
                     <input
                       type="date"
                       value={newBookingForm.date}
@@ -2442,7 +2442,7 @@ const BookingActionModal = ({
 
                   {/* Time */}
                   <div>
-                    <label className="block font-body font-body-medium text-xs text-text-secondary mb-1">Time *</label>
+                    <label className="inline-block font-body font-body-medium text-xs text-text-secondary mb-1">Time *</label>
                     <CustomSelect
                       value={newBookingForm.startTime}
                       onChange={(val) => setNewBookingForm(f => ({ ...f, startTime: val }))}
@@ -2455,7 +2455,7 @@ const BookingActionModal = ({
 
                   {/* Dentist */}
                   <div>
-                    <label className="block font-body font-body-medium text-xs text-text-secondary mb-1">Dentist</label>
+                    <label className="inline-block font-body font-body-medium text-xs text-text-secondary mb-1">Dentist</label>
                     <CustomSelect
                       value={newBookingForm.dentistId}
                       onChange={(val) => setNewBookingForm(f => ({ ...f, dentistId: val }))}
@@ -2467,7 +2467,7 @@ const BookingActionModal = ({
 
                   {/* Chair */}
                   <div>
-                    <label className="block font-body font-body-medium text-xs text-text-secondary mb-1">Chair</label>
+                    <label className="inline-block font-body font-body-medium text-xs text-text-secondary mb-1">Chair</label>
                     <CustomSelect
                       value={newBookingForm.chairId}
                       onChange={(val) => setNewBookingForm(f => ({ ...f, chairId: val }))}
@@ -2481,7 +2481,7 @@ const BookingActionModal = ({
                 <BlockOverlapWarning message={newBookingBlockMsg} />
 
                 <div className="flex items-center justify-end gap-2 pt-2">
-                  <Button variant="outline" onClick={() => setNewBookingMode(null)} className="min-h-[44px] sm:min-h-0">
+                  <Button variant="outline" onClick={() => setNewBookingMode(null)} className="min-h-touch sm:min-h-0">
                     Cancel
                   </Button>
                   <Button
@@ -2489,7 +2489,7 @@ const BookingActionModal = ({
                     onClick={handleNewBookingSubmit}
                     loading={newBookingSubmitting}
                     disabled={!!newBookingBlockMsg}
-                    className="min-h-[44px] sm:min-h-0"
+                    className="min-h-touch sm:min-h-0"
                   >
                     {newBookingMode === 'rebook' ? rebookLabel : 'Create Booking'}
                   </Button>
@@ -2570,7 +2570,7 @@ const BookingActionModal = ({
     <>
       {/* Overlay */}
       <div
-        className="fixed inset-0 bg-text-primary/50 backdrop-blur-sm z-modal flex items-end sm:items-center justify-center sm:p-4"
+        className="fixed inset-0 bg-text-primary/50 backdrop-blur-xs z-modal flex items-end sm:items-center justify-center sm:p-4"
         role="dialog"
         aria-modal="true"
         aria-labelledby="booking-modal-title"
@@ -2578,9 +2578,9 @@ const BookingActionModal = ({
         {/* Modal Container - Bottom sheet on mobile (85vh to clear iOS notch), centered card on desktop */}
         <div className="bg-surface w-full sm:max-w-2xl h-[85vh] sm:h-auto sm:max-h-[90vh] rounded-t-2xl sm:rounded-spa-lg spa-shadow-modal overflow-hidden animate-fade-in flex flex-col">
           {/* Header - Responsive padding */}
-          <div className="flex items-center justify-between p-4 sm:p-6 border-b border-border flex-shrink-0">
+          <div className="flex items-center justify-between p-4 sm:p-6 border-b border-border shrink-0">
             <div className="flex items-center space-x-3 min-w-0">
-              <div className="w-9 h-9 sm:w-10 sm:h-10 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 bg-primary/10 rounded-lg flex items-center justify-center shrink-0">
                 <Icon name="Calendar" size={18} className="text-primary sm:w-5 sm:h-5" />
               </div>
               <div className="min-w-0">
@@ -2594,7 +2594,7 @@ const BookingActionModal = ({
             </div>
             <button
               onClick={onClose}
-              className="p-2 rounded-spa hover:bg-background spa-transition-fast min-h-[44px] min-w-[44px] flex items-center justify-center flex-shrink-0"
+              className="p-2 rounded-spa hover:bg-background spa-transition-fast min-h-touch min-w-touch flex items-center justify-center shrink-0"
             >
               <Icon name="X" size={20} className="text-text-secondary" />
             </button>
@@ -2603,7 +2603,7 @@ const BookingActionModal = ({
           {tabsNode}
           {contentNode}
           {/* Footer - Responsive with safe area padding for iOS */}
-          <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 p-4 pb-6 sm:p-6 border-t border-border flex-shrink-0">
+          <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 p-4 pb-6 sm:p-6 border-t border-border shrink-0">
             {/* Left side — Add another treatment / Rebook */}
             {!isEditing && !newBookingMode && !showExtendPanel && onCreateBooking ? (
               <div className="flex items-stretch gap-2">
@@ -2636,7 +2636,7 @@ const BookingActionModal = ({
             <div className="flex items-center gap-2">
               {isEditing && activeTab === 'details' ? (
                 <>
-                  <Button variant="outline" onClick={cancelEditing} className="min-h-[44px] sm:min-h-0">
+                  <Button variant="outline" onClick={cancelEditing} className="min-h-touch sm:min-h-0">
                     Cancel
                   </Button>
                   <Button
@@ -2644,14 +2644,14 @@ const BookingActionModal = ({
                     onClick={handleSaveEdit}
                     loading={isLoading}
                     disabled={!!editBlockMsg}
-                    className="min-h-[44px] sm:min-h-0"
+                    className="min-h-touch sm:min-h-0"
                   >
                     Save Changes
                   </Button>
                 </>
               ) : (
                 <>
-                  <Button variant="outline" onClick={onClose} className="min-h-[44px] sm:min-h-0">
+                  <Button variant="outline" onClick={onClose} className="min-h-touch sm:min-h-0">
                     Close
                   </Button>
                   {activeTab === 'assign' && !isAssignmentBlocked && (
@@ -2660,7 +2660,7 @@ const BookingActionModal = ({
                       onClick={handleAssignDentist}
                       loading={isLoading}
                       disabled={selectedDentists.length === 0 && !isDentistOptional}
-                      className="min-h-[44px] sm:min-h-0"
+                      className="min-h-touch sm:min-h-0"
                     >
                       Save Assignment
                     </Button>

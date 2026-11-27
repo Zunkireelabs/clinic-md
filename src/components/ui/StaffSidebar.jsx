@@ -114,7 +114,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
             : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
         } ${isCollapsed ? 'justify-center' : ''}`}
       >
-        <div className="relative flex-shrink-0">
+        <div className="relative shrink-0">
           <Icon name={item.icon} size={18} />
           {showBadge && isCollapsed && (
             <span className="absolute -top-1 -right-1 w-2 h-2 bg-error rounded-full ring-2 ring-surface-sidebar" />
@@ -167,7 +167,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
               onClick={openPalette}
               title={`Search or ask (${SHORTCUT_LABEL})`}
               aria-label="Search or ask"
-              className="h-[var(--control-h)] w-[var(--control-h)] flex items-center justify-center rounded-spa border border-border bg-surface text-text-tertiary hover:text-text-secondary"
+              className="h-(--control-h) w-(--control-h) flex items-center justify-center rounded-spa border border-border bg-surface text-text-tertiary hover:text-text-secondary"
             >
               <Icon name="Search" size={15} />
             </button>
@@ -176,11 +176,11 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
               type="button"
               onClick={openPalette}
               aria-label="Search or ask"
-              className="w-full h-[var(--control-h)] flex items-center gap-2 px-2.5 rounded-spa border border-border bg-surface text-[13px] text-text-tertiary hover:border-black/20 spa-transition-fast"
+              className="w-full h-(--control-h) flex items-center gap-2 px-2.5 rounded-spa border border-border bg-surface text-[13px] text-text-tertiary hover:border-black/20 spa-transition-fast"
             >
-              <Icon name="Search" size={15} className="flex-shrink-0" />
+              <Icon name="Search" size={15} className="shrink-0" />
               <span className="flex-1 text-left truncate">Search or ask…</span>
-              <kbd className="text-[11px] text-text-tertiary border border-border rounded px-1.5 leading-4">{SHORTCUT_LABEL}</kbd>
+              <kbd className="text-[11px] text-text-tertiary border border-border rounded-sm px-1.5 leading-4">{SHORTCUT_LABEL}</kbd>
             </button>
           )}
         </div>}
@@ -278,7 +278,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
       {mobileMoreOpen && (
         <div className="lg:hidden fixed inset-0 z-modal bg-surface flex flex-col animate-slide-in-right">
           {/* Header */}
-          <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-surface flex-shrink-0">
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-surface shrink-0">
             <button
               onClick={() => setMobileMoreOpen(false)}
               className="p-1 -ml-1 rounded-spa hover:bg-background"
@@ -320,9 +320,9 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
                         isItemActive(item) ? 'bg-background' : 'hover:bg-background'
                       }`}
                     >
-                      <Icon name={item.icon} size={20} className="text-text-secondary flex-shrink-0" />
+                      <Icon name={item.icon} size={20} className="text-text-secondary shrink-0" />
                       <span className="flex-1 font-body font-body-medium text-sm text-text-primary">{item.label}</span>
-                      <Icon name="ChevronRight" size={16} className="text-text-tertiary flex-shrink-0" />
+                      <Icon name="ChevronRight" size={16} className="text-text-tertiary shrink-0" />
                     </Link>
                   ))}
                 </div>
@@ -334,9 +334,9 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
               onClick={() => { setMobileMoreOpen(false); handleLogout(); }}
               className="flex items-center gap-3 px-4 py-3 w-full text-error hover:bg-red-50 transition-colors border-t border-border"
             >
-              <Icon name="LogOut" size={20} className="flex-shrink-0" />
+              <Icon name="LogOut" size={20} className="shrink-0" />
               <span className="flex-1 text-left font-body font-body-medium text-sm">Logout</span>
-              <Icon name="ChevronRight" size={16} className="flex-shrink-0" />
+              <Icon name="ChevronRight" size={16} className="shrink-0" />
             </button>
           </div>
         </div>

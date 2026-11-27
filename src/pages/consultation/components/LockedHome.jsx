@@ -6,7 +6,7 @@ import { ToothArt } from './DoctorHero';
 // patient. When a consultation starts on the computer, the phone is told, and the code
 // is asked for then. The doctor can also ask for a code on purpose with the button.
 const LockedHome = ({ onAsk }) => (
-  <div className="min-h-screen bg-gradient-to-b from-primary/10 via-background to-background flex items-center justify-center p-6">
+  <div className="min-h-screen bg-linear-to-b from-primary/10 via-background to-background flex items-center justify-center p-6">
     <div className="w-full max-w-sm text-center space-y-5">
       <div className="mx-auto w-28 h-28 rounded-full bg-white shadow-lg flex items-center justify-center relative">
         <ToothArt className="w-16 h-20 text-primary" />

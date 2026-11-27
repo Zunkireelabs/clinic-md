@@ -21,7 +21,7 @@ const getInitials = (name = '') => {
 const Avatar = ({ name, src }) => {
   const [broken, setBroken] = useState(false);
   return (
-    <span className={`w-8 h-8 text-xs rounded-full overflow-hidden bg-primary/10 text-primary flex items-center justify-center flex-shrink-0 font-body font-body-medium`}>
+    <span className={`w-8 h-8 text-xs rounded-full overflow-hidden bg-primary/10 text-primary flex items-center justify-center shrink-0 font-body font-body-medium`}>
       {src && !broken ? (
         <img src={src} alt="" className="w-full h-full object-cover" onError={() => setBroken(true)} />
       ) : (
@@ -58,10 +58,10 @@ const ProfileMenu = () => {
   const openSettings = () => navigate('?view=settings');
   const openShortcuts = () => setTimeout(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: '?' })), 0);
 
-  const row = 'w-full h-9 flex items-center gap-3 px-2.5 rounded-spa text-left text-sm font-body text-text-primary hover:bg-black/[0.04] focus:bg-black/[0.04] focus:outline-none';
+  const row = 'w-full h-9 flex items-center gap-3 px-2.5 rounded-spa text-left text-sm font-body text-text-primary hover:bg-black/4 focus:bg-black/4 focus:outline-hidden';
 
   return (
-    <div className="relative flex flex-shrink-0">
+    <div className="relative flex shrink-0">
       <button
         ref={triggerRef}
         type="button"
@@ -69,7 +69,7 @@ const ProfileMenu = () => {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Account menu"
-        className={`rounded-full ring-2 ring-offset-0 focus:outline-none focus-visible:ring-primary ${open ? 'ring-primary' : 'ring-transparent'}`}
+        className={`rounded-full ring-2 ring-offset-0 focus:outline-hidden focus-visible:ring-primary ${open ? 'ring-primary' : 'ring-transparent'}`}
       >
         <Avatar name={name} src={profile?.avatar_url} />
       </button>

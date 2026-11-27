@@ -171,18 +171,18 @@ const MiniMonthCalendar = ({ selectedDate, onDateSelect, branchId }) => {
     <div ref={rootRef} className="select-none relative w-[336px] max-w-full">
       {/* Header navigation — label click drills days -> months -> years */}
       <div className="flex items-center justify-between mb-2">
-        <button onClick={handlePrevHeaderNav} className="p-1 rounded hover:bg-background spa-transition-fast" aria-label="Previous">
+        <button onClick={handlePrevHeaderNav} className="p-1 rounded-sm hover:bg-background spa-transition-fast" aria-label="Previous">
           <Icon name="ChevronLeft" size={14} className="text-text-secondary" />
         </button>
         <button
           onClick={handleHeaderClick}
           disabled={pickerMode === 'years'}
-          className="flex items-center gap-1 px-2 py-0.5 rounded hover:bg-background spa-transition-fast disabled:cursor-default disabled:hover:bg-transparent"
+          className="flex items-center gap-1 px-2 py-0.5 rounded-sm hover:bg-background spa-transition-fast disabled:cursor-default disabled:hover:bg-transparent"
         >
           <span className="font-heading font-heading-semibold text-sm text-text-primary">{headerLabel}</span>
           {pickerMode !== 'years' && <Icon name="ChevronDown" size={12} className="text-text-secondary" />}
         </button>
-        <button onClick={handleNextHeaderNav} className="p-1 rounded hover:bg-background spa-transition-fast" aria-label="Next">
+        <button onClick={handleNextHeaderNav} className="p-1 rounded-sm hover:bg-background spa-transition-fast" aria-label="Next">
           <Icon name="ChevronRight" size={14} className="text-text-secondary" />
         </button>
       </div>

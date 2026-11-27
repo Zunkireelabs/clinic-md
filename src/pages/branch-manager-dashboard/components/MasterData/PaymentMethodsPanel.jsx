@@ -255,7 +255,7 @@ const PaymentMethodsPanel = () => {
                   {subs.length > 0 && (
                     <button
                       onClick={() => toggleExpanded(index)}
-                      className="p-1.5 rounded hover:bg-background spa-transition-fast text-text-secondary hover:text-text-primary"
+                      className="p-1.5 rounded-sm hover:bg-background spa-transition-fast text-text-secondary hover:text-text-primary"
                       title={isExpanded ? 'Collapse sub-options' : 'Show sub-options'}
                     >
                       <Icon name={isExpanded ? 'ChevronUp' : 'ChevronDown'} size={16} />
@@ -263,14 +263,14 @@ const PaymentMethodsPanel = () => {
                   )}
                   <button
                     onClick={() => handleOpenEdit(index)}
-                    className="p-1.5 rounded hover:bg-background spa-transition-fast text-text-secondary hover:text-text-primary"
+                    className="p-1.5 rounded-sm hover:bg-background spa-transition-fast text-text-secondary hover:text-text-primary"
                     title="Edit"
                   >
                     <Icon name="Pencil" size={16} />
                   </button>
                   <button
                     onClick={() => setConfirmDelete(index)}
-                    className="p-1.5 rounded hover:bg-error/10 spa-transition-fast text-text-secondary hover:text-error"
+                    className="p-1.5 rounded-sm hover:bg-error/10 spa-transition-fast text-text-secondary hover:text-error"
                     title="Delete"
                     disabled={paymentMethods.length <= 1}
                   >
@@ -289,14 +289,14 @@ const PaymentMethodsPanel = () => {
                       <div className="flex items-center gap-1 shrink-0">
                         <button
                           onClick={() => handleOpenEditSub(index, subIndex)}
-                          className="p-1.5 rounded hover:bg-surface spa-transition-fast text-text-secondary hover:text-text-primary"
+                          className="p-1.5 rounded-sm hover:bg-surface spa-transition-fast text-text-secondary hover:text-text-primary"
                           title="Edit"
                         >
                           <Icon name="Pencil" size={14} />
                         </button>
                         <button
                           onClick={() => setConfirmDeleteSub({ parentIndex: index, subIndex })}
-                          className="p-1.5 rounded hover:bg-error/10 spa-transition-fast text-text-secondary hover:text-error"
+                          className="p-1.5 rounded-sm hover:bg-error/10 spa-transition-fast text-text-secondary hover:text-error"
                           title="Delete"
                         >
                           <Icon name="Trash2" size={14} />
@@ -325,7 +325,7 @@ const PaymentMethodsPanel = () => {
               <h3 className="font-heading font-heading-semibold text-lg text-text-primary">
                 {editingIndex === null ? 'Add Payment Method' : 'Edit Payment Method'}
               </h3>
-              <button onClick={() => setShowModal(false)} className="p-1 rounded hover:bg-background">
+              <button onClick={() => setShowModal(false)} className="p-1 rounded-sm hover:bg-background">
                 <Icon name="X" size={20} className="text-text-secondary" />
               </button>
             </div>
@@ -360,13 +360,13 @@ const PaymentMethodsPanel = () => {
                   {subMethods.map((sub, i) => (
                     <span
                       key={sub}
-                      className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded text-xs font-caption bg-primary/5 text-text-primary border border-border"
+                      className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-sm text-xs font-caption bg-primary/5 text-text-primary border border-border"
                     >
                       {sub}
                       <button
                         type="button"
                         onClick={() => handleRemoveSub(i)}
-                        className="p-0.5 rounded hover:bg-error/10 hover:text-error spa-transition-fast"
+                        className="p-0.5 rounded-sm hover:bg-error/10 hover:text-error spa-transition-fast"
                       >
                         <Icon name="X" size={12} />
                       </button>
@@ -429,7 +429,7 @@ const PaymentMethodsPanel = () => {
           <div className="bg-surface rounded-spa-lg spa-shadow-modal w-full max-w-sm p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="font-heading font-heading-semibold text-lg text-text-primary">Edit Sub-option</h3>
-              <button onClick={() => setEditingSub(null)} className="p-1 rounded hover:bg-background">
+              <button onClick={() => setEditingSub(null)} className="p-1 rounded-sm hover:bg-background">
                 <Icon name="X" size={20} className="text-text-secondary" />
               </button>
             </div>

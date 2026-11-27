@@ -27,18 +27,18 @@ const DeskHeader = ({
   canComplete, completing, onComplete, readOnly, menuItems,
 }) => (
   <>
-    <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-[13px] text-[#8A8A90]">
+    <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-[13px] text-text-tertiary">
       <button type="button" onClick={onBack} className="inline-flex items-center gap-1 hover:text-text-primary"><Icon name="ChevronLeft" size={14} />Calendar</button>
       <span>/</span><span className="text-text-primary font-medium">Consultation</span>
     </nav>
     <div className="mt-4 flex items-start justify-between gap-4 flex-wrap">
       <div className="min-w-0">
         <h1 className="text-[24px] font-semibold tracking-[-0.5px] leading-tight flex items-center gap-2.5"><span className="truncate">{patientName}</span>{inClinic && <InClinicTag />}</h1>
-        <p className="text-[13px] text-[#8A8A90] mt-1">{meta}</p>
+        <p className="text-[13px] text-text-tertiary mt-1">{meta}</p>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
-        {syncText && <span className={`text-[12.5px] inline-flex items-center gap-1.5 mr-1 ${syncKind === 'error' ? 'text-[#B42318]' : 'text-[#8A8A90]'}`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${syncKind === 'error' ? 'bg-[#B42318]' : syncKind === 'saving' ? 'bg-[#F59E0B]' : 'bg-[#1F9D6C]'}`} />{syncText}</span>}
+        {syncText && <span className={`text-[12.5px] inline-flex items-center gap-1.5 mr-1 ${syncKind === 'error' ? 'text-[#B42318]' : 'text-text-tertiary'}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${syncKind === 'error' ? 'bg-[#B42318]' : syncKind === 'saving' ? 'bg-[#F59E0B]' : 'bg-success'}`} />{syncText}</span>}
         <button type="button" onClick={onContinuePhone} className="h-8 px-3 rounded-md border border-border bg-white text-[13px] font-medium inline-flex items-center gap-1.5 hover:bg-[#FAFAFB]"><Icon name="Smartphone" size={14} />Continue on phone</button>
         {!readOnly && stage === 'saved' ? (
           <>

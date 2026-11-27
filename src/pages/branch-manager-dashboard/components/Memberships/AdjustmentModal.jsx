@@ -73,7 +73,7 @@ const AdjustmentModal = ({ membership, branchId, onClose, onSuccess }) => {
 
           <div className="px-5 py-4 space-y-4">
             <div className="bg-warning/5 border border-warning/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-              <Icon name="AlertTriangle" size={14} className="text-warning flex-shrink-0 mt-0.5" />
+              <Icon name="AlertTriangle" size={14} className="text-warning shrink-0 mt-0.5" />
               <p className="font-body text-xs text-text-secondary">
                 Admin-only correction. Use for refunds, reversals, or fixing data errors. Every adjustment lands in the audit log
                 with the required note.
@@ -101,7 +101,7 @@ const AdjustmentModal = ({ membership, branchId, onClose, onSuccess }) => {
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="e.g. 500"
-                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
               />
               {direction === 'debit' && (
                 <p className="mt-1 font-caption text-[11px] text-text-tertiary">Current balance: {formatNPR(membership.balance)}</p>
@@ -115,13 +115,13 @@ const AdjustmentModal = ({ membership, branchId, onClose, onSuccess }) => {
                 onChange={(e) => setNotes(e.target.value)}
                 rows={2}
                 placeholder="Required. Explain why this adjustment is being made."
-                className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
+                className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
               />
             </div>
 
             {error && (
               <div className="bg-error/5 border border-error/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-                <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0 mt-0.5" />
+                <Icon name="AlertCircle" size={14} className="text-error shrink-0 mt-0.5" />
                 <p className="font-body text-xs text-error">{error}</p>
               </div>
             )}
