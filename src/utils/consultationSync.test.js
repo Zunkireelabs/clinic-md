@@ -130,4 +130,10 @@ describe('transcript appended by the server (CMD-146)', () => {
   it('the form never carries transcript_pieces, so it is never written back', () => {
     expect(Object.keys(formFrom({ transcript_pieces: [{ path: 'p1' }] }))).not.toContain('transcript_pieces');
   });
+  it('realtime row first, RPC answer second: no difference is left for the autosave (the order seen on a real run)', () => {
+    const start = { ...EMPTY_FORM };
+    const rt = mergeR(start, start, { transcript: 'words', detected_language: 'en' });
+    const { form, synced: s2 } = applyAppended(rt.form, rt.synced, { transcript: 'words', language: 'en' });
+    expect(colsFor(form, s2)).toEqual({});
+  });
 });

@@ -292,6 +292,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       const before = formRef.current;
       const merged = mergeRemote(before, syncedRef.current, row);
       syncedRef.current = merged.synced;
+      formRef.current = merged.form; // not only on the next render: runQueueItem's applyAppended reads formRef right after its RPC and must not see a form older than synced (CMD-146)
       setForm(merged.form);
       setDbStatus(row.status);
       setMeta(metaFromRow(row));
