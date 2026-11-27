@@ -6,7 +6,7 @@ BEGIN;
 
 DO $$
 BEGIN
-  IF to_regnamespace('cron') IS NOT NULL AND EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'agent-expire-work-items') THEN PERFORM cron.unschedule('agent-expire-work-items'); END IF;
+  IF to_regnamespace('cron') IS NOT NULL THEN PERFORM cron.unschedule(jobname) FROM cron.job WHERE jobname = 'agent-expire-work-items'; END IF;
 END $$;
 
 DROP FUNCTION IF EXISTS public.act_ai_set_enabled(boolean, jsonb);
