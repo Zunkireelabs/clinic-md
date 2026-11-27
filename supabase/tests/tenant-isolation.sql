@@ -449,7 +449,7 @@ DECLARE
   oa uuid; ob uuid; a1 uuid; tr uuid; cu uuid; d1 uuid; d1b uuid; cz uuid; bk record;
   u_prac uuid := gen_random_uuid(); u_staff uuid; u_adm uuid; u_adminb uuid; u_mgr uuid; sfx text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
   b1 uuid; b2 uuid; b3 uuid; b4 uuid; b5 uuid; bR1 uuid; bR2 uuid; bR3 uuid; bD uuid; bPaid uuid; bX uuid; aCancelX uuid;
-  r jsonb; r2 jsonb; l record; x_id uuid; tot bigint;
+  r jsonb; r2 jsonb; l record; x_id uuid; tot bigint; u_prac0 uuid;
 BEGIN
   IF to_regprocedure('public.act_undo(uuid,text,jsonb)') IS NULL OR to_regprocedure('public.is_my_booking_row(uuid,uuid)') IS NULL THEN
     INSERT INTO t_res VALUES ('ACT', '-', 'migration-011/012 checks', 'INFO', 'skipped: act_* (012) or the practitioner role (011) not present');
@@ -464,6 +464,8 @@ BEGIN
   SELECT d.id INTO d1 FROM dentists d JOIN t_seed s ON s.tbl = 'dentists' AND s.pk = d.id::text WHERE d.branch_id = a1 AND d.name = 'Dr A1';
 
   -- a practitioner (Dr A1), a second dentist in the branch, a one-seat chair
+  -- users.dentist_id is unique: park the shared practitioner's Dr A1 link while this section has its own, restore it at the end
+  SELECT id INTO u_prac0 FROM public.users WHERE dentist_id = d1; UPDATE public.users SET dentist_id = NULL WHERE id = u_prac0;
   INSERT INTO auth.users (id, instance_id, aud, role, email, created_at, updated_at) VALUES (u_prac, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-actprac-' || sfx || '@test.invalid', now(), now());
   UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3d
   INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES (u_prac, 'rls-actprac-' || sfx || '@test.invalid', 'RLS act practitioner', 'practitioner', a1, oa, true, d1);
@@ -720,6 +722,7 @@ BEGIN
   DELETE FROM public.users WHERE id = u_prac;
   DELETE FROM auth.users WHERE id = u_prac;
   DELETE FROM dentists WHERE id = d1b;
+  UPDATE public.users SET dentist_id = d1 WHERE id = u_prac0;
   DELETE FROM chairs WHERE id = cz;
 END $act$;
 
@@ -1361,7 +1364,7 @@ DO $money$
 DECLARE
   oa uuid; ob uuid; a1 uuid; tr uuid; cu uuid; cu2 uuid; cu3 uuid; d1 uuid; u_staff uuid; u_adm uuid; sfx text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
   u_prac uuid := gen_random_uuid(); bk uuid; bk2 uuid; bk_b uuid; tier uuid; vt uuid; ref uuid; ref2 uuid; r jsonb; v text; z uuid := gen_random_uuid();
-  t record; w record; cnt int; bad text;
+  t record; w record; cnt int; bad text; u_prac0 uuid;
 BEGIN
   IF to_regprocedure('public.can_write_money()') IS NULL OR to_regprocedure('public.is_my_booking_row(uuid,uuid)') IS NULL THEN
     INSERT INTO t_res VALUES ('MONEY', '-', 'migration-011/014 checks', 'INFO', 'skipped: can_write_money() (014) or the practitioner role (011) not present');
@@ -1375,6 +1378,8 @@ BEGIN
   SELECT d.id INTO d1 FROM dentists d JOIN t_seed s ON s.tbl = 'dentists' AND s.pk = d.id::text WHERE d.branch_id = a1 AND d.name = 'Dr A1';
   SELECT s.pk::uuid INTO bk_b FROM t_seed s WHERE s.tbl = 'bookings' AND s.org = ob LIMIT 1;
 
+  -- users.dentist_id is unique: park the shared practitioner's Dr A1 link for this section (restored at its end)
+  SELECT id INTO u_prac0 FROM public.users WHERE dentist_id = d1; UPDATE public.users SET dentist_id = NULL WHERE id = u_prac0;
   INSERT INTO auth.users (id, instance_id, aud, role, email, created_at, updated_at) VALUES (u_prac, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-mprac-' || sfx || '@test.invalid', now(), now());
   UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3d
   INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES (u_prac, 'rls-mprac-' || sfx || '@test.invalid', 'RLS money practitioner', 'practitioner', a1, oa, true, d1);
@@ -1500,6 +1505,8 @@ BEGIN
     -- named exceptions: anon-executable booking-flow function, tracked in CMD-44 (not fixed by CMD-83)
     AND p.oid::regprocedure::text <> 'public_record_customer_referral(text,uuid,uuid,uuid)';
   PERFORM pg_temp.m_chk('role coverage: every authenticated-executable definer function reading a money table has a role check', bad IS NULL, coalesce(bad, 'none'));
+EXECUTE 'RESET ROLE';
+  UPDATE public.users SET dentist_id = NULL WHERE id = u_prac; UPDATE public.users SET dentist_id = d1 WHERE id = u_prac0;
 END $money$;
 
 -- ───────────────────────────── 3d. BOOKING CONSENT (migration-015, CMD-93) ─────────────────────────────
