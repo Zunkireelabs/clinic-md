@@ -363,7 +363,7 @@ const PlatformOrgDetail = () => {
     <div className="min-h-screen bg-background">
       <PlatformNav />
       <main className="max-w-6xl mx-auto px-6 py-6 space-y-4">
-        <Link to="/platform/dashboard" className="font-body text-sm text-primary hover:underline">← All clients</Link>
+        <Link to="/platform/dashboard" className="inline-block font-body text-sm text-primary hover:underline">← All clients</Link>
         {error && <p className="font-body text-sm text-error">{error}</p>}
 
         <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-6 items-start">
@@ -450,7 +450,7 @@ const PlatformOrgDetail = () => {
                     onChange={(e) => setWizActualAmount(e.target.value)}
                     className="block border border-border rounded-spa px-2 py-1 w-40" />
                 </label>
-                <label className="font-body text-sm text-text-secondary flex-1 min-w-[10rem]">Notes
+                <label className="font-body text-sm text-text-secondary flex-1 min-w-40">Notes
                   <input value={wizNotes} onChange={(e) => setWizNotes(e.target.value)}
                     className="block border border-border rounded-spa px-2 py-1 w-full" />
                 </label>
@@ -605,7 +605,7 @@ const PlatformOrgDetail = () => {
             ))}
           </div>
 
-          <div className="overflow-x-auto overflow-y-auto max-h-[28rem] border border-border rounded-spa">
+          <div className="overflow-x-auto overflow-y-auto max-h-112 border border-border rounded-spa">
             <table className="w-full text-sm font-data">
               <thead className="text-text-secondary border-b border-border sticky top-0 bg-surface z-sticky-filter">
                 <tr>

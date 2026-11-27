@@ -13,14 +13,11 @@
         "lucide-react": "^0.484.0",
         "posthog-js": "^1.386.6",
         "qrcode.react": "^4.2.0",
-        "react": "^18.2.0",
-        "react-dom": "^18.2.0",
-        "react-helmet": "^6.1.0",
+        "react": "19.3.1",
+        "react-dom": "19.3.1",
         "react-router-dom": "6.0.2",
         "recharts": "^2.15.2",
         "tailwindcss-animate": "^1.0.7",
-        "tailwindcss-elevation": "^2.0.0",
-        "tailwindcss-fluid-type": "^2.0.7",
         "xlsx": "^0.18.5"
     },
     "scripts": {
@@ -29,6 +26,7 @@
         "build": "vite build",
         "serve": "vite preview",
         "test": "vitest run",
+        "test:edge": "node --test supabase/tests/edge/consultation-edge.edge.mjs",
         "test:rls": "psql \"${RLS_DB_URL:-postgresql://postgres:postgres@127.0.0.1:55322/postgres}\" -v ON_ERROR_STOP=1 -v verbose=off -f supabase/tests/tenant-isolation.sql | grep -E '^(FAIL|SUMMARY|COVERAGE)'; exit ${PIPESTATUS[0]}"
     },
     "eslintConfig": {
@@ -50,18 +48,15 @@
         ]
     },
     "devDependencies": {
-        "@tailwindcss/aspect-ratio": "^0.4.2",
         "@tailwindcss/container-queries": "^0.1.1",
-        "@tailwindcss/line-clamp": "^0.1.0",
-        "@tailwindcss/typography": "^0.5.16",
+        "@tailwindcss/postcss": "4.3.5",
         "@testing-library/jest-dom": "^5.15.1",
         "@testing-library/react": "^11.2.7",
         "@testing-library/user-event": "^12.8.3",
         "@vitejs/plugin-basic-ssl": "^1.2.0",
         "@vitejs/plugin-react": "4.3.4",
-        "autoprefixer": "10.4.2",
         "postcss": "8.4.8",
-        "tailwindcss": "3.4.6",
+        "tailwindcss": "4.3.5",
         "vite": "5.0.0",
         "vite-tsconfig-paths": "3.6.0",
         "vitest": "4.1.11"

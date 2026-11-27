@@ -311,7 +311,7 @@ const StaffBookingForm = ({ onBookingCreated }) => {
       {/* Header */}
       <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
         <div className="flex items-center gap-3 mb-3 sm:mb-4">
-          <div className="w-9 h-9 sm:w-10 sm:h-10 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 bg-primary/10 rounded-lg flex items-center justify-center shrink-0">
             <Icon name="CalendarPlus" size={18} className="sm:w-5 sm:h-5 text-primary" />
           </div>
           <div className="min-w-0">
@@ -363,7 +363,7 @@ const StaffBookingForm = ({ onBookingCreated }) => {
                         {svc.name}
                       </span>
                       {selectedTreatment?.id === svc.id && (
-                        <Icon name="CheckCircle" size={16} className="text-primary flex-shrink-0" />
+                        <Icon name="CheckCircle" size={16} className="text-primary shrink-0" />
                       )}
                     </div>
                     <div className="flex items-center gap-3 text-xs text-gray-500">
@@ -399,7 +399,7 @@ const StaffBookingForm = ({ onBookingCreated }) => {
                   <button
                     key={d.value}
                     onClick={() => { setSelectedDate(d.value); setSelectedTime(''); }}
-                    className={`p-2 rounded-md text-xs sm:text-sm transition-colors text-center min-h-[44px] ${
+                    className={`p-2 rounded-md text-xs sm:text-sm transition-colors text-center min-h-touch ${
                       selectedDate === d.value
                         ? 'bg-primary text-white'
                         : d.isToday
@@ -457,7 +457,7 @@ const StaffBookingForm = ({ onBookingCreated }) => {
                 branchId={branchId}
                 inputRef={nameInputRef}
                 required
-                inputClassName="w-full h-10 px-3 rounded-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                inputClassName="w-full h-10 px-3 rounded-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary"
               />
             </div>
 
@@ -476,7 +476,7 @@ const StaffBookingForm = ({ onBookingCreated }) => {
                     branchId={branchId}
                     searchBy="phone"
                     placeholder="9800000000"
-                    inputClassName="flex-1 h-10 px-3 rounded-r-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    inputClassName="flex-1 h-10 px-3 rounded-r-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
               </div>
@@ -492,14 +492,14 @@ const StaffBookingForm = ({ onBookingCreated }) => {
                   branchId={branchId}
                   searchBy="email"
                   placeholder="email@example.com"
-                  inputClassName="w-full h-10 px-3 rounded-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                  inputClassName="w-full h-10 px-3 rounded-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary"
                 />
               </div>
             </div>
 
             {previousDue && (
               <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                <Icon name="AlertTriangle" size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                <Icon name="AlertTriangle" size={14} className="text-amber-600 shrink-0 mt-0.5" />
                 <p className="text-sm text-amber-800">
                   <span className="font-medium">{customerName.trim() || 'This customer'}</span> has an outstanding
                   balance — NPR {previousDue.totalDue.toLocaleString('en-IN')} across {previousDue.bookingCount} earlier
@@ -542,7 +542,7 @@ const StaffBookingForm = ({ onBookingCreated }) => {
                     onSelect={handleReferringCustomerSelect}
                     branchId={branchId}
                     placeholder="Referrer's name"
-                    inputClassName="w-full h-10 px-3 rounded-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    inputClassName="w-full h-10 px-3 rounded-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary"
                   />
                 </div>
                 <div>
@@ -558,7 +558,7 @@ const StaffBookingForm = ({ onBookingCreated }) => {
                       branchId={branchId}
                       searchBy="phone"
                       placeholder="9800000000"
-                      inputClassName="flex-1 h-10 px-3 rounded-r-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                      inputClassName="flex-1 h-10 px-3 rounded-r-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary"
                     />
                   </div>
                 </div>
@@ -574,7 +574,7 @@ const StaffBookingForm = ({ onBookingCreated }) => {
                       value={referringRewardAmount}
                       onChange={(e) => setReferringRewardAmount(e.target.value)}
                       placeholder="e.g. 500 (leave blank for the org default)"
-                      className="w-full h-10 px-3 rounded-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                      className="w-full h-10 px-3 rounded-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary"
                     />
                   </div>
                 )}
@@ -596,7 +596,7 @@ const StaffBookingForm = ({ onBookingCreated }) => {
                 onChange={(e) => setSpecialRequests(e.target.value)}
                 placeholder="Any preferences or notes..."
                 rows={2}
-                className="w-full px-3 py-2 rounded-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary resize-none"
+                className="w-full px-3 py-2 rounded-md border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary resize-none"
               />
             </div>
           </div>
@@ -662,7 +662,7 @@ const StaffBookingForm = ({ onBookingCreated }) => {
 
             {error && (
               <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-                <Icon name="AlertTriangle" size={14} className="text-red-600 flex-shrink-0" />
+                <Icon name="AlertTriangle" size={14} className="text-red-600 shrink-0" />
                 <span className="text-sm text-red-600">{error}</span>
               </div>
             )}
@@ -676,7 +676,7 @@ const StaffBookingForm = ({ onBookingCreated }) => {
       <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center justify-between sm:justify-start">
           {step > 1 ? (
-            <Button variant="outline" onClick={() => setStep(step - 1)} iconName="ArrowLeft" iconPosition="left" className="min-h-[44px]">
+            <Button variant="outline" onClick={() => setStep(step - 1)} iconName="ArrowLeft" iconPosition="left" className="min-h-touch">
               Back
             </Button>
           ) : (
@@ -703,7 +703,7 @@ const StaffBookingForm = ({ onBookingCreated }) => {
               disabled={!canProceed()}
               iconName="ArrowRight"
               iconPosition="right"
-              className="flex-1 sm:flex-initial min-h-[44px]"
+              className="flex-1 sm:flex-initial min-h-touch"
             >
               Next
             </Button>
@@ -715,7 +715,7 @@ const StaffBookingForm = ({ onBookingCreated }) => {
               disabled={!canProceed()}
               iconName="Check"
               iconPosition="left"
-              className="flex-1 sm:flex-initial min-h-[44px]"
+              className="flex-1 sm:flex-initial min-h-touch"
             >
               Create Booking
             </Button>

@@ -63,8 +63,8 @@ const ProviderSettingsPanel = () => {
   if (loading) {
     return (
       <div className="bg-surface rounded-spa-lg border border-border p-8 animate-pulse">
-        <div className="h-4 bg-background rounded w-48 mb-4" />
-        <div className="h-10 bg-background rounded" />
+        <div className="h-4 bg-background rounded-sm w-48 mb-4" />
+        <div className="h-10 bg-background rounded-sm" />
       </div>
     );
   }
@@ -72,7 +72,7 @@ const ProviderSettingsPanel = () => {
   if (error) {
     return (
       <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
         <p className="font-body text-sm text-error">{error}</p>
         <button onClick={loadData} className="ml-auto font-body font-body-medium text-sm text-error underline">
           Retry
@@ -106,12 +106,12 @@ const ProviderSettingsPanel = () => {
             value={fromAddress}
             onChange={(e) => setFromAddress(e.target.value)}
             placeholder="noreply@yourspa.com"
-            className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+            className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
           />
         </div>
 
         <div className="bg-accent/10 border border-accent/20 rounded-spa px-3 py-2.5 flex items-start space-x-2">
-          <Icon name="Lock" size={14} className="text-secondary flex-shrink-0 mt-0.5" />
+          <Icon name="Lock" size={14} className="text-secondary shrink-0 mt-0.5" />
           <p className="font-body text-xs text-secondary">
             The provider API key is configured server-side in Edge Function secrets and is never entered or stored here.
           </p>
@@ -119,14 +119,14 @@ const ProviderSettingsPanel = () => {
 
         {saveError && (
           <div className="bg-error/5 border border-error/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-            <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0 mt-0.5" />
+            <Icon name="AlertCircle" size={14} className="text-error shrink-0 mt-0.5" />
             <p className="font-body text-xs text-error">{saveError}</p>
           </div>
         )}
 
         {saved && !saveError && (
           <div className="bg-success/5 border border-success/20 rounded-spa px-3 py-2 flex items-center space-x-2">
-            <Icon name="CheckCircle2" size={14} className="text-success flex-shrink-0" />
+            <Icon name="CheckCircle2" size={14} className="text-success shrink-0" />
             <p className="font-body text-xs text-success">Saved.</p>
           </div>
         )}

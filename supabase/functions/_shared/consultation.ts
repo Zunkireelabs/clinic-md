@@ -20,11 +20,16 @@ export const keyMissing = (name: string): Response =>
 export interface AuthedRequest {
   supabase: SupabaseClient;
   user: User;
+  /** users.role, when requireStaff checked it */
+  role?: string;
 }
 
 export interface AuthOptions {
   /** Require an active users row with role staff / manager / admin / practitioner (patients and self-registered customers are rejected). */
   requireStaff?: boolean;
+  /** Clinical content (migration 020, CMD-54): refuse role 'staff' (front desk) with FORBIDDEN_ROLE. Needs requireStaff. Checked before the AI
+   *  switch and the quota, so a refused call costs nothing. Same rule as the 020 functions and CMD-100's 019 policies. */
+  clinicalRole?: boolean;
   /** Require this caller's clinic to have the AI switch on (organizations.ai_consultation_enabled). Checked BEFORE the quota is consumed; fails closed. */
   requireAiEnabled?: boolean;
   /** Count this call against the per-user hourly AI quota (cost control). */
@@ -53,10 +58,15 @@ export const authenticate = async (req: Request, opts: AuthOptions = {}): Promis
   const { data, error } = await supabase.auth.getUser();
   if (error || !data.user) return json({ error: 'Invalid or expired session' }, 401);
 
+  let role: string | undefined;
   if (opts.requireStaff) {
     const { data: profile } = await supabase.from('users').select('role, is_active').eq('id', data.user.id).maybeSingle();
     if (!profile || profile.is_active === false || !['staff', 'manager', 'admin', 'practitioner'].includes(profile.role)) {
       return json({ error: 'FORBIDDEN', message: 'Your account can’t use this feature.' }, 403); // generic: also returned by phone-pair and consultation-push
+    }
+    role = profile.role;
+    if (opts.clinicalRole && role === 'staff') {
+      return json({ error: 'FORBIDDEN_ROLE', message: 'Front desk accounts can’t use the consultation scribe.' }, 403);
     }
   }
   if (opts.requireAiEnabled) {
@@ -72,5 +82,9 @@ export const authenticate = async (req: Request, opts: AuthOptions = {}): Promis
     if (quotaError) console.error('[AI_QUOTA_CHECK]', quotaError.message); // fail open on a quota-store problem, never block clinical work
     else if (allowed === false) return json({ error: 'AI_QUOTA', message: 'Too many AI requests this hour. Try again later.' }, 429);
   }
-  return { supabase, user: data.user };
+  return { supabase, user: data.user, role };
 };
+
+/** Service-role client, used ONLY to call the 020 service-role writers after the row was read through the user's own client. */
+export const serviceClient = (): SupabaseClient =>
+  createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });

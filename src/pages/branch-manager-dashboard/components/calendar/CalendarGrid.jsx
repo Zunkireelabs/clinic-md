@@ -755,7 +755,7 @@ const CalendarGrid = ({
         key={`transfer-preview-${colId}-${day}`}
         data-draft-ghost="true"
         data-transfer-preview="true"
-        className="absolute inset-x-0.5 rounded-spa pointer-events-none overflow-hidden px-2 py-1 z-[4] border-[1.5px] border-dashed border-primary/50"
+        className="absolute inset-x-0.5 rounded-spa pointer-events-none overflow-hidden px-2 py-1 z-4 border-[1.5px] border-dashed border-primary/50"
         style={{ top: timeToTop(from), height: h, backgroundColor: 'rgba(123,47,247,0.07)' }}
       >
         <div className="font-body text-[11px] leading-tight text-primary/80 truncate">Transferred{back ? ` · ${back}` : ''}</div>
@@ -789,8 +789,8 @@ const CalendarGrid = ({
     return (
       <div
         data-draft-ghost="true"
-        className={`absolute inset-x-0.5 rounded-spa pointer-events-none px-2 py-1 overflow-hidden z-[4] border-[1.5px] border-dashed ${
-          draftGhost.overlap ? 'border-error bg-error/[0.06]' : 'border-primary bg-primary/[0.06]'
+        className={`absolute inset-x-0.5 rounded-spa pointer-events-none px-2 py-1 overflow-hidden z-4 border-[1.5px] border-dashed ${
+          draftGhost.overlap ? 'border-error bg-error/6' : 'border-primary bg-primary/6'
         }`}
         style={{ top: timeToTop(draftGhost.startTime), height: ghostHeight }}
       >
@@ -990,7 +990,7 @@ const CalendarGrid = ({
         onMouseLeave={hideHeaderTooltip}
       >
         <div className="flex items-center gap-2 overflow-hidden min-w-0">
-          <span className="w-6 h-6 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center flex-shrink-0 text-[10px] font-medium">
+          <span className="w-6 h-6 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center shrink-0 text-[10px] font-medium">
             {col.type === 'dentist' ? initials : <Icon name={isUnassigned ? 'AlertCircle' : col.icon} size={12} />}
           </span>
           <span className="min-w-0 flex flex-col">
@@ -1025,7 +1025,7 @@ const CalendarGrid = ({
           </span>
           {col.type === 'dentist' && (
             <span
-              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${col.attendance ? 'bg-gray-300' : 'bg-success'}`}
+              className={`w-1.5 h-1.5 rounded-full shrink-0 ${col.attendance ? 'bg-gray-300' : 'bg-success'}`}
               title={col.attendance === 'Absent' ? 'Absent' : col.attendance === 'Leave' ? 'On leave' : 'Present'}
             />
           )}
@@ -1050,7 +1050,7 @@ const CalendarGrid = ({
   const sharedLayoutKey = useMemo(() => ({}), [bookingsByDayAndCol, columns, viewMode, currentDate, eHH]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const renderTimeLabels = () => (
-    <div className="flex-shrink-0 border-r border-border relative bg-surface sticky left-0 z-header" style={{ width: TIME_COL_WIDTH }}>
+    <div className="shrink-0 border-r border-border relative bg-surface sticky left-0 z-header" style={{ width: TIME_COL_WIDTH }}>
       {hours.map((hour) => (
         <div key={hour} className="absolute w-full" style={{ top: (hour - openHour) * eHH + TOP_PAD }}>
           <span className="absolute -top-2.5 right-2 font-data text-[11px] text-text-tertiary">
@@ -1060,7 +1060,7 @@ const CalendarGrid = ({
       ))}
       {days.includes(todayStr) && nowTop >= 0 && nowTop <= totalHeight && (
         <div className="absolute w-full pointer-events-none" style={{ top: nowTop }}>
-          <span className="absolute -top-2 right-2 px-1 rounded-sm bg-surface font-data text-[11px] font-medium text-[#E5484D]">
+          <span className="absolute -top-2 right-2 px-1 rounded-xs bg-surface font-data text-[11px] font-medium text-[#E5484D]">
             {nowLabel}
           </span>
         </div>
@@ -1088,7 +1088,7 @@ const CalendarGrid = ({
     return (
       <div className="absolute left-0 right-0 z-10 pointer-events-none" style={{ top: nowTop }}>
         <div className="h-px bg-[#E5484D]" />
-        {showDot && <span className="absolute -left-[3px] -top-[2.5px] w-1.5 h-1.5 rounded-full bg-[#E5484D]" />}
+        {showDot && <span className="absolute left-[-3px] top-[-2.5px] w-1.5 h-1.5 rounded-full bg-[#E5484D]" />}
       </div>
     );
   };
@@ -1144,12 +1144,12 @@ const CalendarGrid = ({
     <>
       <div
         ref={hoverLineRef}
-        className="absolute pointer-events-none z-[5]"
+        className="absolute pointer-events-none z-5"
         style={{ display: 'none', borderTop: '1px dashed #C9C9CF' }}
       />
       <div
         ref={hoverPillRef}
-        className="absolute pointer-events-none z-[6] px-1.5 h-[18px] leading-[16px] rounded-spa bg-surface border border-border font-data text-[11px] text-text-secondary"
+        className="absolute pointer-events-none z-6 px-1.5 h-[18px] leading-[16px] rounded-spa bg-surface border border-border font-data text-[11px] text-text-secondary"
         style={{ display: 'none' }}
       />
     </>
@@ -1483,16 +1483,16 @@ const CalendarGrid = ({
       {/* Fixed header — outside scroll container */}
       <div
         ref={headerScrollRef}
-        className="flex-shrink-0 z-header bg-background border-b border-border overflow-hidden"
+        className="shrink-0 z-header bg-background border-b border-border overflow-hidden"
       >
         <div className="flex relative" style={{ width: '100%', minWidth: TIME_COL_WIDTH + columnsMinWidth }}>
           {draftSpacer > 0 && <div aria-hidden="true" data-draft-spacer="true" style={{ position: 'absolute', top: 0, left: `calc(100% + ${draftSpacer}px)`, width: 1, height: 1 }} />}
-          <div className="flex-shrink-0 border-r border-border px-2 h-10 flex items-center sticky left-0 z-header bg-background" style={{ width: TIME_COL_WIDTH }}>
+          <div className="shrink-0 border-r border-border px-2 h-10 flex items-center sticky left-0 z-header bg-background" style={{ width: TIME_COL_WIDTH }}>
             <Icon name="Clock" size={14} className="text-text-secondary" />
           </div>
           {unassignedCol && (
             <div
-              className={`flex-shrink-0 border-r border-border bg-surface ${
+              className={`shrink-0 border-r border-border bg-surface ${
                 freezeUnassigned ? 'sticky z-header' : ''
               }`}
               style={freezeUnassigned
@@ -1550,7 +1550,7 @@ const CalendarGrid = ({
           {renderTimeLabels()}
           {unassignedCol && (
             <div
-              className={`flex-shrink-0 relative border-r border-border bg-surface overflow-hidden cursor-pointer ${
+              className={`shrink-0 relative border-r border-border bg-surface overflow-hidden cursor-pointer ${
                 freezeUnassigned ? 'sticky z-header' : ''
               }`}
               style={freezeUnassigned
@@ -1582,11 +1582,11 @@ const CalendarGrid = ({
       {/* Fixed header — outside scroll container */}
       <div
         ref={headerScrollRef}
-        className="flex-shrink-0 z-header bg-background border-b border-border overflow-hidden"
+        className="shrink-0 z-header bg-background border-b border-border overflow-hidden"
       >
         <div className="flex relative" style={{ width: '100%', minWidth: TIME_COL_WIDTH + daysMinWidth }}>
           {draftSpacer > 0 && <div aria-hidden="true" data-draft-spacer="true" style={{ position: 'absolute', top: 0, left: `calc(100% + ${draftSpacer}px)`, width: 1, height: 1 }} />}
-          <div className="flex-shrink-0 border-r border-border sticky left-0 bg-background" style={{ width: TIME_COL_WIDTH }} />
+          <div className="shrink-0 border-r border-border sticky left-0 bg-background" style={{ width: TIME_COL_WIDTH }} />
           <div className="flex flex-1" style={{ minWidth: daysMinWidth }}>
             {days.map(day => {
               const isCurrentDay = day === todayStr;
@@ -1642,7 +1642,7 @@ const CalendarGrid = ({
               return (
                 <div
                   key={day}
-                  className={`flex-1 relative cursor-pointer ${di < days.length - 1 ? 'border-r border-border' : ''} ${isCurrentDay ? 'bg-primary/[0.02]' : ''}`}
+                  className={`flex-1 relative cursor-pointer ${di < days.length - 1 ? 'border-r border-border' : ''} ${isCurrentDay ? 'bg-primary/2' : ''}`}
                   style={{ minWidth: minColWidth }}
                   data-cal-column="true"
                   data-day={day} data-col-id={dayCol.id} data-col-type={dayCol.type} data-col-name={dayCol.name}
@@ -1664,7 +1664,7 @@ const CalendarGrid = ({
       <BookingHoverLayer />
       {headerTooltip && (
         <div
-          className="fixed px-2 py-1 bg-text-primary text-white text-[10px] font-body rounded whitespace-nowrap z-dropdown pointer-events-none"
+          className="fixed px-2 py-1 bg-text-primary text-white text-[10px] font-body rounded-sm whitespace-nowrap z-dropdown pointer-events-none"
           style={{ left: headerTooltip.x, top: headerTooltip.y, transform: 'translateX(-50%)' }}
         >
           {headerTooltip.name}

@@ -1,5 +1,10 @@
-// The structured clinical note (six sections) ↔ the markdown stored in consultations.final_summary.
+// The structured clinical note ↔ the markdown stored in consultations.final_summary.
 // Headings must stay exactly these: summarySections.parseSummarySections reads them back for the patient chart.
+// Templates (migration 020, CMD-54): consultations.note_template names the section set. Only 'dental-v1' (today's six sections) exists;
+// the five-section 'dental-v2' arrives with the redesigned screen. The SQL twin is public._consult_note_sections (same fixtures:
+// noteSections.fixtures.json). An unknown template is read as dental-v1 here (the page must still show the text); the SQL returns NULL.
+
+export const DEFAULT_NOTE_TEMPLATE = 'dental-v1';
 
 export const NOTE_SECTIONS = [
   { key: 'chief_complaint', heading: 'Chief complaint', placeholder: 'Why the patient came in' },
@@ -10,22 +15,30 @@ export const NOTE_SECTIONS = [
   { key: 'follow_up', heading: 'Follow-up', placeholder: 'When to see them next' },
 ];
 
-export const emptyNote = () => Object.fromEntries(NOTE_SECTIONS.map((s) => [s.key, '']));
+export const NOTE_TEMPLATES = { 'dental-v1': NOTE_SECTIONS };
 
-/** Coerce anything (AI JSON, partial object) into a clean note of six strings. */
-export const normalizeNote = (n = {}) => Object.fromEntries(NOTE_SECTIONS.map((s) => [s.key, String(n?.[s.key] ?? '').trim()]));
+/** The section list for a template; unknown or missing → dental-v1. */
+export const sectionsFor = (template) => NOTE_TEMPLATES[template] || NOTE_TEMPLATES[DEFAULT_NOTE_TEMPLATE];
 
-export const isNoteEmpty = (note) => NOTE_SECTIONS.every((s) => !String(note?.[s.key] || '').trim());
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
+const strictLineFor = (sections) => new RegExp(`^##\\s+(${sections.map((x) => escapeRe(x.heading)).join('|')})\\s*$`);
 
-export const sameNote = (a, b) => NOTE_SECTIONS.every((s) => String(a?.[s.key] || '').trim() === String(b?.[s.key] || '').trim());
+export const emptyNote = (template) => Object.fromEntries(sectionsFor(template).map((s) => [s.key, '']));
+
+/** Coerce anything (AI JSON, partial object) into a clean note of the template's strings. */
+export const normalizeNote = (n = {}, template) => Object.fromEntries(sectionsFor(template).map((s) => [s.key, String(n?.[s.key] ?? '').trim()]));
+
+export const isNoteEmpty = (note, template) => sectionsFor(template).every((s) => !String(note?.[s.key] || '').trim());
+
+export const sameNote = (a, b, template) => sectionsFor(template).every((s) => String(a?.[s.key] || '').trim() === String(b?.[s.key] || '').trim());
 
 // A body line that starts with "#" could be read back as a heading; a leading backslash keeps it plain text (markdown-style escape).
 const escapeBody = (text) => text.split('\n').map((l) => (/^\s*#{1,6}(\s|$)/.test(l) ? `\\${l}` : l)).join('\n');
 const unescapeBody = (text) => text.split('\n').map((l) => l.replace(/^(\s*)\\(#{1,6}(\s|$))/, '$1$2')).join('\n');
 
 /** Note → markdown. Empty sections are omitted; an empty note gives ''. */
-export function noteToMarkdown(note) {
-  return NOTE_SECTIONS
+export function noteToMarkdown(note, template) {
+  return sectionsFor(template)
     .map((s) => ({ s, body: String(note?.[s.key] || '').trim() }))
     .filter(({ body }) => body)
     .map(({ s, body }) => `## ${s.heading}\n${escapeBody(body)}`)
@@ -33,39 +46,58 @@ export function noteToMarkdown(note) {
 }
 
 // Reads any markdown heading level (older notes used ###) or a bold-only line, so legacy summaries still split into sections.
-// New format: ONLY the six exact "## " headings are section boundaries. Everything else (a "**Phase 1**" line, "### Sub", "#36 …") is body.
-const STRICT_LINE = /^##\s+(Chief complaint|History|Findings|Assessment|Plan|Follow-up)\s*$/;
+// New format: ONLY the template's exact "## " headings are section boundaries. Everything else (a "**Phase 1**" line, "### Sub", "#36 …") is body.
 // Older notes (no exact headings) used other headings; those are read leniently.
 const LEGACY_LINE = /^\s*(?:#{1,6}\s+(.+?)|\*\*(.+?)\*\*:?)\s*:?\s*$/;
-const KEY_BY_HEADING = Object.fromEntries(NOTE_SECTIONS.map((s) => [s.heading.toLowerCase(), s.key]));
+
+/** True when every heading line is one of the template's exact "## " headings (what noteToMarkdown writes). */
+export function isStrictNote(md = '', template) {
+  const strictLine = strictLineFor(sectionsFor(template));
+  const heads = String(md || '').split('\n').filter((l) => /^\s*#{1,6}\s+\S/.test(l));
+  return heads.length > 0 && heads.every((l) => strictLine.test(l));
+}
 
 /**
- * Markdown → note. Reads exactly what noteToMarkdown writes. Text with none of the six headings is treated as a legacy summary:
+ * Markdown → note. Reads exactly what noteToMarkdown writes. Text with none of the template's headings is treated as a legacy summary:
  * its headings are mapped best-effort (Clinical Findings → Findings, …) and unheaded text goes to Findings so nothing is dropped.
  */
-export function markdownToNote(md = '') {
+export function markdownToNote(md = '', template) {
+  const sections = sectionsFor(template);
+  const strictLine = strictLineFor(sections);
+  const keyByHeading = Object.fromEntries(sections.map((s) => [s.heading.toLowerCase(), s.key]));
   const lines = String(md || '').split('\n');
-  const heads = lines.filter((l) => /^\s*#{1,6}\s+\S/.test(l));
-  const strict = heads.length > 0 && heads.every((l) => STRICT_LINE.test(l)); // any other heading = an older free-form summary
-  const note = emptyNote();
+  const strict = isStrictNote(md, template); // any other heading = an older free-form summary
+  const note = emptyNote(template);
   const loose = [];
   let current = null;
   lines.forEach((line) => {
     if (strict) {
-      const m = line.match(STRICT_LINE);
-      if (m) { current = KEY_BY_HEADING[m[1].toLowerCase()]; return; }
+      const m = line.match(strictLine);
+      if (m) { current = keyByHeading[m[1].toLowerCase()]; return; }
       if (current) note[current] += `${line}\n`; else loose.push(line);
       return;
     }
     const m = line.match(LEGACY_LINE);
     if (m) { current = legacyKey((m[1] || m[2]).toLowerCase()) || '__other'; return; }
-    if (current && current !== '__other') note[current] += `${line}\n`; else loose.push(line);
+    if (current && current !== '__other' && current in note) note[current] += `${line}\n`; else loose.push(line);
   });
   const out = {};
-  NOTE_SECTIONS.forEach((s) => { out[s.key] = unescapeBody(note[s.key]).trim(); });
+  sections.forEach((s) => { out[s.key] = unescapeBody(note[s.key]).trim(); });
   const rest = loose.join('\n').trim();
-  if (rest) out.findings = out.findings ? `${out.findings}\n${rest}` : rest;
+  if (rest && 'findings' in out) out.findings = out.findings ? `${out.findings}\n${rest}` : rest;
   return out;
+}
+
+/**
+ * Keys whose signed text differs from the AI draft (both trimmed), in template order. null without an AI draft ("Written by") or when the
+ * note is not in the strict format (a legacy summary can't be compared). Mirrors public._consult_edited_sections, which is what is stored.
+ */
+export function editedSections(md, aiDraft, template) {
+  if (!aiDraft || typeof aiDraft !== 'object') return null;
+  if (template && !NOTE_TEMPLATES[template]) return null;
+  if (!isStrictNote(md, template)) return null;
+  const note = markdownToNote(md, template);
+  return sectionsFor(template).filter((s) => String(note[s.key] || '').trim() !== String(aiDraft[s.key] ?? '').trim()).map((s) => s.key);
 }
 
 function legacyKey(h) {

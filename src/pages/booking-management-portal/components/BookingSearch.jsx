@@ -46,7 +46,7 @@ const BookingSearch = ({ onSearch, isLoading }) => {
       <form onSubmit={handleSearch} className="space-y-4">
         {/* Search Type Selection */}
         <div className="space-y-2">
-          <label className="font-body font-body-medium text-sm text-text-primary">
+          <label className="inline-block font-body font-body-medium text-sm text-text-primary">
             Search By
           </label>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -77,7 +77,7 @@ const BookingSearch = ({ onSearch, isLoading }) => {
 
         {/* Search Input */}
         <div className="space-y-2">
-          <label className="font-body font-body-medium text-sm text-text-primary">
+          <label className="inline-block font-body font-body-medium text-sm text-text-primary">
             {currentSearchType.label}
           </label>
           <div className="relative">

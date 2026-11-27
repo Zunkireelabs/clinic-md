@@ -164,8 +164,8 @@ const PatientChart = ({ customerId: customerIdProp }) => {
             {tabs.map((t) => (
               <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}
                 className={`h-10 flex items-center gap-1.5 text-[13px] font-medium relative whitespace-nowrap ${tab === t.key ? 'text-text-primary' : 'text-[#515152] hover:text-text-primary'}`}>
-                {t.label}{t.n != null && <span className="text-[#8A8A90] tabular-nums">{t.n}</span>}
-                {tab === t.key && <span className="absolute left-0 right-0 -bottom-px h-0.5 bg-text-primary rounded" />}
+                {t.label}{t.n != null && <span className="text-text-tertiary tabular-nums">{t.n}</span>}
+                {tab === t.key && <span className="absolute left-0 right-0 -bottom-px h-0.5 bg-text-primary rounded-sm" />}
               </button>
             ))}
           </div>

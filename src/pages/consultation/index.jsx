@@ -20,12 +20,15 @@ import useDoctorPhoneLink from '../../hooks/useDoctorPhoneLink';
 import { recorderDevices } from '../../utils/remoteDevices';
 import DeskHeader from './desk/DeskHeader';
 import RecorderBar from './desk/RecorderBar';
+import ConsentCheck from './desk/ConsentCheck';
 import NoteCard from './desk/NoteCard';
 import ConsultationRail from './desk/ConsultationRail';
 import useLeaveGuard from './desk/useLeaveGuard';
 import { flowReducer, initialFlow, deriveStage, showNoAiBanner, draftingSteps, draftInputsKey, draftIsStale } from '../../utils/consultationFlow';
 import { markdownToNote, noteToMarkdown, normalizeNote, isNoteEmpty, sameNote, emptyNote } from '../../utils/consultationNote';
 import { parseSummarySections } from '../../utils/summarySections';
+import { CURRENT_CONSENT_SCRIPT } from '../../utils/consentScripts';
+import { EMPTY_META, metaFromRow, canUnsign, provenanceLine } from '../../utils/consultationMeta';
 import { resizeImageFile } from '../../utils/imageResize';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -42,6 +45,8 @@ import {
   transcribeConsultationAudio,
   summarizeConsultation,
   analyzeConsultationImages,
+  recordConsultationConsent,
+  unsignConsultation,
   getPatientRecord,
   updateBookingStatus,
 } from '../../services/api';
@@ -61,8 +66,8 @@ const hasContent = (f) =>
 const formatTimer = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
 const Card = ({ title, icon, children, action }) => (
-  <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
-    <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 bg-gradient-to-r from-primary/[0.05] to-transparent">
+  <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs hover:shadow-md transition-shadow overflow-hidden">
+    <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 bg-linear-to-r from-primary/5 to-transparent">
       <div className="flex items-center gap-3">
         <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
           <Icon name={icon} size={18} />
@@ -121,6 +126,15 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   const [form, setForm] = useState(EMPTY_FORM);
   const [consultationId, setConsultationId] = useState(null);
   const [dbStatus, setDbStatus] = useState(null);
+  // Migration 020 (CMD-54/55): what the server stored about consent, the AI draft and the signature. Read from the row, never set by hand.
+  const [meta, setMeta] = useState(EMPTY_META);
+  const metaRef = useRef(meta);
+  metaRef.current = meta;
+  const consent = meta.recording_consent === 'agreed';
+  const consentRef = useRef(consent);
+  consentRef.current = consent;
+  const consultationIdRef = useRef(null);
+  const [consentBusy, setConsentBusy] = useState(false);
   const [sessionDate, setSessionDate] = useState(todayIso());
   const [phase, setPhase] = useState('active'); // 'active' | 'review'
   const [finalProcessing, setProcessing] = useState(null); // 'final': the phone's "generate final summary" call
@@ -201,7 +215,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     syncedRef.current = next;
     setForm(next);
     setConsultationId(row.id);
+    consultationIdRef.current = row.id;
     setDbStatus(row.status);
+    setMeta(metaFromRow(row));
     setSessionDate(row.session_date);
     setAttendedBy(row.attended_by_names || []);
     setLastSavedJson(row.status === 'completed' ? JSON.stringify(allColumns(next)) : null);
@@ -277,6 +293,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       syncedRef.current = merged.synced;
       setForm(merged.form);
       setDbStatus(row.status);
+      setMeta(metaFromRow(row));
       setAttendedBy(row.attended_by_names || []);
       // Tell the doctor when something arrives from the other device.
       if ((row.xray_image_paths || []).length > before.xrayPaths.length) setReceived('X-ray photo received from the phone');
@@ -338,8 +355,10 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
 
   // Recording pipeline (upload → transcribe, queued and retryable) is shared by the computer and the phone: see runQueueItem below.
 
+  // Recording needs stored consent (migration 020), on the computer and on the phone alike.
   const handleStart = async () => {
     setNotice(null);
+    if (!consentRef.current) { setNotice('Tick that the patient has agreed to the recording first.'); return; }
     await recorder.start();
   };
 
@@ -352,6 +371,8 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   commandRef.current = async (cmd) => {
     if (cmd.target && cmd.target !== deviceId) return;
     if (cmd.action === 'start' && !recorder.isRecording && processing === null) {
+      // The computer only offers "Record on phone" after consent, but the phone checks the STORED value itself: no consent, no microphone.
+      if (!consentRef.current) { setNotice('Tick that the patient has agreed to the recording first.'); return; }
       const started = await recorder.start();
       // Some phones refuse to open the microphone without a tap on the page.
       setPendingRemoteStart(!started);
@@ -378,10 +399,11 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     setError(null);
     setProcessing('final');
     const f = formRef.current;
-    const { note: aiNote, error: aiError } = await summarizeConsultation({
-      mode: 'note', transcript: f.transcript, xrayAnalysis: f.xrayAnalysis, photoAnalysis: f.photoAnalysis,
+    const { note: aiNote, provenance, error: aiError } = await summarizeConsultation({
+      mode: 'note', transcript: f.transcript, xrayAnalysis: f.xrayAnalysis, photoAnalysis: f.photoAnalysis, consultationId: consultationIdRef.current,
     });
     setProcessing(null);
+    if (provenance) setMeta((m) => ({ ...m, ai_drafted_at: provenance.drafted_at, has_ai_draft: true }));
     const drafted = aiNote ? normalizeNote(aiNote) : null;
     if (aiError || !drafted || isNoteEmpty(drafted)) {
       setError(aiError?.message || "The AI didn't return a note. Try again, or write it yourself.");
@@ -414,16 +436,18 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     setSaving(true);
     setError(null);
     setNotice(null);
-    const { data, error: saveError, noteError } = await saveConsultation({
+    const { data, error: saveError, noteError, signError } = await saveConsultation({
       booking,
       consultationId,
       fields: { ...allColumns(form), session_date: sessionDate },
       status: 'completed',
+      expectedDraftedAt: metaRef.current.ai_drafted_at,
     });
     savingRef.current = false;
     setSaving(false);
     if (saveError) {
-      setError(`Could not save the consultation: ${saveError.message}`);
+      if (signError && data) { setConsultationId(data.id); consultationIdRef.current = data.id; setDbStatus(data.status); setMeta(metaFromRow(data)); }
+      setError(signError ? `Saved, but not signed: ${saveError.message}` : `Could not save the consultation: ${saveError.message}`);
       return false;
     }
     const savedForm = formFromRow(data);
@@ -431,7 +455,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     setForm(mergeAfterSave(sentForm, formRef.current, savedForm)); // never wipe edits typed while the request was in flight
     setLastSavedJson(JSON.stringify(allColumns(savedForm)));
     setConsultationId(data.id);
+    consultationIdRef.current = data.id;
     setDbStatus(data.status);
+    setMeta(metaFromRow(data));
     setAttendedBy(data.attended_by_names || []);
     setSyncState('synced');
     setNotice(noteError
@@ -444,7 +470,15 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
 
   // ───────────────────────── Desktop consultation page (one page, six stages) ─────────────────────────
   const [flow, dispatchFlow] = useReducer(flowReducer, initialFlow);
-  const [consent, setConsent] = useState(false); // UI only, per consultation. It is deliberately not stored (that needs a DB column).
+  // Recording consent is stored once per consultation by the server (migration 020); the other device sees it through the live sync.
+  const recordConsent = async () => {
+    if (!consultationIdRef.current || consentRef.current) return;
+    setConsentBusy(true);
+    const { data, error: cError } = await recordConsultationConsent(consultationIdRef.current, 'agreed', phoneView ? 'phone' : 'computer', CURRENT_CONSENT_SCRIPT);
+    setConsentBusy(false);
+    if (cError) { setError(`Could not record consent: ${cError.message}`); return; }
+    setMeta((m) => ({ ...m, recording_consent: data?.answer || 'agreed', recording_consent_at: data?.at || m.recording_consent_at }));
+  };
   const [noteView, setNoteView] = useState('note');
   const [note, setNote] = useState(emptyNote);
   const noteRef = useRef(note);
@@ -479,7 +513,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   const lastPlan = useMemo(() => {
     const prev = (record?.consultations || []).find((c) => c.id !== consultationId && (c.final_summary || '').trim());
     if (!prev) return '';
-    const plan = parseSummarySections(prev.final_summary).plan;
+    const plan = parseSummarySections(prev.final_summary, prev.note_template).plan;
     return plan.split('\n').map((l) => l.replace(/^\s*[-*•]\s*/, '').trim()).filter(Boolean).join('; ');
   }, [record, consultationId]);
 
@@ -495,8 +529,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   const runDraft = useCallback(async () => {
     dispatchFlow({ type: 'DRAFT_START' });
     const f = formRef.current;
-    const { note: aiNote, error: aiError } = await summarizeConsultation({
+    const { note: aiNote, provenance, error: aiError } = await summarizeConsultation({
       mode: 'note', transcript: f.transcript, xrayAnalysis: f.xrayAnalysis, photoAnalysis: f.photoAnalysis, previousPlan: lastPlan,
+      consultationId: consultationIdRef.current,
     });
     const drafted = aiNote ? normalizeNote(aiNote) : null;
     if (aiError || !drafted || isNoteEmpty(drafted)) {
@@ -508,6 +543,8 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       setToast({ msg: 'A new AI draft arrived after you saved, so it was not applied. Press Edit note, then Redraft, to use it.' });
       return false;
     }
+    // the server stored this draft (ai_drafted_at): signing will compare against exactly this one
+    if (provenance) setMeta((m) => ({ ...m, ai_drafted_at: provenance.drafted_at, has_ai_draft: true }));
     const md = noteToMarkdown(drafted);
     draftMdRef.current = md;
     setNote(drafted);
@@ -551,7 +588,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       dispatchFlow({ type: 'TRANSCRIBE_START' });
       dispatchFlow({ type: 'UPLOADED', seconds: item.durationSeconds ?? formRef.current.durationSeconds });
     }
-    const { text, language, error: tError } = await transcribeConsultationAudio(audioPath);
+    const { text, language, error: tError } = await transcribeConsultationAudio(audioPath, consultationIdRef.current);
     if (tError) {
       patchItem({ status: 'failed-transcribe', error: tError.message });
       dispatchFlow({ type: 'FAILED', at: 'transcribing', error: tError });
@@ -641,7 +678,21 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   };
 
   // Edit note: the row goes back to 'draft' so edits are drafts until Save (an abandoned edit never silently changes a saved note's status).
+  // Migration 020: a signed note is locked. Its signer may undo the signature within 15 minutes; after that, corrections need an addendum
+  // (not built yet). A completed note from before 020 has no signature and reopens exactly as before.
   const editSavedNote = async () => {
+    if (consultationId && metaRef.current.signed_at) {
+      if (!canUnsign(metaRef.current, profile?.id)) {
+        setError("Signed notes can't be changed. Corrections need an addendum (coming).");
+        return;
+      }
+      const { error: uError } = await unsignConsultation(consultationId);
+      if (uError) { setError(uError.message || 'Could not reopen the note for editing. Try again.'); return; }
+      setMeta((m) => ({ ...m, signed_at: null, signed_by: null, signed_by_name: null }));
+      setDbStatus('draft');
+      dispatchFlow({ type: 'EDIT_NOTE' });
+      return;
+    }
     if (consultationId) {
       const { error: draftError } = await updateConsultationColumns(consultationId, { status: 'draft' });
       if (draftError) { setError('Could not reopen the note for editing. Try again.'); return; }
@@ -712,8 +763,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   };
 
   if (phoneView) {
+    const phoneFirst = (booking?.customer_name || 'The patient').trim().split(/\s+/)[0];
     return (
-      <div className="h-[100dvh] flex flex-col bg-gradient-to-b from-primary/15 via-background to-background overflow-hidden">
+      <div className="h-dvh flex flex-col bg-linear-to-b from-primary/15 via-background to-background overflow-hidden">
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-6">
         {loading && (
           <div className="p-12 text-center">
@@ -729,7 +781,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
         )}
         {!loading && !loadError && booking && (
           <div className="max-w-md mx-auto p-4 space-y-4">
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-xs p-4">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center text-lg font-heading font-heading-semibold shrink-0">
                   {(booking.customer_name || '?').trim().charAt(0).toUpperCase()}
@@ -814,17 +866,19 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
               {pendingRemoteStart && !recorder.isRecording && (
                 <div className="mb-4 p-4 bg-primary/10 border border-primary/30 rounded-lg text-center">
                   <p className="text-sm text-text-primary mb-3">Ready to record. Tap the button to start with this phone's microphone.</p>
-                  <Button variant="primary" size="lg" fullWidth iconName="Mic" iconPosition="left" onClick={handleStart}>Tap to start recording</Button>
+                  <Button variant="primary" size="lg" fullWidth iconName="Mic" iconPosition="left" onClick={handleStart} disabled={!consent}>Tap to start recording</Button>
                 </div>
               )}
 
               {!recorder.isRecording ? (
                 <div className="flex flex-col items-center gap-2 py-2">
-                  <button type="button" disabled={processing !== null} onClick={handleStart} aria-label="Start recording"
+                  <button type="button" disabled={processing !== null || !consent} onClick={handleStart} aria-label="Start recording"
                           className="w-24 h-24 rounded-full bg-primary text-white flex items-center justify-center shadow-lg shadow-primary/30 active:scale-95 transition disabled:opacity-50">
                     <Icon name="Mic" size={40} />
                   </button>
-                  <p className="text-sm text-text-secondary">{form.audioPaths.length ? 'Tap to record more' : 'Tap to start recording'}</p>
+                  <p className="text-sm text-text-secondary">{!consent ? `Tick that ${phoneFirst} has agreed to record` : form.audioPaths.length ? 'Tap to record more' : 'Tap to start recording'}</p>
+                  {/* the same consent control as the computer (migration 020): recorded on the server, once per consultation */}
+                  <ConsentCheck className="mt-1" firstName={phoneFirst} consent={consent} consentAt={meta.recording_consent_at} busy={consentBusy} onConsent={recordConsent} />
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -858,7 +912,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
 
             {(form.transcript.trim() || form.preliminarySummary.trim()) && (
               <Card title="Recorded so far" icon="FileText">
-                <div className="space-y-3 max-h-64 overflow-auto text-sm text-text-primary whitespace-pre-wrap break-words">
+                <div className="space-y-3 max-h-64 overflow-auto text-sm text-text-primary whitespace-pre-wrap wrap-break-word">
                   {form.preliminarySummary.trim() && <div><p className="text-xs uppercase tracking-wider text-text-tertiary mb-1">Summary</p>{form.preliminarySummary}</div>}
                   {form.transcript.trim() && <div><p className="text-xs uppercase tracking-wider text-text-tertiary mb-1">Transcript</p>{form.transcript}</div>}
                 </div>
@@ -937,7 +991,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
               {/* Primary action: a compact floating pill, clear of the bar below */}
               <div className="pointer-events-auto self-end flex flex-col items-end gap-1.5">
                 {(recorder.isRecording || processing !== null) && (
-                  <p className="text-xs text-text-secondary bg-white/90 rounded-full px-3 py-1 shadow-sm">
+                  <p className="text-xs text-text-secondary bg-white/90 rounded-full px-3 py-1 shadow-xs">
                     {recorder.isRecording ? 'Stop the recording to finish' : 'Wait for processing to finish'}
                   </p>
                 )}
@@ -964,7 +1018,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
 
               {/* Leave: back to the patient list (this also covers switching patient) */}
               <button type="button" onClick={closePhoneView}
-                      className="pointer-events-auto w-full flex items-center justify-center gap-1.5 py-2.5 rounded-2xl bg-white/95 border border-gray-200 shadow-sm text-sm text-text-secondary active:bg-gray-50">
+                      className="pointer-events-auto w-full flex items-center justify-center gap-1.5 py-2.5 rounded-2xl bg-white/95 border border-gray-200 shadow-xs text-sm text-text-secondary active:bg-gray-50">
                 <Icon name="X" size={15} /> Close
               </button>
             </div>
@@ -1056,7 +1110,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
             <div className="mt-4 p-3 bg-[#FFFAF0] border border-[#F5D9A8] rounded-lg text-[13px] flex items-center gap-2"><Icon name="AlertTriangle" size={15} className="text-[#B45309]" />This booking is {booking.status}. Consultations are normally started once the booking is In-Progress.</div>
           )}
           {stage === 'saved' && bookingInProgress && (
-            <div role="status" className="mt-4 px-4 py-2.5 rounded-lg border border-[#BFE6D3] bg-[#F1FBF6] text-[13px] flex items-start sm:items-center gap-2"><Icon name="Check" size={15} className="text-[#1F9D6C] shrink-0" />
+            <div role="status" className="mt-4 px-4 py-2.5 rounded-lg border border-[#BFE6D3] bg-[#F1FBF6] text-[13px] flex items-start sm:items-center gap-2"><Icon name="Check" size={15} className="text-success shrink-0" />
               <span><b className="font-medium text-[#0F5F40]">Note saved to {patientFirst}’s chart</b> by {userName} at {hhmm(savedAt)}. The visit is still in progress: complete it when {patientFirst} leaves, so it can be billed.</span></div>
           )}
           {error && (
@@ -1067,36 +1121,36 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
             </div>
           )}
           {autoStopMsg && (
-            <div role="alert" className="mt-4 p-3 bg-[#FFFAF0] border border-[#F5D9A8] rounded-lg text-[13px] flex items-center gap-2"><Icon name="AlertTriangle" size={15} className="text-[#B45309] shrink-0" /><span className="flex-1">{autoStopMsg}</span><button type="button" onClick={() => setAutoStopMsg(null)} aria-label="Dismiss"><Icon name="X" size={14} className="text-[#8A8A90]" /></button></div>
+            <div role="alert" className="mt-4 p-3 bg-[#FFFAF0] border border-[#F5D9A8] rounded-lg text-[13px] flex items-center gap-2"><Icon name="AlertTriangle" size={15} className="text-[#B45309] shrink-0" /><span className="flex-1">{autoStopMsg}</span><button type="button" onClick={() => setAutoStopMsg(null)} aria-label="Dismiss"><Icon name="X" size={14} className="text-text-tertiary" /></button></div>
           )}
-          {received && <div className="mt-4 p-3 bg-[#F1FBF6] border border-[#BFE6D3] rounded-lg text-[13px] flex items-center gap-2"><Icon name="Download" size={15} className="text-[#1F9D6C]" />{received}</div>}
+          {received && <div className="mt-4 p-3 bg-[#F1FBF6] border border-[#BFE6D3] rounded-lg text-[13px] flex items-center gap-2"><Icon name="Download" size={15} className="text-success" />{received}</div>}
 
           <div className="mt-5 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-5 items-start">
             <div className="space-y-4 min-w-0">
               {stage === 'drafting' ? (
                 <section aria-label="Drafting progress" className="rounded-xl border border-border bg-white px-5 py-4 flex items-center gap-4">
-                  <span className="w-14 h-14 rounded-full bg-[#F1F1F3] grid place-items-center flex-shrink-0"><Icon name="Mic" size={20} className="text-[#515152]" /></span>
+                  <span className="w-14 h-14 rounded-full bg-[#F1F1F3] grid place-items-center shrink-0"><Icon name="Mic" size={20} className="text-[#515152]" /></span>
                   <ul className="space-y-1.5 text-[13.5px]">
                     {draftingSteps(flow, { sources: sourcesText(form) }).map((st) => (
                       <li key={st.key} className="flex items-center gap-2.5">
-                        {st.state === 'done' ? <span className="w-[18px] h-[18px] rounded-full bg-[#1F9D6C] grid place-items-center"><Icon name="Check" size={11} className="text-white" /></span>
+                        {st.state === 'done' ? <span className="w-[18px] h-[18px] rounded-full bg-success grid place-items-center"><Icon name="Check" size={11} className="text-white" /></span>
                           : st.state === 'active' ? <span className="w-[18px] h-[18px] rounded-full border-2 border-primary border-t-transparent animate-spin" />
                           : <span className="w-[18px] h-[18px] rounded-full border border-[#D6D6DB]" />}
-                        <span className={st.state === 'todo' ? 'text-[#8A8A90]' : ''}>{st.label}</span>
+                        <span className={st.state === 'todo' ? 'text-text-tertiary' : ''}>{st.label}</span>
                       </li>
                     ))}
                   </ul>
                 </section>
               ) : (
                 <RecorderBar
-                  firstName={patientFirst} consent={consent} onConsent={setConsent} recorder={recorder} remote={remote} remotePhoneLabel={remotePhone?.label}
+                  firstName={patientFirst} consent={consent} consentAt={meta.recording_consent_at} consentBusy={consentBusy} onConsent={recordConsent} recorder={recorder} remote={remote} remotePhoneLabel={remotePhone?.label}
                   locked={stage === 'saved'} phones={phones} processing={processing} audioPaths={form.audioPaths} durationSeconds={form.durationSeconds}
                   onStart={handleStart} onStop={handleStopDesk} onRecordOnPhone={() => sendCommand({ action: 'start', target: phones[0]?.deviceId })}
                   onStopRemote={() => sendCommand({ action: 'stop', target: remote?.from })} onContinueOnPhone={() => setShowPhone(true)} errorText={recorderError}
                 />
               )}
               {recorder.isRecording && (
-                <p className="text-[12.5px] text-[#8A8A90] -mt-2 flex items-center gap-1.5"><Icon name="Lock" size={12} />Keep this page open while recording. If you try to leave, you’ll be asked to stop first so nothing is lost.</p>
+                <p className="text-[12.5px] text-text-tertiary -mt-2 flex items-center gap-1.5"><Icon name="Lock" size={12} />Keep this page open while recording. If you try to leave, you’ll be asked to stop first so nothing is lost.</p>
               )}
               {(flow.aiError || (orphanCount > 0 && flow.step === 'idle' && !queueBusy(queue))) && stage !== 'noai' && stage !== 'drafting' && !(stage === 'ready' && !flow.aiError) && (
                 <div role="alert" className="rounded-lg border border-[#F5D9A8] bg-[#FFFAF0] px-4 py-2.5 text-[13px] flex items-center gap-2 flex-wrap">
@@ -1114,6 +1168,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
                 onWriteMyself={() => dispatchFlow({ type: 'WRITE_MYSELF' })} earlierDoctorNotes={form.doctorNotes.trim() ? form.doctorNotes : ''}
                 onDraftNow={showDraftNow ? retryDraft : null}
               />
+              {provenanceLine(meta) && (
+                <p className="text-[12.5px] text-[#8A8A90] -mt-2">{provenanceLine(meta)}</p>
+              )}
             </div>
             <ConsultationRail
               booking={booking} record={record} lastPlan={lastPlan} xrayPaths={form.xrayPaths} photoPaths={form.photoPaths}

@@ -39,7 +39,7 @@ const CustomerVouchersSection = ({ vouchers = [] }) => {
             <div key={v.id} className="rounded-spa border border-border px-4 py-3 bg-surface">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0 flex items-center space-x-2">
-                  <Icon name="Ticket" size={14} className="text-primary flex-shrink-0" />
+                  <Icon name="Ticket" size={14} className="text-primary shrink-0" />
                   <span className="font-body font-body-medium text-sm text-text-primary truncate">
                     {v.voucher_type?.name || 'Voucher'}
                   </span>
@@ -48,7 +48,7 @@ const CustomerVouchersSection = ({ vouchers = [] }) => {
                     {STATUS_LABELS[status] || status}
                   </span>
                 </div>
-                <span className="font-data font-data-medium text-sm text-primary flex-shrink-0">
+                <span className="font-data font-data-medium text-sm text-primary shrink-0">
                   {formatNPR(v.remaining_balance ?? v.total_amount_issued)}
                   {v.voucher_type?.is_wallet && v.remaining_balance != null && (
                     <span className="text-text-tertiary"> / {formatNPR(v.total_amount_issued)}</span>

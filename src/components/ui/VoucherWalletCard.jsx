@@ -30,10 +30,10 @@ const VoucherWalletCard = ({ vouchers, poolBalance = 0, poolPendingDeduction = 0
         <div className="rounded-spa border bg-primary/5 border-primary/20 px-3 py-2.5">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2 min-w-0">
-              <Icon name="Ticket" size={14} className="text-primary flex-shrink-0" />
+              <Icon name="Ticket" size={14} className="text-primary shrink-0" />
               <span className="font-body font-body-medium text-sm text-text-primary truncate">Voucher</span>
             </div>
-            <div className="flex items-center gap-1.5 flex-shrink-0">
+            <div className="flex items-center gap-1.5 shrink-0">
               <span className={`font-data font-data-medium text-sm text-primary ${poolPendingDeduction > 0 ? 'line-through text-text-tertiary' : ''}`}>
                 {formatNPR(poolBalance)}
               </span>
@@ -58,10 +58,10 @@ const VoucherWalletCard = ({ vouchers, poolBalance = 0, poolPendingDeduction = 0
           <div key={v.voucherId} className="rounded-spa border bg-primary/5 border-primary/20 px-3 py-2.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2 min-w-0">
-                <Icon name="Ticket" size={14} className="text-primary flex-shrink-0" />
+                <Icon name="Ticket" size={14} className="text-primary shrink-0" />
                 <span className="font-data font-data-medium text-sm text-text-primary truncate">{v.code}</span>
               </div>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <span className={`font-data font-data-medium text-sm text-primary ${v.pendingDeduction > 0 ? 'line-through text-text-tertiary' : ''}`}>
                   {formatNPR(v.balance)}
                 </span>

@@ -8,9 +8,9 @@ const range = (b) => `${String(b.start_time || '').slice(0, 5)}${b.end_time ? ` 
 
 const Cell = ({ label, dot, value, sub, amber }) => (
   <div className="px-4 py-3.5 min-w-0 bg-white sm:last:odd:col-span-2 lg:last:odd:col-span-1">
-    <div className="text-[12px] text-[#8A8A90] flex items-center gap-1.5">{dot && <span className="w-1.5 h-1.5 rounded-full bg-[#1F9D6C]" />}{label}</div>
+    <div className="text-[12px] text-text-tertiary flex items-center gap-1.5">{dot && <span className="w-1.5 h-1.5 rounded-full bg-success" />}{label}</div>
     <div className={`text-[15px] font-semibold mt-2 truncate tabular-nums ${amber ? 'text-[#B45309]' : 'text-text-primary'}`}>{value}</div>
-    <div className="text-[12.5px] text-[#8A8A90] mt-1 truncate">{sub}</div>
+    <div className="text-[12.5px] text-text-tertiary mt-1 truncate">{sub}</div>
   </div>
 );
 

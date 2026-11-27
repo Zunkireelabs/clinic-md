@@ -67,9 +67,9 @@ const RevenueCards = ({ branchId, period }) => {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 lg:gap-4">
         {[0, 1, 2, 3].map(i => (
           <div key={i} className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 lg:p-5 animate-pulse">
-            <div className="h-4 bg-gray-100 rounded w-16 sm:w-24 mb-2 sm:mb-3" />
-            <div className="h-6 sm:h-7 bg-gray-100 rounded w-20 sm:w-32 mb-2" />
-            <div className="h-3 bg-gray-100 rounded w-14 sm:w-20" />
+            <div className="h-4 bg-gray-100 rounded-sm w-16 sm:w-24 mb-2 sm:mb-3" />
+            <div className="h-6 sm:h-7 bg-gray-100 rounded-sm w-20 sm:w-32 mb-2" />
+            <div className="h-3 bg-gray-100 rounded-sm w-14 sm:w-20" />
           </div>
         ))}
       </div>
@@ -80,7 +80,7 @@ const RevenueCards = ({ branchId, period }) => {
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
         <div className="flex items-center gap-2">
-          <Icon name="AlertCircle" size={18} className="text-red-600 flex-shrink-0" />
+          <Icon name="AlertCircle" size={18} className="text-red-600 shrink-0" />
           <p className="text-xs sm:text-sm text-red-600">{error}</p>
         </div>
         <button onClick={loadRevenue} className="sm:ml-auto text-xs sm:text-sm font-medium text-red-600 underline self-start sm:self-auto">
@@ -96,7 +96,7 @@ const RevenueCards = ({ branchId, period }) => {
     return (
       <div className="bg-white rounded-lg border border-blue-300 ring-1 ring-blue-100 p-3 sm:p-4 lg:p-5">
         <div className="flex items-center gap-2 mb-2 sm:mb-3">
-          <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
+          <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center shrink-0">
             <Icon name="CalendarRange" size={16} className="text-blue-600" />
           </div>
           <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
@@ -153,7 +153,7 @@ const RevenueCards = ({ branchId, period }) => {
               {/* Header - Responsive */}
               <div className="flex items-start sm:items-center justify-between mb-2 sm:mb-3 gap-1">
                 <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-                  <div className={`w-6 h-6 sm:w-8 sm:h-8 rounded-md sm:rounded-lg flex items-center justify-center flex-shrink-0 ${
+                  <div className={`w-6 h-6 sm:w-8 sm:h-8 rounded-md sm:rounded-lg flex items-center justify-center shrink-0 ${
                     isToday ? 'bg-blue-50' : 'bg-gray-100'
                   }`}>
                     <Icon name={period.icon} size={14} className={`sm:w-4 sm:h-4 ${isToday ? 'text-blue-600' : 'text-gray-500'}`} />
@@ -165,7 +165,7 @@ const RevenueCards = ({ branchId, period }) => {
                   </span>
                 </div>
                 {isToday && netDelta.type !== 'neutral' && (
-                  <span className={`inline-flex items-center gap-0.5 text-[10px] sm:text-xs font-medium flex-shrink-0 ${
+                  <span className={`inline-flex items-center gap-0.5 text-[10px] sm:text-xs font-medium shrink-0 ${
                     netDelta.type === 'positive' ? 'text-green-600' : 'text-red-600'
                   }`}>
                     <Icon name={netDelta.type === 'positive' ? 'TrendingUp' : 'TrendingDown'} size={12} className="sm:w-3 sm:h-3" />

@@ -84,7 +84,7 @@ const TopUpModal = ({ membership, branchId, onClose, onSuccess }) => {
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="e.g. 10000"
-                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
               />
             </div>
 
@@ -104,20 +104,20 @@ const TopUpModal = ({ membership, branchId, onClose, onSuccess }) => {
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Optional reference"
-                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
               />
             </div>
 
             {willActivate && (
               <div className="bg-success/5 border border-success/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-                <Icon name="CheckCircle2" size={14} className="text-success flex-shrink-0 mt-0.5" />
+                <Icon name="CheckCircle2" size={14} className="text-success shrink-0 mt-0.5" />
                 <p className="font-body text-xs text-success">This top up will activate the membership.</p>
               </div>
             )}
 
             {error && (
               <div className="bg-error/5 border border-error/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-                <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0 mt-0.5" />
+                <Icon name="AlertCircle" size={14} className="text-error shrink-0 mt-0.5" />
                 <p className="font-body text-xs text-error">{error}</p>
               </div>
             )}

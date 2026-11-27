@@ -91,7 +91,7 @@ const CustomerProfileModal = ({ customerId, onClose }) => {
 
           {error && (
             <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-              <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+              <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
               <p className="font-body text-sm text-error">{error}</p>
               <button onClick={loadProfile} className="ml-auto font-body font-body-medium text-sm text-error underline">
                 Retry
@@ -113,7 +113,7 @@ const CustomerProfileModal = ({ customerId, onClose }) => {
               {/* Identity + Loyalty Badge */}
               <div className="flex items-start justify-between">
                 <div className="flex items-center space-x-3">
-                  <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                     <Icon name="User" size={24} className="text-primary" />
                   </div>
                   <div>
@@ -238,7 +238,7 @@ const CustomerProfileModal = ({ customerId, onClose }) => {
                               {b.treatmentName}
                             </span>
                             {b.isLocked && (
-                              <Icon name="Lock" size={12} className="text-text-tertiary flex-shrink-0" />
+                              <Icon name="Lock" size={12} className="text-text-tertiary shrink-0" />
                             )}
                           </div>
                           <div className="flex items-center space-x-2 text-xs text-text-secondary">
@@ -246,12 +246,12 @@ const CustomerProfileModal = ({ customerId, onClose }) => {
                             <span className="text-text-tertiary">{'·'}</span>
                             <span>{b.dentistName}</span>
                             <span className="text-text-tertiary">{'·'}</span>
-                            <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-caption font-caption-medium ${STATUS_COLORS[b.status] || 'bg-background text-text-secondary'}`}>
+                            <span className={`inline-flex px-1.5 py-0.5 rounded-sm text-[10px] font-caption font-caption-medium ${STATUS_COLORS[b.status] || 'bg-background text-text-secondary'}`}>
                               {b.status}
                             </span>
                           </div>
                         </div>
-                        <div className="text-right flex-shrink-0 ml-3">
+                        <div className="text-right shrink-0 ml-3">
                           <p className="font-data font-data-medium text-sm text-text-primary">
                             {formatNPR(b.finalAmount)}
                           </p>
@@ -261,7 +261,7 @@ const CustomerProfileModal = ({ customerId, onClose }) => {
                             {b.paymentStatus === 'paid' ? 'Paid' : 'Unpaid'}
                           </span>
                         </div>
-                        <Icon name="ChevronRight" size={16} className="text-text-tertiary flex-shrink-0 ml-2" />
+                        <Icon name="ChevronRight" size={16} className="text-text-tertiary shrink-0 ml-2" />
                       </button>
                     ))}
                   </div>

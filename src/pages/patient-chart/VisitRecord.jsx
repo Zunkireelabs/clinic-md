@@ -26,12 +26,12 @@ const Thumb = ({ path, label }) => {
   );
 };
 
-const Field = ({ icon, label, children, tone = 'text-[#8A8A90]' }) => (
+const Field = ({ icon, label, children, tone = 'text-text-tertiary' }) => (
   <div>
-    <h4 className={`flex items-center gap-1.5 text-[11.5px] uppercase tracking-[.05em] font-medium mb-1 ${tone}`}>
+    <h4 className={`flex items-center gap-1.5 text-[11.5px] uppercase tracking-wider font-medium mb-1 ${tone}`}>
       <Icon name={icon} size={12} /> {label}
     </h4>
-    <div className={`text-sm whitespace-pre-wrap break-words ${children ? 'text-text-primary' : 'text-text-tertiary italic'}`}>{children || 'Not recorded'}</div>
+    <div className={`text-sm whitespace-pre-wrap wrap-break-word ${children ? 'text-text-primary' : 'text-text-tertiary italic'}`}>{children || 'Not recorded'}</div>
   </div>
 );
 
@@ -40,7 +40,7 @@ const VisitRecord = ({ visit, consultation: c0, customerName, notes }) => {
   const c = c0 || {};
   const hasConsultation = !!c.id;
 
-  const sec = parseSummarySections(c.final_summary || c.preliminary_summary || '');
+  const sec = parseSummarySections(c.final_summary || c.preliminary_summary || '', c.note_template);
   const xrays = c.xray_image_paths || [];
   const photos = c.photo_image_paths || [];
   const doctors = attendedByText(c) || visit.dentistName;

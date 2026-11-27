@@ -22,4 +22,9 @@ describe('consultationAiError', () => {
     expect(e.code).toBe('AI_DISABLED');
     expect(e.message).toBe("AI consultation isn't switched on for this clinic. You can still type the transcript and notes.");
   });
+  it('maps the migration-020 codes (front desk refused, consent missing, unknown template)', () => {
+    expect(consultationAiError(403, { error: 'FORBIDDEN_ROLE' }).code).toBe('FORBIDDEN_ROLE');
+    expect(consultationAiError(403, { error: 'CONSENT_REQUIRED' }).code).toBe('CONSENT_REQUIRED');
+    expect(consultationAiError(400, { error: 'UNKNOWN_TEMPLATE' }).code).toBe('UNKNOWN_TEMPLATE');
+  });
 });

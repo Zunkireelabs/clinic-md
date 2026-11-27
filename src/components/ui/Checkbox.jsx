@@ -13,7 +13,7 @@ const Checkbox = ({ label, checked, onChange, name, disabled = false }) => {
         checked={checked}
         onChange={handleChange}
         disabled={disabled}
-        className="h-4 w-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
+        className="h-4 w-4 rounded-sm border-border text-primary focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
       />
       {label && (
         <span className="font-body font-body-normal text-sm text-text-primary">

@@ -36,7 +36,7 @@ function JsonViewer({ data, label }) {
   return (
     <div>
       <p className="font-caption font-caption-normal text-xs text-text-secondary mb-1">{label}</p>
-      <pre className="bg-background border border-border rounded-spa p-3 text-xs font-mono overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap break-words">
+      <pre className="bg-background border border-border rounded-spa p-3 text-xs font-mono overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap wrap-break-word">
         {JSON.stringify(data, null, 2)}
       </pre>
     </div>
@@ -72,7 +72,7 @@ function ExpandableRow({ log }) {
           </span>
         </td>
         <td className="px-4 py-3">
-          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-caption font-caption-normal ${badgeClass}`}>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-caption font-caption-normal ${badgeClass}`}>
             {log.action_type}
           </span>
         </td>
@@ -232,7 +232,7 @@ const AuditPanel = ({ branchId, initialRecordId = '' }) => {
               type="date"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
-              className="w-full px-3 py-2 bg-background border border-border rounded-spa text-sm font-body text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              className="w-full px-3 py-2 bg-background border border-border rounded-spa text-sm font-body text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
             />
           </div>
 
@@ -245,7 +245,7 @@ const AuditPanel = ({ branchId, initialRecordId = '' }) => {
               type="date"
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}
-              className="w-full px-3 py-2 bg-background border border-border rounded-spa text-sm font-body text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              className="w-full px-3 py-2 bg-background border border-border rounded-spa text-sm font-body text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
             />
           </div>
 
@@ -259,7 +259,7 @@ const AuditPanel = ({ branchId, initialRecordId = '' }) => {
               value={recordId}
               onChange={(e) => setRecordId(e.target.value)}
               placeholder="UUID..."
-              className="w-full px-3 py-2 bg-background border border-border rounded-spa text-sm font-body text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              className="w-full px-3 py-2 bg-background border border-border rounded-spa text-sm font-body text-text-primary placeholder:text-text-tertiary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
             />
           </div>
 
@@ -278,7 +278,7 @@ const AuditPanel = ({ branchId, initialRecordId = '' }) => {
       {/* Error */}
       {error && (
         <div className="bg-error/10 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-          <Icon name="AlertCircle" size={20} className="text-error flex-shrink-0" />
+          <Icon name="AlertCircle" size={20} className="text-error shrink-0" />
           <p className="font-body text-sm text-error">{error}</p>
         </div>
       )}

@@ -124,9 +124,9 @@ const TemplateEditorPanel = () => {
   if (loading) {
     return (
       <div className="bg-surface rounded-spa-lg border border-border p-8 animate-pulse">
-        <div className="h-4 bg-background rounded w-48 mb-4" />
+        <div className="h-4 bg-background rounded-sm w-48 mb-4" />
         <div className="space-y-3">
-          {[0, 1, 2].map((i) => <div key={i} className="h-10 bg-background rounded" />)}
+          {[0, 1, 2].map((i) => <div key={i} className="h-10 bg-background rounded-sm" />)}
         </div>
       </div>
     );
@@ -150,7 +150,7 @@ const TemplateEditorPanel = () => {
 
         {error && (
           <div className="bg-error/5 border border-error/20 rounded-spa p-3 flex items-center space-x-2">
-            <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0" />
+            <Icon name="AlertCircle" size={14} className="text-error shrink-0" />
             <p className="font-body text-xs text-error">{error}</p>
           </div>
         )}
@@ -180,7 +180,7 @@ const TemplateEditorPanel = () => {
                   type="button"
                   onClick={(e) => { e.stopPropagation(); handleDelete(t.id); }}
                   disabled={deletingId === t.id}
-                  className="p-1.5 rounded-spa hover:bg-error/10 spa-transition-fast disabled:opacity-50 flex-shrink-0"
+                  className="p-1.5 rounded-spa hover:bg-error/10 spa-transition-fast disabled:opacity-50 shrink-0"
                 >
                   <Icon name="Trash2" size={14} className="text-error" />
                 </button>
@@ -205,7 +205,7 @@ const TemplateEditorPanel = () => {
                 value={form.key}
                 onChange={(e) => setForm((prev) => ({ ...prev, key: e.target.value }))}
                 placeholder="e.g. win_back_email"
-                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
               />
             </div>
             <div>
@@ -226,7 +226,7 @@ const TemplateEditorPanel = () => {
               value={form.subject}
               onChange={(e) => setForm((prev) => ({ ...prev, subject: e.target.value }))}
               placeholder="We miss you at Bright Smile Dental!"
-              className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
             />
           </div>
 
@@ -254,7 +254,7 @@ const TemplateEditorPanel = () => {
               onChange={(e) => setForm((prev) => ({ ...prev, body: e.target.value }))}
               rows={6}
               placeholder="Hi {{customer_name}}, it's been a while..."
-              className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-y"
+              className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary resize-y"
             />
           </div>
 
@@ -263,14 +263,14 @@ const TemplateEditorPanel = () => {
               type="checkbox"
               checked={form.isActive}
               onChange={(e) => setForm((prev) => ({ ...prev, isActive: e.target.checked }))}
-              className="rounded border-border text-primary focus:ring-primary/30"
+              className="rounded-sm border-border text-primary focus:ring-primary/30"
             />
             <span className="font-body text-xs text-text-secondary">Active</span>
           </label>
 
           {formError && (
             <div className="bg-error/5 border border-error/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-              <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0 mt-0.5" />
+              <Icon name="AlertCircle" size={14} className="text-error shrink-0 mt-0.5" />
               <p className="font-body text-xs text-error">{formError}</p>
             </div>
           )}

@@ -4726,7 +4726,7 @@ export async function createBooking({
       let existingCustomer = null;
       if (orgId && (phone || email)) {
         const { data } = await supabase
-          .rpc('find_customer_for_booking', { p_org_id: orgId, p_phone: phone, p_email: email })
+          .rpc('find_customer_for_booking', { p_org_id: orgId, p_phone: phone, p_email: email, p_full_name: customerName })
           .maybeSingle();
         existingCustomer = data;
       }
@@ -8850,17 +8850,28 @@ export async function findOrCreateCustomer({ orgId, branchId, fullName, phone, e
     const normalizedGender = gender || null;
     const normalizedDob = dateOfBirth || null;
 
-    // 1. Look up an existing customer in the org by phone.
+    // 1. Look up an existing customer in the org by phone. A family shares one phone (migration-019), so there can be several:
+    //    take the member whose name matches exactly (case and spaces ignored), else the family contact, else the first.
+    const sameName = (a, b) => String(a || '').trim().replace(/\s+/g, ' ').toLowerCase() === String(b || '').trim().replace(/\s+/g, ' ').toLowerCase();
     let existing = null;
     if (normalizedPhone) {
-      const { data } = await supabase
+      const { data: rows } = await supabase
         .from('customers')
-        .select('id, full_name, phone, email, gender, date_of_birth')
+        .select('id, full_name, phone, email, gender, date_of_birth, family_id')
         .eq('org_id', orgId)
         .eq('phone', normalizedPhone)
-        .limit(1)
-        .maybeSingle();
-      existing = data;
+        .limit(20);
+      if (rows?.length) {
+        existing = rows.find((r) => sameName(r.full_name, fullName)) || null;
+        if (!existing) {
+          const familyId = rows.find((r) => r.family_id)?.family_id;
+          if (familyId) {
+            const { data: fam } = await supabase.from('families').select('contact_customer_id').eq('id', familyId).maybeSingle();
+            existing = rows.find((r) => r.id === fam?.contact_customer_id) || null;
+          }
+          existing = existing || rows[0];
+        }
+      }
     }
     if (!existing && normalizedEmail) {
       const { data } = await supabase
@@ -8878,7 +8889,8 @@ export async function findOrCreateCustomer({ orgId, branchId, fullName, phone, e
       await supabase
         .from('customers')
         .update({
-          full_name: fullName,
+          // never rename a family member to a different typed name (that would rename the family contact)
+          full_name: existing.family_id && !sameName(existing.full_name, fullName) ? existing.full_name : fullName,
           phone: normalizedPhone || existing.phone,
           email: normalizedEmail || existing.email,
           gender: normalizedGender || existing.gender,
@@ -11699,15 +11711,47 @@ async function invokeConsultationFunction(name, body) {
   return { data: null, error: consultationAiError(status, payload) };
 }
 
-export async function transcribeConsultationAudio(audioPath) {
-  const { data, error } = await invokeConsultationFunction('consultation-transcribe', { audioPath });
+/** consultationId (migration 020): lets the server check recording consent and store the whisper segments for note sources. */
+export async function transcribeConsultationAudio(audioPath, consultationId = null) {
+  const { data, error } = await invokeConsultationFunction('consultation-transcribe', consultationId ? { audioPath, consultationId } : { audioPath });
   return { text: data?.text ?? '', language: data?.language ?? null, error };
 }
 
 /** mode 'preliminary' (from transcript), 'final' (combines everything) or 'note' (structured six-section clinical note → `note`). */
+// With payload.consultationId (migration 020) the server stores the draft, its provenance and its filtered sources itself and returns
+// `provenance` ({provider, model, inputs, drafted_at}; null if nothing was stored). drafted_at stays a STRING: it goes back to consultation_sign
+// as p_expected_drafted_at and must match to the microsecond (a JS Date would cut it to milliseconds).
 export async function summarizeConsultation(payload) {
   const { data, error } = await invokeConsultationFunction('consultation-summarize', payload);
-  return { summary: data?.summary ?? '', note: data?.note ?? null, error };
+  return { summary: data?.summary ?? '', note: data?.note ?? null, provenance: data?.provenance ?? null, error };
+}
+
+// ── Migration 020 (CMD-54/55): consent and signing go through server functions; the new columns can't be written directly. ──────────
+// Each returns { data, error } with error = { code, message } (codes from the action layer: FORBIDDEN, NOT_FOUND, CONSENT_ALREADY_RECORDED,
+// UNKNOWN_SCRIPT, SIGNED_LOCKED, ALREADY_SIGNED, NOTE_EMPTY, AI_DRAFT_CHANGED, UNSIGN_NOT_ALLOWED, …).
+async function callConsultationAction(fn, args) {
+  const { data, error } = await supabase.rpc(fn, args);
+  if (error) {
+    console.error(`[API] ${fn} error:`, error.message);
+    return { data: null, error: { code: error.code || 'FAILED', message: error.message } };
+  }
+  if (!data?.ok) return { data: data?.data ?? null, error: data?.error || { code: 'FAILED', message: 'Something went wrong.' } };
+  return { data: data.data, error: null };
+}
+
+/** answer 'agreed' | 'declined'; device 'computer' | 'phone'; script = the id of the words shown (consentScripts.js). */
+export async function recordConsultationConsent(consultationId, answer, device, script) {
+  return callConsultationAction('consultation_record_consent', { p_consultation: consultationId, p_answer: answer, p_device: device, p_script: script });
+}
+
+/** expectedDraftedAt: the row's ai_drafted_at as last seen (string or null). A newer draft → AI_DRAFT_CHANGED. */
+export async function signConsultation(consultationId, expectedDraftedAt) {
+  return callConsultationAction('consultation_sign', { p_consultation: consultationId, p_expected_drafted_at: expectedDraftedAt ?? null });
+}
+
+/** The signer, within 15 minutes of signing. */
+export async function unsignConsultation(consultationId) {
+  return callConsultationAction('consultation_unsign', { p_consultation: consultationId });
 }
 
 /** kind: 'xray' | 'photo'; imagePaths from uploadConsultationFile. */
@@ -11755,8 +11799,12 @@ export async function fetchConsultationForBooking(bookingId) {
  * names. On the first completed save a short summary is also added to the
  * booking's treatment notes (only the first time, not on re-saves) so it
  * shows with the patient's other notes.
+ *
+ * Migration 020: status 'completed' now means "sign". The fields are saved with the row still a draft, then consultation_sign
+ * (server) sets completed + the signature + edited_sections. expectedDraftedAt = the ai_drafted_at the page last saw (string or null).
+ * If signing is refused, the fields are saved, the row stays a draft, and the error is returned (signError: true).
  */
-export async function saveConsultation({ booking, consultationId, fields, status }) {
+export async function saveConsultation({ booking, consultationId, fields, status, expectedDraftedAt = null }) {
   try {
     const { user, profile, error: authError } = await getAuthenticatedUser();
     if (authError) return { data: null, error: authError };
@@ -11764,7 +11812,8 @@ export async function saveConsultation({ booking, consultationId, fields, status
       return { data: null, error: { code: 'FORBIDDEN', message: 'You do not have permission to save consultations.' } };
     }
 
-    const row = { ...fields, status };
+    const signing = status === 'completed';
+    const row = { ...fields, status: signing ? 'draft' : status };
     let saved;
     if (consultationId) {
       const { data, error } = await supabase
@@ -11792,6 +11841,14 @@ export async function saveConsultation({ booking, consultationId, fields, status
         .single();
       if (error) throw error;
       saved = data;
+    }
+
+    if (signing) {
+      const { error: signError } = await signConsultation(saved.id, expectedDraftedAt);
+      if (signError) return { data: saved, error: signError, signError: true };
+      const { data: signedRow, error: readError } = await supabase.from('consultations').select('*').eq('id', saved.id).single();
+      if (readError) throw readError;
+      saved = signedRow;
     }
 
     // The treatment-note summary follows the consultation: created on the first completion and UPDATED on every later save
