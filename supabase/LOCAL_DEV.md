@@ -24,12 +24,13 @@ Shifted +1000 from Supabase defaults so this stack runs alongside bookX / other 
 ```bash
 open -a OrbStack                    # if not running
 supabase start                      # bring up the stack
-./scripts/local-db-bootstrap.sh     # schema.sql -> rls.sql -> local-only supplements -> seed.sql -> migration-*.sql -> test users
+./scripts/local-db-bootstrap.sh     # schema.sql -> rls.sql -> local-only supplements -> seed.sql -> migration-NNN-*.sql -> test users
 npm run start:local                 # app on http://localhost:4029 against the LOCAL db
 supabase stop                       # shut down
 ```
 
 Reset and reseed: `supabase db reset && ./scripts/local-db-bootstrap.sh`.
+`./scripts/local-db-bootstrap.sh --dry-run` prints the plan without touching the database; `--help` lists the options.
 `supabase status` reprints URLs/keys.
 
 ## Env switching
@@ -60,9 +61,35 @@ untouched. Fictional data only.
 ## Why a bootstrap script
 
 Schema/RLS/seed live in raw `supabase/*.sql`, not the CLI's `supabase/migrations/` convention, so
-`scripts/local-db-bootstrap.sh` replays them with `psql` (each file in one transaction). `[db.seed]` is
-disabled in `config.toml` so the CLI doesn't auto-seed an empty DB. Order is `schema.sql`, `rls.sql`,
-`scripts/local-only-supplemental-*.sql` (none yet), `seed.sql`, then `supabase/migration-NN-*.sql` in numeric order.
+`scripts/local-db-bootstrap.sh` replays them with `psql`. `[db.seed]` is disabled in `config.toml` so the CLI doesn't
+auto-seed an empty DB. Order is `schema.sql`, `rls.sql`, `scripts/local-only-supplemental-*.sql` (none yet), `seed.sql`,
+then every `supabase/migration-NNN-*.sql` present, in numeric order (so a stacked branch's 011+ files are picked up too).
+
+What the script guarantees (CMD-85):
+
+- **Local only.** The DB URL comes from `--db-url` or, without it, from `supabase status` run in the repo. Nothing else:
+  no `.env*` file is read and nothing falls back to another URL. The URL's host must be exactly `127.0.0.1` or
+  `localhost` (parsed, not a substring match); a query that sets `host`, `hostaddr` or `service` is refused and the
+  `PG*` connection variables are cleared. A refusal prints the host only, never the password.
+- **Forward files only.** `-rollback.sql` and `-preflight.sql` files are never applied (before CMD-85 the script applied
+  them right after their forward file, which undid 007, 009 and 010 and ran 008's rollback first). Two forward files with
+  the same number stop the script.
+- **Stops at the first error**, naming the file and listing what was applied before it (`ON_ERROR_STOP=1`, `psql -X`).
+  A file without its own `BEGIN`/`COMMIT` runs as one transaction; the numbered migrations manage their own.
+- **Refuses a database that already has the schema** for a full run: `supabase db reset` first, or step with `--from`.
+- Prints the files applied and the time taken.
+
+Stepping through migrations (for QC or rehearsals; the DB must already have everything before `--from`):
+
+```bash
+./scripts/local-db-bootstrap.sh --to 0                 # schema, RLS and seed only
+./scripts/local-db-bootstrap.sh --to 10                # ... plus migrations 001-010
+./scripts/local-db-bootstrap.sh --from 11 --to 16      # then only 011-016
+./scripts/local-db-bootstrap.sh --dry-run --from 17    # show what --from 17 would apply
+```
+
+Test users are created only by a full run against the stack from `supabase status` (not with `--from`, `--db-url`
+or `--no-users`), because `scripts/local-create-test-users.sh` always targets that stack.
 
 ## Known gaps
 
