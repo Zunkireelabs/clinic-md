@@ -75,8 +75,11 @@ const RecorderBar = ({
     return (
       <div className="rounded-xl border border-border bg-white px-5 py-4">
         <div className="flex items-center gap-4 flex-wrap">
-          <button type="button" onClick={onStart} disabled={busy || !consent || locked} aria-label="Record more" title={consent ? 'Record more' : `Confirm ${firstName} has agreed to be recorded`}
-            className="w-14 h-14 rounded-full bg-primary text-white grid place-items-center shrink-0 disabled:opacity-40 hover:opacity-95"><Icon name="Mic" size={22} /></button>
+          <button type="button" onClick={onStart} disabled={busy || !consent || locked} title={consent ? 'Record more' : `Confirm ${firstName} has agreed to be recorded`}
+            className="group flex flex-col items-center gap-1 shrink-0 rounded-lg touch-manipulation disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+            <span className="w-14 h-14 rounded-full bg-primary text-white grid place-items-center group-enabled:group-hover:opacity-95"><Icon name="Mic" size={22} /></span>
+            <span className="text-[12px] font-medium text-text-primary">Record more</span>
+          </button>
           <div className="min-w-0">
             <p className="text-[15px] font-medium">{audioPaths.length} recording{audioPaths.length === 1 ? '' : 's'}{durationSeconds ? ` · ${mmss(durationSeconds)}` : ''}</p>
             <p className="text-[12.5px] text-text-tertiary">{locked ? 'Press Edit note to add more' : consent ? 'Tap to record more' : `Tick that ${firstName} has agreed to record more`}</p>
@@ -96,8 +99,11 @@ const RecorderBar = ({
   return (
     <div className="rounded-xl border border-border bg-white px-5 py-4">
       <div className="flex items-start gap-4">
-        <button type="button" onClick={onStart} disabled={!consent} aria-label="Start recording" title={consent ? 'Start recording' : `Confirm ${firstName} has agreed to be recorded`}
-          className="w-14 h-14 rounded-full bg-primary text-white grid place-items-center shrink-0 disabled:opacity-40 hover:opacity-95"><Icon name="Mic" size={22} /></button>
+        <button type="button" onClick={onStart} disabled={!consent} title={consent ? 'Start recording' : `Confirm ${firstName} has agreed to be recorded`}
+            className="group flex flex-col items-center gap-1 shrink-0 rounded-lg touch-manipulation disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+            <span className="w-14 h-14 rounded-full bg-primary text-white grid place-items-center group-enabled:group-hover:opacity-95"><Icon name="Mic" size={22} /></span>
+            <span className="text-[12px] font-medium text-text-primary">Start recording</span>
+          </button>
         <div className="min-w-0">
           <p className="text-[15px] font-semibold">Record the consultation</p>
           <p className="text-[12.5px] text-text-tertiary">Uses this computer’s mic · or <button type="button" onClick={onContinueOnPhone} className="text-text-primary font-medium underline">continue on phone</button></p>
