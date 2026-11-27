@@ -26,7 +26,7 @@
         "build": "vite build",
         "serve": "vite preview",
         "test": "vitest run",
-        "test:rls": "psql \"${RLS_DB_URL:-postgresql://postgres:postgres@127.0.0.1:55322/postgres}\" -v ON_ERROR_STOP=1 -v verbose=off -f supabase/tests/tenant-isolation.sql | grep -E '^(FAIL|SUMMARY|COVERAGE)'; exit ${PIPESTATUS[0]}"
+        "test:rls": "sh scripts/test-rls.sh"
     },
     "eslintConfig": {
         "extends": [
