@@ -130,7 +130,8 @@ BEGIN
   INSERT INTO dentists (branch_id, name, gender, org_id) VALUES (a2, 'Dr A2', 'Male', oa) RETURNING id INTO d_a2;
   INSERT INTO dentists (branch_id, name, gender, org_id) VALUES (b1, 'Dr B', 'Male', ob) RETURNING id INTO d_b;
   PERFORM pg_temp.sd('dentists', 'id', d_a1::text, oa); PERFORM pg_temp.sd('dentists', 'id', d_a2::text, oa); PERFORM pg_temp.sd('dentists', 'id', d_b::text, ob);
-  IF has011 THEN UPDATE public.users SET dentist_id = d_a1 WHERE id = u_prac; END IF;   -- the practitioner is Dr A1 (migration-011)
+  -- the 'practitioner' actor is linked to Dr A1 at the start of section 3h, not here: sections 3b/3b2/3c seed their own Dr A1 practitioner
+  -- and users.dentist_id is unique.
   INSERT INTO customers (branch_id, full_name, org_id) VALUES (a1, 'Cust A1', oa) RETURNING id INTO c_a1;
   INSERT INTO customers (branch_id, full_name, org_id) VALUES (a2, 'Cust A2', oa) RETURNING id INTO c_a2;
   INSERT INTO customers (branch_id, full_name, org_id) VALUES (b1, 'Cust B', ob) RETURNING id INTO c_b;
@@ -727,7 +728,7 @@ BEGIN
 END $act$;
 
 -- HUB-BEGIN
--- ───────────────────────────── 3b2. COMMUNICATION HUB (migration-013) ─────────────────────────────
+-- ───────────────────────────── 3b3. COMMUNICATION HUB (migration-013) ─────────────────────────────
 -- Conversations, messages, consent, channel accounts and templates; the actions message.send / retry / receive and conversation.take_over / hand_back /
 -- assign / handoff, consent.record; the sender and delivery-status functions; the consent backfill. Reuses pg_temp.act_run / act_chk / act_code from the
 -- action-layer section above. Needs 011, 012 and 013, otherwise skipped. Seeds its own rows (two practitioners, a profile-holding manager, patients in
@@ -2779,13 +2780,225 @@ BEGIN
   r := pg_temp.fn_try('customer_no_staff_row', 'SELECT 1 FROM bookings');
   INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient still reads their own booking', CASE WHEN r = 'ok:1' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
   r := pg_temp.fn_try('customer_no_staff_row', 'SELECT 1 FROM voucher_types');
-  INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient still reads their org''s voucher types (table has a restrictive policy)', CASE WHEN r LIKE 'ok:%' AND r <> 'ok:0' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
+  INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient still reads their org''s voucher types (table has a restrictive policy)', CASE WHEN r LIKE 'ok:%' AND r <> 'ok:0' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r || ' (>= 1: section 3c2 adds a second voucher type to org A)');
   r := pg_temp.fn_try('customer_no_staff_row', 'SELECT 1 FROM payments');
   INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient on payments: unchanged (0 rows, no error)', CASE WHEN r = 'ok:0' THEN 'PASS' ELSE 'FAIL' END, 'got ' || r);
   r := pg_temp.fn_try('customer_no_staff_row', format('UPDATE bookings SET status = status WHERE id = %L', bk_none));
   INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient booking UPDATE not newly blocked by an error', CASE WHEN r IN ('ok:0', 'ok:1', 'denied') THEN 'PASS' ELSE 'FAIL' END, 'got ' || r || ' (same as before: patients have no UPDATE policy)');
 END $prac$;
 
+-- ───────────────────────────── 3j. CONSULTATION GROUNDWORK (migration-020, CMD-54/55) ─────────────────────────────
+-- Consent, signing and the signed-note lock, the service-role writers, retention, and the SQL twin of consultationNote.js (fixtures shared
+-- with Vitest: src/utils/noteSections.fixtures.json, read here through psql). Needs 011, 012 and 020; otherwise skipped. Runs after 3h, which
+-- links the 'practitioner' actor to Dr A1.
+-- relative path: run psql from the repo root
+\set nfix `cat src/utils/noteSections.fixtures.json`
+CREATE TEMP TABLE t_nfix AS SELECT f FROM jsonb_array_elements(:'nfix'::jsonb) f;
+GRANT SELECT ON t_nfix TO PUBLIC;
+CREATE FUNCTION pg_temp.z_chk(p_label text, p_ok boolean, p_detail text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN INSERT INTO t_res VALUES ('CONSULT', '-', p_label, CASE WHEN coalesce(p_ok, false) THEN 'PASS' ELSE 'FAIL' END, coalesce(p_detail, 'null')); END $$;
+
+DO $c20$
+DECLARE
+  oa uuid; ob uuid; bk_mine uuid; bk_none uuid; bk_col uuid; bk_b uuid; br_a uuid; br_b uuid; u_prac uuid; u_adm uuid; u_staff uuid; u_b uuid;
+  c_mine uuid; c_none uuid; c_pre uuid; c_b uuid; c_29 uuid; c_draft uuid; bk_29 uuid; bk_dr uuid; tr uuid; cu uuid; tr_b uuid; cu_b uuid; d_a1 uuid;
+  r jsonb; s text; t record; v_at text; v_seen text; n int;
+BEGIN
+  IF to_regprocedure('public.consultation_sign(uuid,timestamptz)') IS NULL OR to_regprocedure('public.get_user_dentist_id()') IS NULL
+     OR to_regclass('public.action_log') IS NULL THEN
+    INSERT INTO t_res VALUES ('CONSULT', '-', 'migration-020 checks', 'INFO', 'skipped: 020 (or 011/012) not applied');
+    RETURN;
+  END IF;
+  EXECUTE 'RESET ROLE';
+  SELECT org INTO oa FROM t_actor WHERE name = 'admin'; SELECT org INTO ob FROM t_actor WHERE name = 'admin_of_OTHER_org';
+  SELECT uid INTO u_prac FROM t_actor WHERE name = 'practitioner'; SELECT uid INTO u_adm FROM t_actor WHERE name = 'admin';
+  SELECT uid INTO u_staff FROM t_actor WHERE name = 'staff'; SELECT uid INTO u_b FROM t_actor WHERE name = 'admin_of_OTHER_org';
+  -- fresh bookings (earlier sections already hold open drafts on the shared ones; one open draft per booking): two of Dr A1's (the
+  -- practitioner's), one of nobody's, one in org B
+  SELECT v INTO bk_b FROM t_prac WHERE k = 'bk_b'; SELECT v INTO d_a1 FROM t_prac WHERE k = 'd_a1';
+  SELECT b.branch_id, b.treatment_id, b.customer_id INTO br_a, tr, cu FROM bookings b WHERE b.id = (SELECT v FROM t_prac WHERE k = 'bk_mine_bd');
+  SELECT b.branch_id, b.treatment_id, b.customer_id INTO br_b, tr_b, cu_b FROM bookings b WHERE b.id = bk_b;
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, dentist_id)
+    VALUES (br_a, tr, cu, 'Cust A1', '2031-02-21', '10:00', '10:30', '2031-02-21 10:00+00', '2031-02-21 10:30+00', 1000, 1000, d_a1) RETURNING id INTO bk_mine;
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, dentist_id)
+    VALUES (br_a, tr, cu, 'Cust A1', '2031-02-22', '10:00', '10:30', '2031-02-22 10:00+00', '2031-02-22 10:30+00', 1000, 1000, d_a1) RETURNING id INTO bk_col;
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount)
+    VALUES (br_a, tr, cu, 'Cust A1', '2031-02-23', '10:00', '10:30', '2031-02-23 10:00+00', '2031-02-23 10:30+00', 1000, 1000) RETURNING id INTO bk_none;
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount)
+    VALUES (br_b, tr_b, cu_b, 'Cust B', '2031-02-24', '10:00', '10:30', '2031-02-24 10:00+00', '2031-02-24 10:30+00', 1000, 1000) RETURNING id INTO bk_b;
+  INSERT INTO t_actor VALUES ('z_service', NULL, oa, 'service_role');
+
+  -- (0) the assumption the lock trigger rests on: in a trigger, current_user is the caller's role for a direct write and the OWNER inside a
+  --     SECURITY DEFINER function
+  CREATE TEMP TABLE t_cu (id int PRIMARY KEY, seen text); GRANT ALL ON t_cu TO PUBLIC;
+  CREATE FUNCTION pg_temp.t_cu_trg() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN NEW.seen := current_user; RETURN NEW; END $f$;
+  CREATE TRIGGER t_cu_trg BEFORE INSERT ON t_cu FOR EACH ROW EXECUTE FUNCTION pg_temp.t_cu_trg();
+  CREATE FUNCTION pg_temp.t_cu_def(p int) RETURNS void LANGUAGE sql SECURITY DEFINER AS $f$ INSERT INTO t_cu (id) VALUES (p) $f$;
+  GRANT EXECUTE ON FUNCTION pg_temp.t_cu_def(int) TO PUBLIC;
+  EXECUTE 'SET LOCAL ROLE authenticated'; INSERT INTO t_cu (id) VALUES (1); PERFORM pg_temp.t_cu_def(2); EXECUTE 'RESET ROLE';
+  EXECUTE 'SET LOCAL ROLE service_role'; INSERT INTO t_cu (id) VALUES (3); EXECUTE 'RESET ROLE';
+  SELECT string_agg(id || '=' || seen, ',' ORDER BY id) INTO v_seen FROM t_cu;
+  PERFORM pg_temp.z_chk('trigger current_user: direct = authenticated, inside a definer = the owner, service role = service_role',
+    v_seen = format('1=authenticated,2=%s,3=service_role', current_user), v_seen);
+
+  -- seed: org A drafts on the practitioner's booking and on nobody's booking, a pre-020 style completed row, org B's draft
+  INSERT INTO consultations (org_id, branch_id, booking_id, patient_name, status, final_summary, audio_paths)
+    VALUES (oa, br_a, bk_mine, 'Cust A1', 'draft', E'## Chief complaint\nPain\n\n## Plan\n- RCT 36\n- Crown', ARRAY[oa || '/' || bk_mine || '/r1.webm']) RETURNING id INTO c_mine;
+  INSERT INTO consultations (org_id, branch_id, booking_id, patient_name, status, final_summary) VALUES (oa, br_a, bk_none, 'Cust A1', 'draft', E'## Plan\n- x') RETURNING id INTO c_none;
+  INSERT INTO consultations (org_id, branch_id, booking_id, patient_name, status, final_summary) VALUES (oa, br_a, bk_col, 'Cust A1', 'completed', E'### Old\nfree text') RETURNING id INTO c_pre;
+  INSERT INTO consultations (org_id, branch_id, booking_id, patient_name, status, final_summary) VALUES (ob, br_b, bk_b, 'Cust B', 'draft', E'## Plan\n- y') RETURNING id INTO c_b;
+  PERFORM pg_temp.z_chk('new rows get note_template dental-v1 and empty segments by default',
+    (SELECT note_template = 'dental-v1' AND transcript_segments = '[]'::jsonb FROM consultations WHERE id = c_mine), NULL);
+
+  -- (1) consent: who may record it
+  FOR t IN SELECT * FROM (VALUES ('staff', c_mine, 'FORBIDDEN', 1), ('admin_viewer', c_mine, 'FORBIDDEN', 1), ('admin_of_OTHER_org', c_mine, 'NOT_FOUND', 1),
+                                 ('practitioner', c_none, 'NOT_FOUND', 1), ('practitioner_no_profile', c_mine, 'NOT_FOUND', 1),
+                                 ('admin', c_b, 'NOT_FOUND', 1), ('customer_no_staff_row', c_mine, 'FORBIDDEN', 0), ('anon', c_mine, 'raised:42501', 0)) v(actor, cid, code, logged) LOOP
+    r := pg_temp.act_run(t.actor, format('SELECT public.consultation_record_consent(%L, ''agreed'', ''computer'', ''dental-en-ne-v1'')', t.cid), t.logged);
+    PERFORM pg_temp.z_chk(format('%s cannot record consent (%s)', t.actor, t.code), pg_temp.act_code(r) = t.code, r::text);
+  END LOOP;
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_record_consent(%L, ''agreed'', ''phone'', ''free text'')', c_mine), 1);
+  PERFORM pg_temp.z_chk('a script that is not on the allow-list is refused (UNKNOWN_SCRIPT)', pg_temp.act_code(r) = 'UNKNOWN_SCRIPT', r::text);
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_record_consent(%L, ''agreed'', ''computer'', ''dental-en-ne-v1'')', c_mine), 1);
+  PERFORM pg_temp.z_chk('the practitioner records consent on their own booking', pg_temp.act_code(r) = 'ok'
+    AND (SELECT recording_consent = 'agreed' AND recording_consent_by = u_prac AND recording_consent_device = 'computer' AND recording_consent_script = 'dental-en-ne-v1' FROM consultations WHERE id = c_mine), r::text);
+  r := pg_temp.act_run('manager_2_branches', format('SELECT public.consultation_record_consent(%L, ''agreed'', ''phone'', ''dental-en-ne-v1'')', c_mine), 1);
+  PERFORM pg_temp.z_chk('the same answer again (the other device) is ok and changes nothing', pg_temp.act_code(r) = 'ok' AND (r #>> '{data,already_recorded}')::boolean
+    AND (SELECT recording_consent_device = 'computer' AND recording_consent_by = u_prac FROM consultations WHERE id = c_mine), r::text);
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_record_consent(%L, ''declined'', ''computer'', ''dental-en-ne-v1'')', c_mine), 1);
+  PERFORM pg_temp.z_chk('a second consent with another answer is refused (CONSENT_ALREADY_RECORDED)', pg_temp.act_code(r) = 'CONSENT_ALREADY_RECORDED', r::text);
+
+  -- (2) rule A: the new columns are server-only for a signed-in client, whatever the write policy allows
+  FOREACH s IN ARRAY ARRAY[format('UPDATE consultations SET signed_at = now() WHERE id = %L', c_mine), format('UPDATE consultations SET ai_draft = ''{}'' WHERE id = %L', c_mine),
+                           format('UPDATE consultations SET recording_consent = NULL, recording_consent_at = NULL WHERE id = %L', c_mine),
+                           format('UPDATE consultations SET note_sources = ''{}'' WHERE id = %L', c_mine), format('UPDATE consultations SET transcript_segments = ''[{"text":"x"}]'' WHERE id = %L', c_mine)] LOOP
+    PERFORM pg_temp.z_chk('client cannot write a server-only column: ' || left(s, 60), pg_temp.fn_try('practitioner', s) = 'denied', pg_temp.fn_try('practitioner', s));
+  END LOOP;
+  s := pg_temp.fn_try('manager_2_branches', format('INSERT INTO consultations (org_id, branch_id, booking_id, patient_name, signed_at) VALUES (%L, %L, %L, ''x'', now())', oa, br_a, bk_none));
+  PERFORM pg_temp.z_chk('client cannot insert a row that claims a signature', s IN ('denied', 'raised:23505'), s);
+  s := pg_temp.fn_try('practitioner', format('UPDATE consultations SET final_summary = final_summary WHERE id = %L', c_mine));
+  PERFORM pg_temp.z_chk('control: the practitioner still edits their unsigned note directly', s = 'ok:1', s);
+
+  -- (3) service-role writers: not callable by clients; re-check the user's org and role
+  FOREACH s IN ARRAY ARRAY[format('SELECT public.consultation_store_draft(%L, %L, ''{}'', ''openai'', ''gpt-4o'', ''{}'', NULL)', c_mine, u_prac),
+                           format('SELECT public.consultation_store_segments(%L, %L, ''x'', ''[]'')', c_mine, u_prac),
+                           'SELECT * FROM public.consultation_retention_due(5)', format('SELECT public.consultation_mark_audio_deleted(%L, ''{}'')', c_mine)] LOOP
+    PERFORM pg_temp.z_chk('admin (a client) cannot run a service-role writer: ' || left(s, 50), pg_temp.fn_try('admin', s) = 'denied', pg_temp.fn_try('admin', s));
+  END LOOP;
+  r := pg_temp.act_run('service', format('SELECT public.consultation_store_draft(%L, %L, ''{"plan":"- RCT 36"}'', ''openai'', ''gpt-4o'', ''{recording}'', ''{}'')', c_mine, u_b), 0);
+  PERFORM pg_temp.z_chk('store_draft for a user of ANOTHER org stores nothing (FORBIDDEN)', r ->> 'code' = 'FORBIDDEN' AND (SELECT ai_draft IS NULL FROM consultations WHERE id = c_mine), r::text);
+  r := pg_temp.act_run('service', format('SELECT public.consultation_store_draft(%L, %L, ''{"plan":"- RCT 36"}'', ''openai'', ''gpt-4o'', ''{recording}'', ''{}'')', c_mine, u_staff), 0);
+  PERFORM pg_temp.z_chk('store_draft for a staff (front desk) user stores nothing (FORBIDDEN)', r ->> 'code' = 'FORBIDDEN', r::text);
+  r := pg_temp.act_run('service', format('SELECT public.consultation_store_draft(%L, %L, ''{"diagnosis":"x"}'', ''openai'', ''gpt-4o'', ''{recording}'', ''{}'')', c_mine, u_prac), 0);
+  PERFORM pg_temp.z_chk('store_draft refuses a key that is not in the template', r ->> 'code' = 'INVALID_NOTE', r::text);
+  r := pg_temp.act_run('service', format('SELECT public.consultation_store_segments(%L, %L, %L, ''[{"start":0,"end":2.5,"text":"it hurts here"},{"bad":1}]'')', c_mine, u_prac, oa || '/' || bk_mine || '/r1.webm'), 0);
+  PERFORM pg_temp.z_chk('store_segments keeps the valid segments of this recording', (r ->> 'stored')::int = 1
+    AND (SELECT transcript_segments #>> '{0,text}' = 'it hurts here' FROM consultations WHERE id = c_mine), r::text);
+  r := pg_temp.act_run('service', format('SELECT public.consultation_store_segments(%L, %L, %L, ''[]'')', c_mine, u_prac, ob || '/' || bk_b || '/r9.webm'), 0);
+  PERFORM pg_temp.z_chk('store_segments refuses a recording of another booking', r ->> 'code' = 'WRONG_RECORDING', r::text);
+  r := pg_temp.act_run('service', format('SELECT public.consultation_store_draft(%L, %L, %L, ''openai'', ''gpt-4o'', ''{recording}'', ''{"plan":[{"quote":"it hurts here","start":0,"audio_path":"x"}]}'')',
+                                         c_mine, u_prac, '{"chief_complaint":"Pain","plan":"- RCT 36"}'), 0);
+  v_at := r ->> 'drafted_at';
+  PERFORM pg_temp.z_chk('store_draft stores the provenance', (r ->> 'ok')::boolean
+    AND (SELECT ai_provider = 'openai' AND ai_model = 'gpt-4o' AND ai_inputs = '{recording}' AND ai_draft ->> 'plan' = '- RCT 36' FROM consultations WHERE id = c_mine), r::text);
+
+  -- (4) sign
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_sign(%L, NULL)', c_mine), 1);
+  PERFORM pg_temp.z_chk('sign without the draft time the client saw is refused (AI_DRAFT_CHANGED)', pg_temp.act_code(r) = 'AI_DRAFT_CHANGED', r::text);
+  FOR t IN SELECT * FROM (VALUES ('staff', 'FORBIDDEN'), ('admin_viewer', 'FORBIDDEN'), ('admin_of_OTHER_org', 'NOT_FOUND')) v(actor, code) LOOP
+    r := pg_temp.act_run(t.actor, format('SELECT public.consultation_sign(%L, %L)', c_mine, v_at), 1);
+    PERFORM pg_temp.z_chk(format('%s cannot sign (%s)', t.actor, t.code), pg_temp.act_code(r) = t.code, r::text);
+  END LOOP;
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_sign(%L, %L)', c_mine, v_at), 1);
+  PERFORM pg_temp.z_chk('the practitioner signs: completed, signer, edited_sections = {plan}', pg_temp.act_code(r) = 'ok'
+    AND (SELECT status = 'completed' AND signed_by = u_prac AND signed_by_name = 'RLS practitioner A' AND edited_sections = '{plan}' FROM consultations WHERE id = c_mine), r::text);
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_sign(%L, %L)', c_mine, v_at), 1);
+  PERFORM pg_temp.z_chk('signing twice is refused (ALREADY_SIGNED)', pg_temp.act_code(r) = 'ALREADY_SIGNED', r::text);
+  PERFORM pg_temp.z_chk('no note text in action_log for consultation actions',
+    NOT EXISTS (SELECT 1 FROM action_log WHERE action LIKE 'consultation.%' AND (inputs::text LIKE '%RCT 36%' OR result::text LIKE '%RCT 36%' OR result::text LIKE '%it hurts%')), NULL);
+
+  -- (5) rule B: a signed note is locked for every role
+  FOREACH s IN ARRAY ARRAY['practitioner', 'admin', 'manager_2_branches', 'z_service'] LOOP
+    PERFORM pg_temp.z_chk(s || ' cannot change a signed note', pg_temp.fn_try(s, format('UPDATE consultations SET final_summary = ''changed'' WHERE id = %L', c_mine)) = 'denied',
+                          pg_temp.fn_try(s, format('UPDATE consultations SET final_summary = ''changed'' WHERE id = %L', c_mine)));
+  END LOOP;
+  PERFORM pg_temp.z_chk('practitioner cannot reopen a signed note by status', pg_temp.fn_try('practitioner', format('UPDATE consultations SET status = ''draft'' WHERE id = %L', c_mine)) = 'denied', NULL);
+  PERFORM pg_temp.z_chk('consent cannot be recorded on a signed note', pg_temp.act_code(pg_temp.act_run('practitioner', format('SELECT public.consultation_record_consent(%L, ''agreed'', ''computer'', ''dental-en-ne-v1'')', c_none), 1)) = 'NOT_FOUND', 'control uses c_none (not theirs)');
+  BEGIN
+    UPDATE consultations SET transcript = 'owner edit' WHERE id = c_mine;
+    PERFORM pg_temp.z_chk('the table owner (direct SQL) cannot change a signed note either', false, 'update went through');
+  EXCEPTION WHEN insufficient_privilege THEN
+    PERFORM pg_temp.z_chk('the table owner (direct SQL) cannot change a signed note either', SQLERRM LIKE 'SIGNED_LOCKED%', SQLERRM);
+  END;
+  s := pg_temp.fn_try('practitioner', format('UPDATE consultations SET additional_notes = ''private'' WHERE id = %L', c_mine));
+  PERFORM pg_temp.z_chk('private staff notes stay editable on a signed row', s = 'ok:1', s);
+  s := pg_temp.fn_try('z_service', format('UPDATE consultations SET audio_paths = audio_paths || ''{extra.webm}'' WHERE id = %L', c_mine));
+  PERFORM pg_temp.z_chk('service role cannot ADD audio to a signed row', s = 'denied', s);
+  r := pg_temp.act_run('service', format('SELECT public.consultation_store_draft(%L, %L, ''{"plan":"x"}'', ''openai'', ''gpt-4o'', ''{recording}'', NULL)', c_mine, u_prac), 0);
+  PERFORM pg_temp.z_chk('store_draft refuses a signed row', r ->> 'code' = 'SIGNED_LOCKED', r::text);
+
+  -- (6) unsign: the signer, within 15 minutes
+  FOR t IN SELECT * FROM (VALUES ('staff', 'FORBIDDEN'), ('admin_viewer', 'FORBIDDEN'), ('admin_of_OTHER_org', 'NOT_FOUND')) v(actor, code) LOOP
+    r := pg_temp.act_run(t.actor, format('SELECT public.consultation_unsign(%L)', c_mine), 1);
+    PERFORM pg_temp.z_chk(format('%s cannot unsign (%s)', t.actor, t.code), pg_temp.act_code(r) = t.code, r::text);
+  END LOOP;
+  r := pg_temp.act_run('admin', format('SELECT public.consultation_unsign(%L)', c_mine), 1);
+  PERFORM pg_temp.z_chk('another user (admin) cannot unsign', pg_temp.act_code(r) = 'UNSIGN_NOT_ALLOWED', r::text);
+  ALTER TABLE consultations DISABLE TRIGGER consultations_lock_signed;
+  UPDATE consultations SET signed_at = now() - interval '14 minutes' WHERE id = c_mine;
+  ALTER TABLE consultations ENABLE TRIGGER consultations_lock_signed;
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_unsign(%L)', c_mine), 1);
+  PERFORM pg_temp.z_chk('the signer unsigns at 14 minutes (back to draft, AI provenance kept)', pg_temp.act_code(r) = 'ok'
+    AND (SELECT signed_at IS NULL AND status = 'draft' AND ai_draft IS NOT NULL AND recording_consent = 'agreed' FROM consultations WHERE id = c_mine), r::text);
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_sign(%L, %L)', c_mine, v_at), 1);
+  ALTER TABLE consultations DISABLE TRIGGER consultations_lock_signed;
+  UPDATE consultations SET signed_at = now() - interval '16 minutes' WHERE id = c_mine;
+  ALTER TABLE consultations ENABLE TRIGGER consultations_lock_signed;
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_unsign(%L)', c_mine), 1);
+  PERFORM pg_temp.z_chk('the signer cannot unsign at 16 minutes', pg_temp.act_code(r) = 'UNSIGN_NOT_ALLOWED' AND r #>> '{data,reason}' = 'window passed', r::text);
+
+  -- (7) a pre-020 completed row (no signed_at) behaves exactly as today
+  s := pg_temp.fn_try('practitioner', format('UPDATE consultations SET final_summary = ''edited later'', status = ''draft'' WHERE id = %L', c_pre));
+  PERFORM pg_temp.z_chk('a pre-020 completed row is still editable (and can be reopened)', s = 'ok:1', s);
+
+  -- (8) retention: signed 31 days ago -> due; signed 29 days ago and a draft -> never
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount)
+    VALUES (br_a, tr, cu, 'Cust A1', '2031-03-01', '10:00', '10:30', '2031-03-01 10:00+00', '2031-03-01 10:30+00', 1000, 1000) RETURNING id INTO bk_29;
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount)
+    VALUES (br_a, tr, cu, 'Cust A1', '2031-03-02', '10:00', '10:30', '2031-03-02 10:00+00', '2031-03-02 10:30+00', 1000, 1000) RETURNING id INTO bk_dr;
+  ALTER TABLE consultations DISABLE TRIGGER consultations_lock_signed;
+  UPDATE consultations SET signed_at = now() - interval '31 days' WHERE id = c_mine;
+  INSERT INTO consultations (org_id, branch_id, booking_id, patient_name, status, final_summary, audio_paths, signed_at, signed_by)
+    VALUES (oa, br_a, bk_29, 'Cust A1', 'completed', 'n', ARRAY['a29.webm'], now() - interval '29 days', u_prac) RETURNING id INTO c_29;
+  INSERT INTO consultations (org_id, branch_id, booking_id, patient_name, status, final_summary, audio_paths, created_at)
+    VALUES (oa, br_a, bk_dr, 'Cust A1', 'draft', 'n', ARRAY['adr.webm'], now() - interval '90 days') RETURNING id INTO c_draft;
+  ALTER TABLE consultations ENABLE TRIGGER consultations_lock_signed;
+  EXECUTE 'SET LOCAL ROLE service_role';
+  SELECT count(*) FILTER (WHERE id = c_mine), count(*) FILTER (WHERE id IN (c_29, c_draft)) INTO n, v_seen FROM public.consultation_retention_due(1000);
+  EXECUTE 'RESET ROLE';
+  PERFORM pg_temp.z_chk('retention lists the 31-day row and neither the 29-day row nor the draft', n = 1 AND v_seen = '0', format('31d=%s others=%s', n, v_seen));
+  r := pg_temp.act_run('service', format('SELECT public.consultation_mark_audio_deleted(%L, ''{a29.webm}'')', c_29), 0);
+  PERFORM pg_temp.z_chk('mark_audio_deleted refuses the 29-day row (NOT_DUE)', r ->> 'code' = 'NOT_DUE', r::text);
+  r := pg_temp.act_run('service', format('SELECT public.consultation_mark_audio_deleted(%L, ''{adr.webm}'')', c_draft), 0);
+  PERFORM pg_temp.z_chk('mark_audio_deleted refuses a draft (NOT_DUE)', r ->> 'code' = 'NOT_DUE', r::text);
+  r := pg_temp.act_run('service', format('SELECT public.consultation_mark_audio_deleted(%L, %L)', c_mine, ARRAY[oa || '/' || bk_mine || '/r1.webm']), 0);
+  PERFORM pg_temp.z_chk('mark_audio_deleted clears the 31-day row; transcript, note and sources stay', (r ->> 'ok')::boolean
+    AND (SELECT audio_paths = '{}' AND audio_deleted_at IS NOT NULL AND final_summary LIKE '%RCT 36%' AND transcript_segments <> '[]'::jsonb AND note_sources ? 'plan' FROM consultations WHERE id = c_mine), r::text);
+
+  -- (9) the SQL twin of consultationNote.js, on the fixtures Vitest also reads
+  FOR t IN SELECT f FROM t_nfix LOOP
+    PERFORM pg_temp.z_chk('note sections (SQL twin): ' || (t.f ->> 'name'),
+      public._consult_note_sections(t.f ->> 'md', 'dental-v1') IS NOT DISTINCT FROM CASE WHEN t.f -> 'sections' = 'null'::jsonb THEN NULL ELSE t.f -> 'sections' END,
+      coalesce(public._consult_note_sections(t.f ->> 'md', 'dental-v1')::text, 'null'));
+    PERFORM pg_temp.z_chk('edited sections (SQL twin): ' || (t.f ->> 'name'),
+      to_jsonb(public._consult_edited_sections(t.f ->> 'md', CASE WHEN t.f -> 'ai' = 'null'::jsonb THEN NULL ELSE t.f -> 'ai' END, 'dental-v1')) IS NOT DISTINCT FROM
+        CASE WHEN t.f -> 'edited' = 'null'::jsonb THEN NULL ELSE t.f -> 'edited' END,
+      coalesce(to_jsonb(public._consult_edited_sections(t.f ->> 'md', CASE WHEN t.f -> 'ai' = 'null'::jsonb THEN NULL ELSE t.f -> 'ai' END, 'dental-v1'))::text, 'null'));
+  END LOOP;
+  PERFORM pg_temp.z_chk('an unknown template gives NULL, never a guess', public._consult_note_sections(E'## Plan\nx', 'dental-v9') IS NULL, NULL);
+
+  DELETE FROM t_actor WHERE name = 'z_service';
+END $c20$;
 -- ───────────────────────────── 3i. PATIENTS DATA LAYER (migration-019, CMD-100) ─────────────────────────────
 -- Front desk wall (database + storage), org-scoped reads, patient number, families and the shared phone, alerts, forms (anon token), archive,
 -- erase, merge, consent. Needs 011, 012, 013 and 019, otherwise skipped. Seeds its own rows; the final ROLLBACK removes them.
@@ -2843,7 +3056,8 @@ BEGIN
   FOR rr IN SELECT p.proname, has_function_privilege('anon', p.oid, 'EXECUTE') AS anon_x FROM pg_proc p
              WHERE p.pronamespace = 'public'::regnamespace AND p.prosecdef AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
                AND p.prosrc ~* '(treatment_notes|consultations|doctor_notes|xray_analysis|transcript)'
-               AND p.proname NOT IN ('patient_clinical_index', 'act_patient_erase', 'act_undo', 'consultation_remote_topic_ok') LOOP
+               AND p.proname NOT IN ('patient_clinical_index', 'act_patient_erase', 'act_undo', 'consultation_remote_topic_ok',
+                                    'consultation_record_consent', 'consultation_sign', 'consultation_unsign') LOOP   -- 020: gated by _consult_gate (front desk = FORBIDDEN, see section 3j)
     PERFORM pg_temp.act_chk('WALL (RPC): ' || rr.proname || ' touches clinical tables and is not on the reviewed list', false, 'review it and add it to the list, or remove access');
   END LOOP;
   PERFORM pg_temp.act_chk('WALL (views): no public view reads the clinical tables', NOT EXISTS (SELECT 1 FROM information_schema.views WHERE table_schema = 'public' AND view_definition ~* '(treatment_notes|consultations)'), 'views');

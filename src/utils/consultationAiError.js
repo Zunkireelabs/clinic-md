@@ -7,6 +7,9 @@ export function consultationAiError(status, payload) {
   if (payload?.error === 'AI_QUOTA') return { code: 'AI_QUOTA', message: 'Too many AI requests this hour. Try again later, or write the note yourself.' };
   if (payload?.error === 'AI_DISABLED') return { code: 'AI_DISABLED', message: "AI consultation isn't switched on for this clinic. You can still type the transcript and notes." };
   if (payload?.error === 'FORBIDDEN') return { code: 'FORBIDDEN', message: 'Your account cannot use consultation AI.' };
+  if (payload?.error === 'FORBIDDEN_ROLE') return { code: 'FORBIDDEN_ROLE', message: 'Front desk accounts can’t use the consultation scribe. Ask a dentist or manager.' };
+  if (payload?.error === 'CONSENT_REQUIRED') return { code: 'CONSENT_REQUIRED', message: 'Record that the patient agreed to the recording first. Your recording is saved.' };
+  if (payload?.error === 'UNKNOWN_TEMPLATE') return { code: 'UNKNOWN_TEMPLATE', message: "This note's format isn't supported by the AI yet. Write the note yourself." };
   if (payload?.error === 'FILE_TOO_LARGE') return { code: 'FILE_TOO_LARGE', message: 'That recording is too large to transcribe. Record in shorter parts.' };
   // 404 / no response at all: the function isn't deployed or the network is down
   if (status === 404 || status == null || status === 0 || status === 502 || status === 503 || status === 504) {

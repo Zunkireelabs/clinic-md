@@ -26,6 +26,7 @@
         "build": "vite build",
         "serve": "vite preview",
         "test": "vitest run",
+        "test:edge": "node --test supabase/tests/edge/consultation-edge.edge.mjs",
         "test:rls": "sh scripts/test-rls.sh"
     },
     "eslintConfig": {

@@ -74,7 +74,7 @@ const ConsultationCard = ({ c, focus, customerName }) => {
   const ref = useRef(null);
   const [open, setOpen] = useState(!!focus);
   useEffect(() => { if (focus) { setOpen(true); ref.current?.scrollIntoView({ block: 'center' }); } }, [focus]);
-  const s = parseSummarySections(c.final_summary || c.preliminary_summary || '');
+  const s = parseSummarySections(c.final_summary || c.preliminary_summary || '', c.note_template);
   const structured = s.complaint || s.history || s.findings || s.diagnosis || s.plan || s.followup;
   const report = () => generateConsultationPdf(rowToReportData({ ...c, patient_name: c.patient_name || customerName }));
   return (

@@ -1,5 +1,6 @@
 import { encodeBase64 } from 'https://deno.land/std@0.224.0/encoding/base64.ts';
 import { authenticate, corsHeaders, json, keyMissing, providerFailed } from '../_shared/consultation.ts';
+import { openaiUrl } from '../_shared/openai.ts';
 
 const PROMPTS: Record<string, string> = {
   xray: `You are assisting a dentist reviewing dental radiographs (X-rays). Describe visible findings: bone levels, caries, periapical areas, restorations, impacted or missing teeth, and anything abnormal. Be factual, note image-quality limits, and do not state a definitive diagnosis; the dentist makes the final assessment.`,
@@ -7,11 +8,11 @@ const PROMPTS: Record<string, string> = {
 };
 
 // Body: { kind: 'xray' | 'photo', imagePaths: string[] } (paths in the
-// private consultation-images bucket).
+// private consultation-images bucket). Role 'staff' (front desk) is refused with FORBIDDEN_ROLE (migration 020, CMD-54).
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
-  const auth = await authenticate(req, { requireStaff: true, requireAiEnabled: true, quota: true });
+  const auth = await authenticate(req, { requireStaff: true, clinicalRole: true, requireAiEnabled: true, quota: true });
   if (auth instanceof Response) return auth;
 
   const apiKey = Deno.env.get('OPENAI_API_KEY');
@@ -31,7 +32,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     content.push({ type: 'image_url', image_url: { url: `data:${mime};base64,${encodeBase64(new Uint8Array(await blob.arrayBuffer()))}` } });
   }
 
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  const res = await fetch(openaiUrl('/chat/completions', Deno.env.get('OPENAI_BASE_URL')), {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
