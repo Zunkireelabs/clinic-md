@@ -7,6 +7,7 @@ import { useMenuNav } from './useMenuNav';
 const ROLE_LABELS = {
   admin: 'Admin',
   admin_viewer: 'Admin (view only)',
+  practitioner: 'Practitioner',
   manager: 'Manager',
   staff: 'Staff',
 };

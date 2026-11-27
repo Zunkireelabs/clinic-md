@@ -61,6 +61,7 @@ USERS=(
   "admin@clinicmd.test|Local Admin|admin"
   "manager@clinicmd.test|Local Branch Manager|manager"
   "staff@clinicmd.test|Local Front Desk|staff"
+  "practitioner@clinicmd.test|Local Practitioner|practitioner"   # CMD-79: needs migration-011; linked to the first seeded dentist of the branch
 )
 
 # A saved password is reused only if it has the shape this script generates (letters and digits, 12+); anything else gets a new one,
@@ -143,12 +144,30 @@ for entry in "${USERS[@]}"; do
   fi
   is_uuid "$uid" || die "no user id for $email from the API"
 
+  # The practitioner role and users.dentist_id come from migration-011; without it, skip this login instead of failing the run.
+  if [ "$role" = "practitioner" ] && [ "$("${PSQL[@]}" -Atc "select count(*) from pg_enum e join pg_type t on t.oid = e.enumtypid where t.typname = 'user_role' and e.enumlabel = 'practitioner'")" = "0" ]; then
+    echo "==> Skipping $email: migration-011 is not applied on this database" >&2
+    continue
+  fi
+
   "${PSQL[@]}" <<SQL
 insert into public.users (id, email, full_name, role, branch_id, org_id, is_active)
 values ('$uid', '$email', '$name', '$role', '$BRANCH_ID', '$ORG_ID', true)
 on conflict (id) do update set role = excluded.role, branch_id = excluded.branch_id, org_id = excluded.org_id, is_active = true;
 insert into public.user_branches (user_id, branch_id) values ('$uid', '$BRANCH_ID') on conflict do nothing;
 SQL
+
+  if [ "$role" = "practitioner" ]; then
+    # link to the first seeded dentist of the branch that no other login is linked to (one profile, one login)
+    "${PSQL[@]}" <<SQL
+update public.users set dentist_id = (
+  select d.id from public.dentists d
+  where d.branch_id = '$BRANCH_ID' and d.org_id = '$ORG_ID'
+    and (not exists (select 1 from public.users u where u.dentist_id = d.id and u.id <> '$uid'))
+  order by d.display_order, d.name limit 1)
+where id = '$uid';
+SQL
+  fi
   echo "| $email | $role | \`$pw\` |" >> "$TMP"
   echo "  $email ($role) ready"
 done

@@ -68,6 +68,9 @@ import CheckBookingPanel from '../branch-staff-dashboard/components/CheckBooking
 import { AIAssistantPanel } from '../../components/ui/AIAssistant';
 import { useAIAssistant } from '../../contexts/AIAssistantContext';
 
+// CMD-79: the only ?view= values a practitioner can reach.
+const PRACTITIONER_VIEWS = ['calendar', 'customers'];
+
 const BranchManagerDashboard = () => {
   const { profile, user } = useAuth();
   const { branchId, branchName, isOverall } = useBranch();
@@ -77,7 +80,13 @@ const BranchManagerDashboard = () => {
   const [searchParams] = useSearchParams();
 
   const [period, setPeriod] = useState(() => ({ key: 'daily', from: getTodayISO(), to: getTodayISO() }));
-  const viewMode = searchParams.get('view') || 'dashboard';
+  // practitioner (CMD-79) sees Calendar and Patients only: any other ?view= (Dashboard, Reports, Settings, Payroll, packages...) falls back
+  // to the Calendar, and the URL is rewritten below. The data behind those views is also blocked by RLS; this keeps the screens out of reach.
+  const isPractitioner = profile?.role === 'practitioner';
+  const requestedView = searchParams.get('view');
+  const viewMode = isPractitioner
+    ? (PRACTITIONER_VIEWS.includes(requestedView) ? requestedView : 'calendar')
+    : (requestedView || 'dashboard');
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newBookingNotification, setNewBookingNotification] = useState(null);
@@ -209,6 +218,10 @@ const BranchManagerDashboard = () => {
 
     return () => { supabase.removeChannel(channel); };
   }, [branchId, isOverall, loadData]);
+
+  useEffect(() => {
+    if (isPractitioner && !PRACTITIONER_VIEWS.includes(requestedView)) navigate('?view=calendar', { replace: true });
+  }, [isPractitioner, requestedView, navigate]);
 
   // Overall is read-only: redirect away from booking-creation / per-branch write views.
   useEffect(() => {

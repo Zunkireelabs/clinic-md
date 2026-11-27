@@ -45,6 +45,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
   const userName = profile?.full_name || propName || 'Staff Member';
   const branchName = contextBranchName || profile?.branches?.name || propBranch || 'Main Branch';
   const isManagerOrAdmin = ['manager', 'admin', 'admin_viewer'].includes(userRole);
+  const isPractitioner = userRole === 'practitioner'; // CMD-79: same shell as managers, but the nav is Calendar + Patients only
 
   // Pending discount-approval count for the badge on "Dashboard".
   // Only approvers (manager/admin) can receive requests; re-check on branch
@@ -73,7 +74,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
   const orgSlug = urlOrgSlug || profile?.organizations?.slug;
 
   // Base path for navigation - uses org-scoped URL if available
-  const basePath = orgSlug ? `/${orgSlug}/dashboard` : (isManagerOrAdmin ? '/branch-manager-dashboard' : '/branch-staff-dashboard');
+  const basePath = orgSlug ? `/${orgSlug}/dashboard` : (isManagerOrAdmin || isPractitioner ? '/branch-manager-dashboard' : '/branch-staff-dashboard');
 
   const handleLogout = async () => {
     await signOut();
@@ -85,7 +86,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
 
   // The current `?view=`; the bare dashboard URL is the landing view: the dashboard for managers/admins, the calendar for staff.
   const onDashboard = location.pathname === basePath;
-  const currentView = onDashboard ? (new URLSearchParams(location.search).get('view') || (userRole === 'staff' ? 'calendar' : 'dashboard')) : null;
+  const currentView = onDashboard ? (new URLSearchParams(location.search).get('view') || (userRole === 'staff' || isPractitioner ? 'calendar' : 'dashboard')) : null;
   const isItemActive = (item) => currentView !== null && isNavItemActive(item, currentView);
 
   // New Booking is no longer a nav item (it is a tab under Bookings); the mobile FAB remains.
@@ -96,7 +97,7 @@ const StaffSidebar = ({ userRole: propRole, userName: propName, branchName: prop
     ...sections.flatMap((sec) => sec.items.map((item) => ({ ...item, groupLabel: sec.label }))),
     ...footer.map((item) => ({ ...item, groupLabel: null, isFooter: true })),
   ].map((item) => ({ ...item, path: navPath(item, basePath) }));
-  const primaryIds = ['dashboard', 'calendar', 'bookings', isManagerOrAdmin ? 'customers' : null].filter(Boolean);
+  const primaryIds = ['dashboard', 'calendar', 'bookings', isManagerOrAdmin || isPractitioner ? 'customers' : null].filter(Boolean);
   const mobilePrimaryItems = primaryIds.map((id) => flatItems.find((i) => i.id === id)).filter(Boolean);
   const mobileOverflowItems = flatItems.filter((i) => !primaryIds.includes(i.id));
 
