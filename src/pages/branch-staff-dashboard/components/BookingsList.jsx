@@ -7,6 +7,7 @@ import StatusLegend from '../../../components/ui/StatusLegend';
 import { fetchBookingById } from '../../../services/api';
 import { transformBooking } from '../../../services/bookingTransformers';
 import { useAiConsultationEnabled } from '../../../hooks/useAiConsultationEnabled';
+import { canOpenConsultation } from '../../../utils/consultationLoadError';
 
 const DATE_RANGE_LABELS = {
   today: "Today's Appointments",
@@ -113,7 +114,7 @@ const BookingsList = ({ bookings, dentists = [], onStatusUpdate, onAssignDentist
         )}
         {booking.status === 'in-progress' && (
           <>
-            {aiConsultationOn && userRole !== 'admin_viewer' && orgSlug && (
+            {aiConsultationOn && canOpenConsultation(userRole) && orgSlug && (
               <Button
                 variant="default"
                 size={buttonSize}
