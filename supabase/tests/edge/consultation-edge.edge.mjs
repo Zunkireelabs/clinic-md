@@ -15,11 +15,9 @@ const CRON = process.env.CRON_BEARER_TOKEN || 'test-cron-token';
 if (!/^http:\/\/127\.0\.0\.1:/.test(API)) throw new Error('LOCAL ONLY: API_URL must be http://127.0.0.1:<port>');
 if (!ANON || !SERVICE) throw new Error('ANON_KEY and SERVICE_ROLE_KEY are required');
 
-const ORG_A = '00000000-0000-0000-0000-000000000001';
-const BR_A = '00000000-0000-0000-0000-000000000101';
-const ORG_B = '00000000-0000-0000-0000-0000000000b1';
-const BR_B = '00000000-0000-0000-0000-0000000000b2';
 const RUN = randomUUID().slice(0, 8);
+// Own tenants, created in before() and removed in after(): the suite needs nothing from seed.sql or earlier test runs.
+const ORG_A = randomUUID(); const BR_A = randomUUID(); const ORG_B = randomUUID(); const BR_B = randomUUID(); const TREATMENT_A = randomUUID();
 
 const psql = (sql) => execFileSync('psql', ['-h', '127.0.0.1', '-p', '55322', '-U', 'postgres', '-d', 'postgres', '-At', '-v', 'ON_ERROR_STOP=1', '-c', sql],
   { env: { ...process.env, PGPASSWORD: process.env.PGPASSWORD || 'postgres' }, encoding: 'utf8' }).trim();
@@ -33,7 +31,6 @@ const rpc = (name, token, args) => fetch(`${API}/rest/v1/rpc/${name}`, { method:
 
 const made = { users: [], consultations: [], bookings: [], objects: [] };
 const tok = {};
-let orgBAiWas;
 
 async function makeUser(label, role, org, branch) {
   const email = `edge-${RUN}-${label}@example.test`;
@@ -49,13 +46,10 @@ async function makeUser(label, role, org, branch) {
   return id;
 }
 
-// a booking copied from an existing one in the branch, so every NOT NULL column is filled
 function makeBooking(org, branch) {
   const id = randomUUID();
-  const src = psql(`SELECT id FROM public.bookings WHERE branch_id = '${branch}' LIMIT 1`);
-  assert.ok(src, `no booking to copy in branch ${branch}`);
-  const cols = psql(`SELECT string_agg(quote_ident(column_name), ',') FROM information_schema.columns WHERE table_schema='public' AND table_name='bookings' AND column_name NOT IN ('id', 'booking_number') AND is_generated='NEVER'`);
-  psql(`INSERT INTO public.bookings (id, booking_number, ${cols}) SELECT '${id}', 'EDGE-${RUN}-${id.slice(0, 6)}', ${cols} FROM public.bookings WHERE id = '${src}'`);
+  psql(`INSERT INTO public.bookings (id, booking_number, branch_id, treatment_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount)
+        VALUES ('${id}', 'EDGE-${RUN}-${id.slice(0, 6)}', '${branch}', '${TREATMENT_A}', 'Edge Patient', current_date, '10:00', '10:30', now(), now() + interval '30 minutes', 0, 0)`);
   made.bookings.push(id);
   return id;
 }
@@ -80,8 +74,11 @@ const row = (id) => JSON.parse(psql(`SELECT row_to_json(c) FROM public.consultat
 const ctx = {};
 before(async () => {
   assert.equal(psql(`SELECT to_regproc('public.consultation_sign') IS NOT NULL`), 't', 'migration 020 is not applied to the local DB');
-  orgBAiWas = psql(`SELECT ai_consultation_enabled FROM public.organizations WHERE id = '${ORG_B}'`);
-  psql(`UPDATE public.organizations SET ai_consultation_enabled = true WHERE id = '${ORG_B}'`);
+  for (const [org, br, tag] of [[ORG_A, BR_A, 'a'], [ORG_B, BR_B, 'b']]) {
+    psql(`INSERT INTO public.organizations (id, name, code, slug, ai_consultation_enabled) VALUES ('${org}', 'Edge ${tag} ${RUN}', 'E${tag}${RUN}', 'edge-${tag}-${RUN}', true)`);
+    psql(`INSERT INTO public.branches (id, org_id, name) VALUES ('${br}', '${org}', 'Edge branch ${tag}')`);
+  }
+  psql(`INSERT INTO public.treatments (id, org_id, name, duration_minutes, price_npr) VALUES ('${TREATMENT_A}', '${ORG_A}', 'Edge treatment', 30, 0)`);
   await makeUser('staffA', 'staff', ORG_A, BR_A);
   await makeUser('mgrA', 'manager', ORG_A, BR_A);
   await makeUser('adminB', 'admin', ORG_B, BR_B);
@@ -106,7 +103,9 @@ after(async () => {
       await admin(`/auth/v1/admin/users/${u}`, { method: 'DELETE' });
     }
   } finally {
-    if (orgBAiWas) psql(`UPDATE public.organizations SET ai_consultation_enabled = ${orgBAiWas === 't'} WHERE id = '${ORG_B}'`);
+    // deleting an org cascades to what was made under it; users/consultations/bookings above are already gone
+    psql(`DELETE FROM public.treatments WHERE id = '${TREATMENT_A}'`);
+    for (const org of [ORG_A, ORG_B]) psql(`DELETE FROM public.organizations WHERE id = '${org}'`);
   }
 });
 
