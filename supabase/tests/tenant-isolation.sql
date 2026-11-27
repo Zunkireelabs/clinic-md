@@ -1298,6 +1298,174 @@ BEGIN
     CASE WHEN pg_temp.fn_try('admin', format('SELECT phone_pairing_create(%L, ''x'', ''y'', ''verify'', now())', ua)) = 'denied' THEN 'PASS' ELSE 'FAIL' END, 'service_role only');
 END $ai$;
 
+-- ───────────────────────────── 3c. MONEY FUNCTION GUARD (migration-014, CMD-83) ─────────────────────────────
+-- SECURITY DEFINER money functions skip RLS, so each must refuse roles that may not touch money. practitioner: no money at all;
+-- admin_viewer: money reads only. Needs 011 (practitioner) and 014; otherwise skipped. Seeds its own rows (rolled back with the script).
+CREATE FUNCTION pg_temp.m_val(p_actor text, p_sql text) RETURNS text LANGUAGE plpgsql AS $$
+DECLARE a record; claims text; res text;
+BEGIN
+  SELECT * INTO a FROM t_actor WHERE name = p_actor;
+  claims := CASE WHEN a.uid IS NULL THEN '{"role":"anon"}' ELSE json_build_object('sub', a.uid, 'role', 'authenticated')::text END;
+  BEGIN
+    EXECUTE format('SET LOCAL ROLE %I', a.db_role);
+    PERFORM set_config('request.jwt.claims', claims, true);
+    EXECUTE p_sql INTO res;
+    res := 'ok:' || coalesce(res, 'NULL');
+  EXCEPTION WHEN OTHERS THEN res := CASE WHEN SQLSTATE = '42501' THEN 'denied' ELSE 'raised:' || SQLSTATE END;
+  END;
+  EXECUTE 'RESET ROLE';
+  RETURN res;
+END $$;
+CREATE FUNCTION pg_temp.m_chk(p_label text, p_ok boolean, p_detail text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO t_res VALUES ('MONEY', '-', p_label, CASE WHEN COALESCE(p_ok, false) THEN 'PASS' ELSE 'FAIL' END, p_detail);
+  IF NOT COALESCE(p_ok, false) THEN RAISE NOTICE 'FAILED CHECK: % -- %', p_label, left(p_detail, 300); END IF;
+END $$;
+
+DO $money$
+DECLARE
+  oa uuid; ob uuid; a1 uuid; tr uuid; cu uuid; cu2 uuid; cu3 uuid; d1 uuid; u_staff uuid; u_adm uuid; sfx text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+  u_prac uuid := gen_random_uuid(); bk uuid; bk2 uuid; bk_b uuid; tier uuid; vt uuid; ref uuid; ref2 uuid; r jsonb; v text; z uuid := gen_random_uuid();
+  t record; w record; cnt int; bad text;
+BEGIN
+  IF to_regprocedure('public.can_write_money()') IS NULL OR to_regprocedure('public.is_my_booking_row(uuid,uuid)') IS NULL THEN
+    INSERT INTO t_res VALUES ('MONEY', '-', 'migration-011/014 checks', 'INFO', 'skipped: can_write_money() (014) or the practitioner role (011) not present');
+    RETURN;
+  END IF;
+  SELECT org, uid INTO oa, u_staff FROM t_actor WHERE name = 'staff'; SELECT uid INTO u_adm FROM t_actor WHERE name = 'admin';
+  SELECT org INTO ob FROM t_actor WHERE name = 'admin_of_OTHER_org';
+  SELECT s.pk::uuid INTO a1 FROM t_seed s JOIN branches b ON b.id = s.pk::uuid WHERE s.tbl = 'branches' AND s.org = oa AND b.name = 'A1';
+  SELECT s.pk::uuid INTO tr FROM t_seed s WHERE s.tbl = 'treatments' AND s.org = oa LIMIT 1;
+  SELECT s.pk::uuid INTO cu FROM t_seed s JOIN customers c ON c.id = s.pk::uuid WHERE s.tbl = 'customers' AND s.org = oa AND c.branch_id = a1 LIMIT 1;
+  SELECT d.id INTO d1 FROM dentists d JOIN t_seed s ON s.tbl = 'dentists' AND s.pk = d.id::text WHERE d.branch_id = a1 AND d.name = 'Dr A1';
+  SELECT s.pk::uuid INTO bk_b FROM t_seed s WHERE s.tbl = 'bookings' AND s.org = ob LIMIT 1;
+
+  INSERT INTO auth.users (id, instance_id, aud, role, email, created_at, updated_at) VALUES (u_prac, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-mprac-' || sfx || '@test.invalid', now(), now());
+  INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES (u_prac, 'rls-mprac-' || sfx || '@test.invalid', 'RLS money practitioner', 'practitioner', a1, oa, true, d1);
+  INSERT INTO t_actor VALUES ('money_practitioner', u_prac, oa, 'authenticated');
+  INSERT INTO customers (branch_id, full_name, org_id) VALUES (a1, 'Referred Cust', oa) RETURNING id INTO cu2;
+
+  -- 1. helpers: allow-lists, and not executable by anon
+  PERFORM pg_temp.m_chk('can_read_money: staff, admin, admin_viewer yes; practitioner no',
+    pg_temp.m_val('staff', 'SELECT can_read_money()') = 'ok:true' AND pg_temp.m_val('admin', 'SELECT can_read_money()') = 'ok:true'
+    AND pg_temp.m_val('admin_viewer', 'SELECT can_read_money()') = 'ok:true' AND pg_temp.m_val('money_practitioner', 'SELECT can_read_money()') = 'ok:false', 'allow-list');
+  PERFORM pg_temp.m_chk('can_write_money: staff, manager, admin yes; admin_viewer and practitioner no',
+    pg_temp.m_val('staff', 'SELECT can_write_money()') = 'ok:true' AND pg_temp.m_val('manager_2_branches', 'SELECT can_write_money()') = 'ok:true'
+    AND pg_temp.m_val('admin', 'SELECT can_write_money()') = 'ok:true' AND pg_temp.m_val('admin_viewer', 'SELECT can_write_money()') = 'ok:false'
+    AND pg_temp.m_val('money_practitioner', 'SELECT can_write_money()') = 'ok:false', 'allow-list');
+  PERFORM pg_temp.m_chk('can_*_money: customer with no staff row gets false (unknown role = false)',
+    pg_temp.m_val('customer_no_staff_row', 'SELECT can_read_money()') = 'ok:false' AND pg_temp.m_val('customer_no_staff_row', 'SELECT can_write_money()') = 'ok:false', 'no role');
+  PERFORM pg_temp.m_chk('can_read_money / can_write_money are not executable by anon',
+    pg_temp.m_val('anon', 'SELECT can_read_money()') = 'denied' AND pg_temp.m_val('anon', 'SELECT can_write_money()') = 'denied', 'anon');
+
+  -- 2. every guarded WRITE function is refused for practitioner and admin_viewer, and not refused by the guard for staff
+  FOR t IN SELECT * FROM (VALUES
+    ('record_membership_payment',            format('SELECT record_membership_payment(%L, 10, NULL)', z)),
+    ('record_voucher_wallet_payment',        format('SELECT record_voucher_wallet_payment(%L, %L, 10, NULL)', z, z)),
+    ('record_voucher_wallet_payment_pooled', format('SELECT record_voucher_wallet_payment_pooled(%L, 10, NULL)', z)),
+    ('record_referral_wallet_payment',       format('SELECT record_referral_wallet_payment(%L, 10, NULL)', z)),
+    ('redeem_referral_voucher',              format('SELECT redeem_referral_voucher(%L, %L)', z, z)),
+    ('record_customer_referral (7 args)',    format('SELECT record_customer_referral(%L, %L, %L, NULL::text, NULL::text, NULL::numeric, NULL::uuid)', z, z, z))
+  ) x(label, q) LOOP
+    PERFORM pg_temp.m_chk('write ' || t.label || ': practitioner refused', pg_temp.m_val('money_practitioner', t.q) = 'denied', pg_temp.m_val('money_practitioner', t.q));
+    PERFORM pg_temp.m_chk('write ' || t.label || ': admin_viewer refused', pg_temp.m_val('admin_viewer', t.q) = 'denied', pg_temp.m_val('admin_viewer', t.q));
+    v := pg_temp.m_val('staff', t.q);
+    PERFORM pg_temp.m_chk('write ' || t.label || ': staff is past the guard (fails later on the dummy ids, not with 42501)', v LIKE 'raised:%' AND v <> 'denied', v);
+  END LOOP;
+
+  -- the 4- and 6-argument overloads cannot be called unambiguously with dummy ids (Postgres sees 42725 between the defaulted overloads), so check their bodies
+  PERFORM pg_temp.m_chk('write record_customer_referral (' || o.nargs || ' args): body starts with the can_write_money() guard',
+    pg_get_functiondef(o.oid) ~ 'BEGIN\s+IF NOT public\.can_write_money\(\) THEN', pg_get_functiondef(o.oid))
+    FROM (SELECT oid, pronargs AS nargs FROM pg_proc WHERE proname = 'record_customer_referral' AND pronamespace = 'public'::regnamespace) o;
+
+  -- 3. READ functions: practitioner gets nothing; admin_viewer and staff still read. Seed rows so "reads work" is a real signal.
+  INSERT INTO membership_tiers (org_id, name, code_prefix, advance_amount) VALUES (oa, 'Money tier ' || sfx, 'MT', 100) RETURNING id INTO tier;
+  INSERT INTO memberships (org_id, customer_id, tier_id) VALUES (oa, cu, tier);
+  INSERT INTO voucher_types (org_id, name, code_prefix) VALUES (oa, 'Money vt ' || sfx, 'MV') RETURNING id INTO vt;
+  INSERT INTO vouchers (org_id, branch_id, customer_id, voucher_type_id, voucher_code, guest_name, actual_price, total_amount_issued, issued_date, expiry_date)
+    VALUES (oa, a1, cu, vt, 'MV-' || sfx, 'Money Guest', 100, 100, current_date, current_date + 30);
+  UPDATE users SET pin = '1234' WHERE id = u_adm;
+  INSERT INTO customer_referrals (org_id, referring_customer_id, referred_customer_id, booking_id, reward_status, reward_type, requested_reward_amount)
+    SELECT oa, cu, cu2, b.id, 'pending', 'wallet', 50 FROM bookings b WHERE b.customer_id = cu LIMIT 1 RETURNING id INTO ref;
+  FOR t IN SELECT * FROM (VALUES
+    ('list_membership_status_for_org', format('SELECT count(*)::text FROM list_membership_status_for_org(%L)', cu)),
+    ('list_vouchers_for_customer',     format('SELECT count(*)::text FROM list_vouchers_for_customer(%L)', cu)),
+    ('search_vouchers_for_payment',    format('SELECT count(*)::text FROM search_vouchers_for_payment(%L)', 'MV-' || sfx)),
+    ('list_discount_approvers',        'SELECT count(*)::text FROM list_discount_approvers()')
+  ) x(label, q) LOOP
+    v := pg_temp.m_val('money_practitioner', t.q);
+    PERFORM pg_temp.m_chk('read ' || t.label || ': practitioner gets no rows', v = 'ok:0', v);
+    v := pg_temp.m_val('admin_viewer', t.q);
+    PERFORM pg_temp.m_chk('read ' || t.label || ': admin_viewer still reads', v LIKE 'ok:%' AND v <> 'ok:0', v);
+    v := pg_temp.m_val('staff', t.q);
+    PERFORM pg_temp.m_chk('read ' || t.label || ': staff still reads', v LIKE 'ok:%' AND v <> 'ok:0', v);
+  END LOOP;
+  INSERT INTO customer_referral_credits (org_id, referral_id, customer_id, amount) VALUES (oa, ref, cu, 25);
+  PERFORM pg_temp.m_chk('read get_referral_credit_balance: practitioner NULL, admin_viewer and staff 25',
+    pg_temp.m_val('money_practitioner', format('SELECT get_referral_credit_balance(%L)', cu)) = 'ok:NULL'
+    AND pg_temp.m_val('admin_viewer', format('SELECT get_referral_credit_balance(%L)', cu)) = 'ok:25.00'
+    AND pg_temp.m_val('staff', format('SELECT get_referral_credit_balance(%L)', cu)) = 'ok:25.00', 'balance');
+  DELETE FROM customer_referral_credits WHERE referral_id = ref;
+  DELETE FROM customer_referrals WHERE id = ref;
+
+  -- 4. referral credit: the public name is a guarded wrapper; the body is internal. Complete a paid booking with a pending referral.
+  PERFORM pg_temp.m_chk('internal _credit_pending_referral_for_booking: not executable by anon or authenticated',
+    NOT has_function_privilege('anon', 'public._credit_pending_referral_for_booking(uuid)', 'execute')
+    AND NOT has_function_privilege('authenticated', 'public._credit_pending_referral_for_booking(uuid)', 'execute')
+    AND pg_temp.m_val('staff', format('SELECT _credit_pending_referral_for_booking(%L)', z)) = 'denied', 'internal');
+  -- (a) a practitioner completes their own paid booking -> the referrer is credited (through act_booking_set_status)
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status, dentist_id, payment_status)
+    VALUES (a1, tr, cu2, 'Referred Cust', '2031-04-01', '10:00', '10:30', '2031-04-01 10:00+00', '2031-04-01 10:30+00', 1000, 1000, 'In-Progress', d1, 'paid') RETURNING id INTO bk;
+  INSERT INTO booking_dentists (booking_id, dentist_id) VALUES (bk, d1);
+  INSERT INTO customer_referrals (org_id, referring_customer_id, referred_customer_id, booking_id, reward_status, reward_type, requested_reward_amount)
+    VALUES (oa, cu, cu2, bk, 'pending', 'wallet', 50) RETURNING id INTO ref;
+  r := pg_temp.act_run('money_practitioner', format('SELECT public.act_booking_set_status(%L, ''Completed'')', bk));
+  PERFORM pg_temp.m_chk('practitioner completes a paid booking with a pending referral: the credit happens',
+    pg_temp.act_code(r) = 'ok' AND (SELECT reward_status FROM customer_referrals WHERE id = ref) = 'credited'
+    AND (SELECT amount FROM customer_referral_credits WHERE referral_id = ref) = 50, 'got ' || coalesce(r::text, 'null'));
+  -- (b) the service role (an agent) completes one -> the credit happens
+  INSERT INTO customers (branch_id, full_name, org_id) VALUES (a1, 'Referred Cust 3', oa) RETURNING id INTO cu3;
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, status, dentist_id, payment_status)
+    VALUES (a1, tr, cu3, 'Referred Cust 3', '2031-04-02', '10:00', '10:30', '2031-04-02 10:00+00', '2031-04-02 10:30+00', 1000, 1000, 'In-Progress', d1, 'paid') RETURNING id INTO bk2;
+  INSERT INTO customer_referrals (org_id, referring_customer_id, referred_customer_id, booking_id, reward_status, reward_type, requested_reward_amount)
+    VALUES (oa, cu, cu3, bk2, 'pending', 'wallet', 50) RETURNING id INTO ref2;
+  -- today an agent cannot set Completed at all (act_booking_set_status refuses it), so this path never reaches the credit; check that, then
+  -- check the internal function itself works without a signed-in user (auth.uid() NULL) for any future agent / rule caller
+  r := pg_temp.act_run('service', format('SELECT public.act_booking_set_status(%L, ''Completed'', NULL, %L::jsonb)', bk2, jsonb_build_object('actor_kind', 'agent', 'agent', 'follow_up', 'org_id', oa)));
+  PERFORM pg_temp.m_chk('service role (agent) cannot complete a booking (FORBIDDEN): booking and referral untouched',
+    pg_temp.act_code(r) = 'FORBIDDEN' AND (SELECT status FROM bookings WHERE id = bk2) = 'In-Progress' AND (SELECT reward_status FROM customer_referrals WHERE id = ref2) = 'pending', 'got ' || coalesce(r::text, 'null'));
+  UPDATE bookings SET status = 'Completed' WHERE id = bk2;
+  EXECUTE 'RESET ROLE';
+  PERFORM set_config('request.jwt.claims', '', true);
+  PERFORM public._credit_pending_referral_for_booking(bk2);
+  PERFORM pg_temp.m_chk('internal credit function works with no signed-in user (auth.uid() NULL): the credit happens',
+    (SELECT reward_status FROM customer_referrals WHERE id = ref2) = 'credited' AND (SELECT amount FROM customer_referral_credits WHERE referral_id = ref2) = 50
+    AND (SELECT credited_by FROM customer_referrals WHERE id = ref2) IS NULL, 'internal');
+  -- (c) another org's user calling the public wrapper is a no-op; the referral stays pending (reset the first referral; the booking is Completed and paid)
+  DELETE FROM customer_referral_credits WHERE referral_id = ref;
+  UPDATE customer_referrals SET reward_status = 'pending', reward_amount = NULL, credited_at = NULL, credited_by = NULL WHERE id = ref;
+  v := pg_temp.m_val('admin_of_OTHER_org', format('SELECT credit_pending_referral_for_booking(%L)', bk));
+  PERFORM pg_temp.m_chk('another org''s admin calling credit_pending_referral_for_booking: no-op, referral still pending',
+    v = 'ok:NULL' AND (SELECT reward_status FROM customer_referrals WHERE id = ref) = 'pending'
+    AND NOT EXISTS (SELECT 1 FROM customer_referral_credits WHERE referral_id = ref), v);
+  -- (d) admin_viewer gets no credit trigger; a same-org staff call still credits
+  v := pg_temp.m_val('admin_viewer', format('SELECT credit_pending_referral_for_booking(%L)', bk));
+  PERFORM pg_temp.m_chk('admin_viewer calling credit_pending_referral_for_booking: no-op', v = 'ok:NULL' AND (SELECT reward_status FROM customer_referrals WHERE id = ref) = 'pending', v);
+  v := pg_temp.m_val('staff', format('SELECT credit_pending_referral_for_booking(%L)', bk));
+  PERFORM pg_temp.m_chk('staff calling credit_pending_referral_for_booking (booking Completed and paid): credits',
+    v LIKE 'ok:%' AND v <> 'ok:NULL' AND (SELECT reward_status FROM customer_referrals WHERE id = ref) = 'credited', v);
+
+  -- 5. role coverage: no SECURITY DEFINER function executable by authenticated that reads a money table lacks a role check
+  SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.oid::regprocedure::text) INTO bad
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.prosecdef AND p.prokind = 'f' AND has_function_privilege('authenticated', p.oid, 'execute')
+    AND pg_get_functiondef(p.oid) ~* '\m(memberships|membership_transactions|membership_tiers|vouchers|voucher_claims|voucher_types|packages|customer_packages|payments|payroll[a-z_]*|commission[a-z_]*|expenses|customer_referral_credits|customer_referral_debits|customer_referrals|reward_catalog)\M'
+    AND pg_get_functiondef(p.oid) !~* '(not in \(|in \(''|can_(read|write)_money|is_platform_admin|is distinct from ''(admin|manager|staff)|_act_resolve|_hub_scope)'
+    -- named exceptions: anon-executable booking-flow function, tracked in CMD-44 (not fixed by CMD-83)
+    AND p.oid::regprocedure::text <> 'public_record_customer_referral(text,uuid,uuid,uuid)';
+  PERFORM pg_temp.m_chk('role coverage: every authenticated-executable definer function reading a money table has a role check', bad IS NULL, coalesce(bad, 'none'));
+END $money$;
+
 -- COVERAGE: RLS tables that this test does not seed (static checks above still apply)
 INSERT INTO t_res
 SELECT 'COVERAGE', '-', c.relname, 'INFO', 'not seeded: dynamic matrix skipped (static policy checks apply)'
