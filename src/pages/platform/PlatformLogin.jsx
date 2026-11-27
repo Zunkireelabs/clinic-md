@@ -29,13 +29,13 @@ const PlatformLogin = () => {
         <h1 className="font-heading font-heading-semibold text-lg text-text-primary">Platform Admin</h1>
         {error && <p className="font-body text-sm text-error">{error}</p>}
         <div className="space-y-1">
-          <label className="font-body text-sm text-text-secondary">Email</label>
+          <label className="inline-block font-body text-sm text-text-secondary">Email</label>
           <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
             data-ph-mask
             className="w-full border border-border rounded-spa px-3 py-2 font-body text-sm" />
         </div>
         <div className="space-y-1">
-          <label className="font-body text-sm text-text-secondary">Password</label>
+          <label className="inline-block font-body text-sm text-text-secondary">Password</label>
           <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
             data-ph-mask
             className="w-full border border-border rounded-spa px-3 py-2 font-body text-sm" />

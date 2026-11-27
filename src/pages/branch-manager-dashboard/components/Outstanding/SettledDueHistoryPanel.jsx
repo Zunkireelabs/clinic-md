@@ -129,7 +129,7 @@ const SettledDueHistoryPanel = ({ branchId }) => {
         {filtered.length > 0 && (
           <button
             onClick={handleExportCSV}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-spa border border-border bg-surface font-body font-body-medium text-sm text-text-secondary hover:bg-background spa-transition-fast flex-shrink-0"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-spa border border-border bg-surface font-body font-body-medium text-sm text-text-secondary hover:bg-background spa-transition-fast shrink-0"
           >
             <Icon name="Download" size={16} />
             <span>Export CSV</span>
@@ -208,7 +208,7 @@ const SettledDueHistoryPanel = ({ branchId }) => {
                         {r.paymentModes.map((m) => (
                           <span
                             key={m}
-                            className="inline-flex items-center px-2 py-0.5 rounded text-xs font-caption bg-success/10 text-success"
+                            className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-caption bg-success/10 text-success"
                           >
                             {humanizePaymentMethod(m)}
                           </span>

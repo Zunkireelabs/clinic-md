@@ -14,7 +14,7 @@ const ConfirmDialog = ({
   const trimmedReason = reason.trim();
 
   return (
-    <div className="fixed inset-0 bg-text-primary/50 backdrop-blur-sm z-modal-overlay flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-text-primary/50 backdrop-blur-xs z-modal-overlay flex items-center justify-center p-4">
       <div className="bg-surface rounded-spa-lg spa-shadow-modal w-full max-w-md animate-fade-in">
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div className="flex items-center space-x-3">
@@ -47,7 +47,7 @@ const ConfirmDialog = ({
               onChange={(e) => setReason(e.target.value)}
               rows={3}
               placeholder="Explain why..."
-              className="w-full px-3 py-2 border border-border rounded-spa font-body font-body-normal text-sm text-text-primary bg-surface focus:outline-none focus:ring-2 focus:ring-primary/40"
+              className="w-full px-3 py-2 border border-border rounded-spa font-body font-body-normal text-sm text-text-primary bg-surface focus:outline-hidden focus:ring-2 focus:ring-primary/40"
               disabled={isSubmitting}
               autoFocus
             />

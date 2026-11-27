@@ -226,7 +226,7 @@ const CustomerReferralsReportPanel = ({ branchId }) => {
                                   {r.bookingStatus ? ` · ${r.bookingStatus}` : ''}
                                 </span>
                               </div>
-                              <div className="flex items-center gap-3 flex-shrink-0">
+                              <div className="flex items-center gap-3 shrink-0">
                                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${STATUS_STYLES[r.rewardStatus] || STATUS_STYLES.pending}`}>
                                   {r.rewardStatus}
                                 </span>

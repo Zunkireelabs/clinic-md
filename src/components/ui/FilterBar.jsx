@@ -60,7 +60,7 @@ const FilterBar = ({
       {hasActiveFilters && onClear && (
         <button
           onClick={onClear}
-          className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+          className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-sm transition-colors"
           title="Clear filters"
         >
           <Icon name="X" size={16} />
@@ -77,7 +77,7 @@ const FilterBar = ({
   // Mobile preset dropdown — declared once so it can render either in the
   // search row (when a top row exists) or in the filter row (when it doesn't).
   const mobilePresetDropdown = presets.length > 0 && (
-    <div className="lg:hidden w-[160px] flex-shrink-0">
+    <div className="lg:hidden w-[160px] shrink-0">
       <CustomSelect
         size="sm"
         value={presetMobileValue}
@@ -120,7 +120,7 @@ const FilterBar = ({
                 placeholder={search.placeholder || 'Search...'}
                 value={search.value}
                 onChange={(e) => search.onChange(e.target.value)}
-                className={`w-full h-9 pl-9 text-sm border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary ${search.value ? 'pr-9' : 'pr-3'}`}
+                className={`w-full h-9 pl-9 text-sm border border-gray-200 rounded-md bg-white focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary ${search.value ? 'pr-9' : 'pr-3'}`}
                 aria-label={search.placeholder || 'Search'}
               />
               {search.value && (
@@ -179,7 +179,7 @@ const FilterBar = ({
                 value={dateRange.from}
                 max={dateRange.max}
                 onChange={(e) => dateRange.onFromChange(e.target.value)}
-                className="h-9 px-1.5 sm:px-2 text-xs sm:text-sm border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary min-w-0 flex-shrink"
+                className="h-9 px-1.5 sm:px-2 text-xs sm:text-sm border border-gray-200 rounded-md bg-white focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary min-w-0 shrink"
               />
               <span className="hidden sm:inline text-xs text-gray-400">to</span>
               <span className="sm:hidden text-xs text-gray-400">–</span>
@@ -188,7 +188,7 @@ const FilterBar = ({
                 value={dateRange.to}
                 max={dateRange.max}
                 onChange={(e) => dateRange.onToChange(e.target.value)}
-                className="h-9 px-1.5 sm:px-2 text-xs sm:text-sm border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary min-w-0 flex-shrink"
+                className="h-9 px-1.5 sm:px-2 text-xs sm:text-sm border border-gray-200 rounded-md bg-white focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary min-w-0 shrink"
               />
               {dateRange.onApply && (
                 <button

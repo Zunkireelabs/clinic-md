@@ -109,7 +109,7 @@ const ReferralWalletPanel = ({ branchId }) => {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="bg-surface rounded-spa-lg border border-border p-4">
           <div className="flex items-center space-x-2 mb-2">
-            <div className="w-6 h-6 rounded flex items-center justify-center bg-primary/10">
+            <div className="w-6 h-6 rounded-sm flex items-center justify-center bg-primary/10">
               <Icon name="ArrowDownToLine" size={14} className="text-primary" />
             </div>
             <span className="font-caption font-caption-normal text-[11px] text-text-tertiary uppercase tracking-wide">Total Granted</span>
@@ -118,7 +118,7 @@ const ReferralWalletPanel = ({ branchId }) => {
         </div>
         <div className="bg-surface rounded-spa-lg border border-border p-4">
           <div className="flex items-center space-x-2 mb-2">
-            <div className="w-6 h-6 rounded flex items-center justify-center bg-warning/10">
+            <div className="w-6 h-6 rounded-sm flex items-center justify-center bg-warning/10">
               <Icon name="ArrowUpFromLine" size={14} className="text-warning" />
             </div>
             <span className="font-caption font-caption-normal text-[11px] text-text-tertiary uppercase tracking-wide">Total Used</span>
@@ -127,7 +127,7 @@ const ReferralWalletPanel = ({ branchId }) => {
         </div>
         <div className="bg-primary/5 rounded-spa-lg border border-primary/20 p-4">
           <div className="flex items-center space-x-2 mb-2">
-            <div className="w-6 h-6 rounded flex items-center justify-center bg-primary/15">
+            <div className="w-6 h-6 rounded-sm flex items-center justify-center bg-primary/15">
               <Icon name="Wallet" size={14} className="text-primary" />
             </div>
             <span className="font-caption font-caption-normal text-[11px] text-primary uppercase tracking-wide">Remaining</span>

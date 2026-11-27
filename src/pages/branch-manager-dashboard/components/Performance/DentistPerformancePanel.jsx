@@ -17,7 +17,7 @@ function ScoreBadge({ score }) {
   return (
     <div className="flex items-center space-x-2">
       <span className="font-data font-data-medium text-sm text-text-primary">{score}</span>
-      <span className={`inline-flex items-center px-2 py-0.5 rounded font-caption font-caption-medium text-[11px] ${tier.color}`}>
+      <span className={`inline-flex items-center px-2 py-0.5 rounded-sm font-caption font-caption-medium text-[11px] ${tier.color}`}>
         {tier.label}
       </span>
     </div>
@@ -139,10 +139,10 @@ const DentistPerformancePanel = ({ branchId }) => {
     return (
       <div className="space-y-4">
         <div className="bg-surface rounded-spa-lg border border-border p-6 animate-pulse">
-          <div className="h-5 bg-background rounded w-48 mb-4" />
+          <div className="h-5 bg-background rounded-sm w-48 mb-4" />
           <div className="space-y-3">
             {[0, 1, 2, 3].map(i => (
-              <div key={i} className="h-12 bg-background rounded" />
+              <div key={i} className="h-12 bg-background rounded-sm" />
             ))}
           </div>
         </div>
@@ -154,7 +154,7 @@ const DentistPerformancePanel = ({ branchId }) => {
   if (error) {
     return (
       <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
         <p className="font-body text-sm text-error">{error}</p>
         <button onClick={loadData} className="ml-auto font-body font-body-medium text-sm text-error underline">
           Retry
@@ -178,7 +178,7 @@ const DentistPerformancePanel = ({ branchId }) => {
         {dentists.length > 0 && (
           <button
             onClick={handleExportCSV}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-spa border border-border bg-surface font-body font-body-medium text-sm text-text-secondary hover:bg-background spa-transition-fast flex-shrink-0"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-spa border border-border bg-surface font-body font-body-medium text-sm text-text-secondary hover:bg-background spa-transition-fast shrink-0"
           >
             <Icon name="Download" size={16} />
             <span>Export CSV</span>
@@ -270,11 +270,11 @@ const DentistPerformancePanel = ({ branchId }) => {
                       {/* Dentist */}
                       <td className="px-4 py-3">
                         <div className="flex items-center space-x-2 min-w-0">
-                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                             <Icon name="User" size={14} className="text-primary" />
                           </div>
                           <span className="font-body font-body-medium text-sm text-text-primary truncate">{t.dentistName}</span>
-                          <Icon name="ChevronRight" size={14} className="text-text-tertiary ml-auto flex-shrink-0" />
+                          <Icon name="ChevronRight" size={14} className="text-text-tertiary ml-auto shrink-0" />
                         </div>
                       </td>
 
@@ -332,16 +332,16 @@ const DentistPerformancePanel = ({ branchId }) => {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full font-data font-data-medium text-xs flex-shrink-0 ${
+                      <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full font-data font-data-medium text-xs shrink-0 ${
                         rank <= 3 ? 'bg-accent/10 text-accent' : 'bg-background text-text-tertiary'
                       }`}>
                         {rank}
                       </span>
-                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                         <Icon name="User" size={14} className="text-primary" />
                       </div>
                       <span className="font-body font-body-medium text-sm text-text-primary truncate">{t.dentistName}</span>
-                      <Icon name="ChevronRight" size={14} className="text-text-tertiary flex-shrink-0" />
+                      <Icon name="ChevronRight" size={14} className="text-text-tertiary shrink-0" />
                     </div>
                     <ScoreBadge score={t.performanceScore} />
                   </div>

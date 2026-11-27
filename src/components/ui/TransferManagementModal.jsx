@@ -353,9 +353,9 @@ const TransferManagementModal = ({ variant = 'modal', dentistId, dentistName, cu
     return (
       <PanelShell variant={variant} title={`Manage transfer · ${dentistName}`} onClose={onClose} hideFooter>
         <div className="px-5 py-5 animate-pulse space-y-3">
-          <div className="h-5 bg-background rounded w-40" />
-          <div className="h-10 bg-background rounded" />
-          <div className="h-10 bg-background rounded" />
+          <div className="h-5 bg-background rounded-sm w-40" />
+          <div className="h-10 bg-background rounded-sm" />
+          <div className="h-10 bg-background rounded-sm" />
         </div>
       </PanelShell>
     );
@@ -390,7 +390,7 @@ const TransferManagementModal = ({ variant = 'modal', dentistId, dentistName, cu
             }
           }}
           disabled={reverting}
-          className="w-4 h-4 rounded border-border text-primary focus:ring-primary/30 cursor-pointer"
+          className="w-4 h-4 rounded-sm border-border text-primary focus:ring-primary/30 cursor-pointer"
         />
         <span className="font-body font-body-medium text-[13px] text-text-primary">
           {originView ? 'They already returned at a specific past time' : 'Or pick a specific return time'}

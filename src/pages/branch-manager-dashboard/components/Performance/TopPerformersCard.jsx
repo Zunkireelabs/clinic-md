@@ -41,14 +41,14 @@ const TopPerformersCard = ({ branchId, period }) => {
   if (loading) {
     return (
       <div className="bg-white rounded-lg p-6 border border-gray-200 animate-pulse">
-        <div className="h-5 bg-gray-100 rounded w-40 mb-4" />
+        <div className="h-5 bg-gray-100 rounded-sm w-40 mb-4" />
         <div className="space-y-4">
           {[0, 1, 2].map(i => (
             <div key={i} className="flex items-center space-x-3">
               <div className="w-10 h-10 rounded-full bg-gray-100" />
               <div className="flex-1 space-y-2">
-                <div className="h-3 bg-gray-100 rounded w-24" />
-                <div className="h-2 bg-gray-100 rounded w-32" />
+                <div className="h-3 bg-gray-100 rounded-sm w-24" />
+                <div className="h-2 bg-gray-100 rounded-sm w-32" />
               </div>
             </div>
           ))}
@@ -108,7 +108,7 @@ const TopPerformersCard = ({ branchId, period }) => {
                     <span className="text-sm font-medium text-gray-900 truncate">
                       {t.dentistName}
                     </span>
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${tier.color}`}>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-sm text-[11px] font-medium ${tier.color}`}>
                       {t.performanceScore}
                     </span>
                   </div>

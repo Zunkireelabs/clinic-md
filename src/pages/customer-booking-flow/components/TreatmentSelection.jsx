@@ -137,7 +137,7 @@ const TreatmentSelection = ({ selectedTreatment, onTreatmentSelect, selectedBran
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search treatments..."
-                className="w-full pl-10 pr-10 py-2.5 rounded-spa-lg border border-border bg-surface font-body font-body-normal text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                className="w-full pl-10 pr-10 py-2.5 rounded-spa-lg border border-border bg-surface font-body font-body-normal text-sm text-text-primary placeholder:text-text-secondary focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary"
               />
               {searchQuery && (
                 <button
@@ -199,17 +199,17 @@ const TreatmentSelection = ({ selectedTreatment, onTreatmentSelect, selectedBran
                 </div>
                 <div className="absolute top-4 left-4 flex flex-col space-y-2">
                   {treatment.popularity && (
-                    <span className="inline-flex items-center px-2 py-1 rounded text-xs font-caption font-caption-normal bg-accent text-accent-foreground">
+                    <span className="inline-flex items-center px-2 py-1 rounded-sm text-xs font-caption font-caption-normal bg-accent text-accent-foreground">
                       {treatment.popularity}
                     </span>
                   )}
                   {treatment.specialty && (
-                    <span className="inline-flex items-center px-2 py-1 rounded text-xs font-caption font-caption-normal bg-primary text-primary-foreground">
+                    <span className="inline-flex items-center px-2 py-1 rounded-sm text-xs font-caption font-caption-normal bg-primary text-primary-foreground">
                       {treatment.specialty}
                     </span>
                   )}
                 </div>
-                <div className="absolute top-4 right-4 bg-surface/90 backdrop-blur-sm rounded-spa px-3 py-1">
+                <div className="absolute top-4 right-4 bg-surface/90 backdrop-blur-xs rounded-spa px-3 py-1">
                   <span className="font-heading font-heading-semibold text-lg text-text-primary">
                     {formatPrice(treatment.price)}
                   </span>
@@ -229,7 +229,7 @@ const TreatmentSelection = ({ selectedTreatment, onTreatmentSelect, selectedBran
                           {treatment.duration}
                         </span>
                       </div>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-caption font-caption-normal bg-background text-text-secondary">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-caption font-caption-normal bg-background text-text-secondary">
                         {treatment.category}
                       </span>
                     </div>
@@ -255,7 +255,7 @@ const TreatmentSelection = ({ selectedTreatment, onTreatmentSelect, selectedBran
                     {treatment.benefits.map((benefit) => (
                       <span
                         key={benefit}
-                        className="inline-flex items-center px-2 py-0.5 rounded text-xs font-caption font-caption-normal bg-success/10 text-success"
+                        className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-caption font-caption-normal bg-success/10 text-success"
                       >
                         {benefit}
                       </span>

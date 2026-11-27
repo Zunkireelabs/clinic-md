@@ -226,7 +226,7 @@ const EnrollMemberModal = ({ onClose, onEnrolled, onRenewExisting }) => {
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Full name"
                     disabled={!!lockedCustomer}
-                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:bg-background"
+                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:bg-background"
                   />
                   <div className="flex">
                     <CountryCodeSelect value={customerCountryCode} onChange={setCustomerCountryCode} disabled={!!lockedCustomer} />
@@ -236,7 +236,7 @@ const EnrollMemberModal = ({ onClose, onEnrolled, onRenewExisting }) => {
                       onChange={(e) => setPhone(e.target.value)}
                       placeholder="98XXXXXXXX"
                       disabled={!!lockedCustomer}
-                      className="flex-1 min-w-0 h-10 px-3 text-sm border border-border rounded-r-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:bg-background"
+                      className="flex-1 min-w-0 h-10 px-3 text-sm border border-border rounded-r-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:bg-background"
                     />
                   </div>
                 </div>
@@ -260,14 +260,14 @@ const EnrollMemberModal = ({ onClose, onEnrolled, onRenewExisting }) => {
                             <button
                               type="button"
                               onClick={() => onRenewExisting(pm.id)}
-                              className="flex-shrink-0 inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 spa-transition-fast"
+                              className="shrink-0 inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 spa-transition-fast"
                             >
                               <Icon name={pm.status === 'lapsed' ? 'CalendarClock' : 'RefreshCw'} size={10} />
                               <span className="font-mono tracking-wide">{pm.membershipNumber}</span>
                               <span>· {pm.status === 'lapsed' ? 'card lapsed, extend instead' : 'card depleted, renew instead'}</span>
                             </button>
                           ) : pm && (
-                            <span className="flex-shrink-0 inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-800">
+                            <span className="shrink-0 inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-800">
                               <Icon name="AlertTriangle" size={10} />
                               <span className="font-mono tracking-wide">{pm.membershipNumber}</span>
                               <span>· already a member</span>
@@ -289,7 +289,7 @@ const EnrollMemberModal = ({ onClose, onEnrolled, onRenewExisting }) => {
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
                     disabled={!!lockedCustomer}
-                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:bg-background"
+                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:bg-background"
                   />
                 </div>
 
@@ -322,7 +322,7 @@ const EnrollMemberModal = ({ onClose, onEnrolled, onRenewExisting }) => {
                   value={dateOfBirth}
                   onChange={(e) => setDateOfBirth(e.target.value)}
                   disabled={!!lockedCustomer}
-                  className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:bg-background"
+                  className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:bg-background"
                 />
                 <p className="mt-1 font-caption text-[11px] text-text-tertiary">
                   Used for the birthday perk — leave blank if not given.
@@ -331,7 +331,7 @@ const EnrollMemberModal = ({ onClose, onEnrolled, onRenewExisting }) => {
 
               {!lockedCustomer && exactPhoneMatch && (
                 <div className="bg-amber-50 border border-amber-200 rounded-spa px-3 py-2 flex items-start space-x-2">
-                  <Icon name="Info" size={14} className="text-amber-700 flex-shrink-0 mt-0.5" />
+                  <Icon name="Info" size={14} className="text-amber-700 shrink-0 mt-0.5" />
                   <p className="font-body text-xs text-amber-900">
                     A customer with this phone already exists: <span className="font-body-medium">{exactPhoneMatch.full_name}</span>.
                     <button type="button" onClick={() => handlePickExisting(exactPhoneMatch)} className="ml-1 underline">Use this customer</button>
@@ -377,7 +377,7 @@ const EnrollMemberModal = ({ onClose, onEnrolled, onRenewExisting }) => {
                   value={deposit}
                   onChange={(e) => setDeposit(e.target.value)}
                   placeholder="e.g. 50000"
-                  className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 />
               </div>
               <div>
@@ -415,13 +415,13 @@ const EnrollMemberModal = ({ onClose, onEnrolled, onRenewExisting }) => {
                 onChange={(e) => setNotes(e.target.value)}
                 rows={2}
                 placeholder="Anything to remember for this member..."
-                className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
+                className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
               />
             </div>
 
             {error && (
               <div className="bg-error/5 border border-error/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-                <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0 mt-0.5" />
+                <Icon name="AlertCircle" size={14} className="text-error shrink-0 mt-0.5" />
                 <p className="font-body text-xs text-error">{error}</p>
               </div>
             )}

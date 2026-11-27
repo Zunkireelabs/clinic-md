@@ -182,7 +182,7 @@ const TiersModal = ({ orgId, onClose, onChanged }) => {
                   value={form.name}
                   onChange={(e) => updateForm({ name: e.target.value })}
                   placeholder="e.g., Gold Club"
-                  className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 />
               </div>
               <div>
@@ -193,7 +193,7 @@ const TiersModal = ({ orgId, onClose, onChanged }) => {
                   onChange={(e) => updateForm({ codePrefix: e.target.value.toUpperCase() })}
                   placeholder="e.g., GLD"
                   maxLength={5}
-                  className="w-full h-10 px-3 text-sm font-data font-data-medium tracking-wide border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  className="w-full h-10 px-3 text-sm font-data font-data-medium tracking-wide border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 />
               </div>
             </div>
@@ -208,7 +208,7 @@ const TiersModal = ({ orgId, onClose, onChanged }) => {
                   value={form.advanceAmount}
                   onChange={(e) => updateForm({ advanceAmount: e.target.value })}
                   placeholder="e.g., 75000"
-                  className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 />
               </div>
               <div>
@@ -218,7 +218,7 @@ const TiersModal = ({ orgId, onClose, onChanged }) => {
                   min="1"
                   value={form.validityDays}
                   onChange={(e) => updateForm({ validityDays: e.target.value })}
-                  className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 />
               </div>
             </div>
@@ -231,13 +231,13 @@ const TiersModal = ({ orgId, onClose, onChanged }) => {
                 value={form.displayOrder}
                 onChange={(e) => updateForm({ displayOrder: e.target.value })}
                 placeholder={`Leave blank to append (will be ${tiers.length + 1})`}
-                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
               />
             </div>
 
             {formError && (
               <div className="bg-error/5 border border-error/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-                <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0 mt-0.5" />
+                <Icon name="AlertCircle" size={14} className="text-error shrink-0 mt-0.5" />
                 <p className="font-body text-xs text-error">{formError}</p>
               </div>
             )}

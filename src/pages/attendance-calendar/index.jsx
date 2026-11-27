@@ -486,7 +486,7 @@ const AttendanceCalendarPage = ({ embedded = false }) => {
       {/* ── Top bar (standalone only; embedded in Reports the layout provides the title) ── */}
       {embedded ? (
         <div className="mb-3 flex justify-end">
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             {data && staffRows.length > 0 && !isAggregated && !tooManyDays && (
               <>
                 <button
@@ -519,17 +519,17 @@ const AttendanceCalendarPage = ({ embedded = false }) => {
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={() => navigate(`/${orgSlug}/dashboard?view=attendance-report`)}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-spa border border-border bg-background text-sm font-body-medium text-text-secondary hover:bg-border/30 spa-transition-fast flex-shrink-0"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-spa border border-border bg-background text-sm font-body-medium text-text-secondary hover:bg-border/30 spa-transition-fast shrink-0"
           >
             <Icon name="ArrowLeft" size={15} />
             Back
           </button>
 
-          <div className="h-5 w-px bg-border flex-shrink-0" />
+          <div className="h-5 w-px bg-border shrink-0" />
 
           <div className="min-w-0">
             <h1 className="font-heading font-heading-semibold text-lg text-text-primary leading-tight flex items-center gap-2">
-              <Icon name="CalendarDays" size={18} className="text-primary flex-shrink-0" />
+              <Icon name="CalendarDays" size={18} className="text-primary shrink-0" />
               Attendance Calendar
             </h1>
             {branchName && (
@@ -538,7 +538,7 @@ const AttendanceCalendarPage = ({ embedded = false }) => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           {data && staffRows.length > 0 && !isAggregated && !tooManyDays && (
             <>
               <button
@@ -598,7 +598,7 @@ const AttendanceCalendarPage = ({ embedded = false }) => {
             value={customFrom}
             max={today}
             onChange={(e) => setCustomFrom(e.target.value)}
-            className="rounded-spa border border-border bg-surface px-2 py-1 font-data text-xs text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="rounded-spa border border-border bg-surface px-2 py-1 font-data text-xs text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/50"
           />
           <span className="font-body text-xs text-text-tertiary">to</span>
           <input
@@ -606,7 +606,7 @@ const AttendanceCalendarPage = ({ embedded = false }) => {
             value={customTo}
             max={today}
             onChange={(e) => setCustomTo(e.target.value)}
-            className="rounded-spa border border-border bg-surface px-2 py-1 font-data text-xs text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
+            className="rounded-spa border border-border bg-surface px-2 py-1 font-data text-xs text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/50"
           />
           <button
             onClick={() => { if (customFrom) { setAppliedFrom(customFrom); setAppliedTo(customTo); setMode('custom'); } }}
@@ -641,7 +641,7 @@ const AttendanceCalendarPage = ({ embedded = false }) => {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search staff…"
-            className="pl-7 pr-3 py-1 rounded-spa border border-border bg-surface font-body text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary/50 w-36"
+            className="pl-7 pr-3 py-1 rounded-spa border border-border bg-surface font-body text-xs text-text-primary placeholder:text-text-tertiary focus:outline-hidden focus:ring-2 focus:ring-primary/50 w-36"
           />
           {searchQuery && (
             <button
@@ -696,7 +696,7 @@ const AttendanceCalendarPage = ({ embedded = false }) => {
 
         {error && !loading && (
           <div className="flex items-center gap-3 p-4 bg-error/5 border border-error/20 rounded-spa">
-            <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+            <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
             <p className="font-body text-sm text-error">{error}</p>
             <button onClick={load} className="ml-auto font-body-medium text-sm text-error underline">Retry</button>
           </div>
@@ -727,7 +727,7 @@ const AttendanceCalendarPage = ({ embedded = false }) => {
                   onChange={(e) => { setAggSearchInput(e.target.value); setAggDropdownOpen(true); }}
                   onFocus={() => setAggDropdownOpen(true)}
                   placeholder="Type staff name…"
-                  className="w-full pl-8 pr-3 py-2 rounded-spa border border-border bg-surface font-body text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  className="w-full pl-8 pr-3 py-2 rounded-spa border border-border bg-surface font-body text-sm text-text-primary placeholder:text-text-tertiary focus:outline-hidden focus:ring-2 focus:ring-primary/50"
                 />
               </div>
               {aggDropdownOpen && aggFilteredStaff.length > 0 && (
@@ -746,7 +746,7 @@ const AttendanceCalendarPage = ({ embedded = false }) => {
                       }`}
                     >
                       <span className="font-body text-sm text-text-primary flex-1">{s.dentistName}</span>
-                      <span className="font-caption text-[10px] text-text-tertiary flex-shrink-0">
+                      <span className="font-caption text-[10px] text-text-tertiary shrink-0">
                         {s.isTreatmentStaff ? 'Treatment' : 'Support'}
                       </span>
                     </button>
@@ -765,7 +765,7 @@ const AttendanceCalendarPage = ({ embedded = false }) => {
                 { label: 'Half Day',  bg: '#DBEAFE', fg: '#1E40AF' },
               ].map((l) => (
                 <span key={l.label} className="inline-flex items-center gap-1.5 font-body text-xs text-text-secondary">
-                  <span className="inline-block w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: l.bg }} />
+                  <span className="inline-block w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: l.bg }} />
                   {l.label}
                 </span>
               ))}
@@ -812,7 +812,7 @@ const AttendanceCalendarPage = ({ embedded = false }) => {
                 { label: 'No record', cls: 'bg-border/50' },
               ].map((l) => (
                 <span key={l.label} className="inline-flex items-center gap-1.5 font-body text-xs text-text-secondary">
-                  <span className={`inline-block w-4 h-4 rounded-sm ${l.cls}`} />
+                  <span className={`inline-block w-4 h-4 rounded-xs ${l.cls}`} />
                   {l.label}
                 </span>
               ))}
@@ -910,7 +910,7 @@ const AttendanceCalendarPage = ({ embedded = false }) => {
                                   className={`px-1 py-2.5 text-center ${isWeekend ? 'bg-background/20' : ''}`}
                                   title={`${s.dentistName} · ${iso} · ${cell.title}`}
                                 >
-                                  <span className={`inline-block w-7 h-7 rounded-sm ${cell.bg}`} />
+                                  <span className={`inline-block w-7 h-7 rounded-xs ${cell.bg}`} />
                                 </td>
                               );
                             })}

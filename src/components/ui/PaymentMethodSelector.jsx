@@ -107,7 +107,7 @@ const PaymentMethodSelector = ({
           flex items-center justify-between gap-2 w-full
           border border-border rounded-spa bg-surface
           font-body font-body-normal
-          focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary
+          focus:outline-hidden focus:ring-2 focus:ring-primary/50 focus:border-primary
           disabled:opacity-50 disabled:cursor-not-allowed
           spa-transition-fast cursor-pointer
           ${SIZE_CLASSES[size] || SIZE_CLASSES.md}
@@ -120,7 +120,7 @@ const PaymentMethodSelector = ({
         <Icon
           name="ChevronDown"
           size={14}
-          className={`text-text-secondary flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          className={`text-text-secondary shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
         />
       </button>
 
@@ -144,9 +144,9 @@ const PaymentMethodSelector = ({
               >
                 <span className="truncate">{item.label}</span>
                 {hasSub ? (
-                  <Icon name="ChevronRight" size={13} className="text-text-secondary flex-shrink-0" />
+                  <Icon name="ChevronRight" size={13} className="text-text-secondary shrink-0" />
                 ) : isSelected ? (
-                  <Icon name="Check" size={13} className="text-primary flex-shrink-0" />
+                  <Icon name="Check" size={13} className="text-primary shrink-0" />
                 ) : null}
               </button>
             );
@@ -173,7 +173,7 @@ const PaymentMethodSelector = ({
                   }`}
                 >
                   <span className="truncate">{sub.label}</span>
-                  {isSubSelected && <Icon name="Check" size={12} className="text-primary flex-shrink-0" />}
+                  {isSubSelected && <Icon name="Check" size={12} className="text-primary shrink-0" />}
                 </button>
               );
             })}

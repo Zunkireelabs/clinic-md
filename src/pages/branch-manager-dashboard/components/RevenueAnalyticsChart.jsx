@@ -114,9 +114,9 @@ const RevenueAnalyticsChart = ({ branchId, period }) => {
       return (
         <div className="h-64 flex items-center justify-center">
           <div className="animate-pulse space-y-3 w-full">
-            <div className="h-4 bg-gray-100 rounded w-full" />
-            <div className="h-4 bg-gray-100 rounded w-3/4" />
-            <div className="h-4 bg-gray-100 rounded w-1/2" />
+            <div className="h-4 bg-gray-100 rounded-sm w-full" />
+            <div className="h-4 bg-gray-100 rounded-sm w-3/4" />
+            <div className="h-4 bg-gray-100 rounded-sm w-1/2" />
           </div>
         </div>
       );
@@ -225,14 +225,14 @@ const RevenueAnalyticsChart = ({ branchId, period }) => {
                     <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg gap-2">
                       <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
                         <div
-                          className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full flex-shrink-0"
+                          className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full shrink-0"
                           style={{ backgroundColor: treatment.color }}
                         />
                         <span className="text-xs sm:text-sm font-medium text-gray-900 truncate">
                           {treatment.name}
                         </span>
                       </div>
-                      <div className="text-right flex-shrink-0">
+                      <div className="text-right shrink-0">
                         <div className="text-xs sm:text-sm font-medium text-gray-900">
                           {treatment.value}% <span className="text-gray-500">({treatment.count})</span>
                         </div>
@@ -254,7 +254,7 @@ const RevenueAnalyticsChart = ({ branchId, period }) => {
     <div className="bg-white rounded-lg p-4 sm:p-6 border border-gray-200">
       <div className="flex items-center justify-between mb-4 sm:mb-6 gap-2">
         <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
-          <div className="w-9 h-9 sm:w-10 sm:h-10 bg-purple-50 rounded-lg flex items-center justify-center flex-shrink-0">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 bg-purple-50 rounded-lg flex items-center justify-center shrink-0">
             <Icon name="BarChart3" size={18} className="sm:w-5 sm:h-5 text-purple-600" />
           </div>
           <div className="min-w-0">
@@ -276,7 +276,7 @@ const RevenueAnalyticsChart = ({ branchId, period }) => {
             onClick={() => setActiveTab(tab.id)}
             className={`flex items-center justify-center space-x-1.5 sm:space-x-2 px-2.5 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-colors flex-1 sm:flex-initial min-h-[36px] ${
               activeTab === tab.id
-                ? 'bg-white text-gray-900 shadow-sm'
+                ? 'bg-white text-gray-900 shadow-xs'
                 : 'text-gray-500 hover:text-gray-900'
             }`}
           >

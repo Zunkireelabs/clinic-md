@@ -9,7 +9,7 @@ function formatNPR(amount) {
 function StatCard({ icon, iconBg, iconColor, label, value, highlight }) {
   return (
     <div className="bg-surface rounded-spa-lg border border-border p-4 flex items-center space-x-3">
-      <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center flex-shrink-0`}>
+      <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center shrink-0`}>
         <Icon name={icon} size={18} className={iconColor} />
       </div>
       <div className="min-w-0">
@@ -59,7 +59,7 @@ const OverviewTab = ({ dentistId, branchId, range }) => {
   if (error) {
     return (
       <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
         <p className="font-body text-sm text-error">{error}</p>
         <button onClick={loadData} className="ml-auto font-body font-body-medium text-sm text-error underline">
           Retry

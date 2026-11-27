@@ -147,9 +147,9 @@ const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', 
         cardRef.current = node;
         setNodeRef(node);
       }}
-      className={`absolute left-1 right-1 rounded-spa overflow-visible outline-none focus-visible:ring-2 focus-visible:ring-primary/60 transition-colors duration-150 ease-out hover:z-dropdown hover:brightness-[0.97] ${
+      className={`absolute left-1 right-1 rounded-spa overflow-visible outline-hidden focus-visible:ring-2 focus-visible:ring-primary/60 transition-colors duration-150 ease-out hover:z-dropdown hover:brightness-[0.97] ${
         isDraggable && !isResizing ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
-      } ${isSelected ? 'ring-2 ring-violet-500 ring-offset-1' : ''} ${isPanelSelected ? 'ring-2 ring-primary z-[3]' : ''}`}
+      } ${isSelected ? 'ring-2 ring-violet-500 ring-offset-1' : ''} ${isPanelSelected ? 'ring-2 ring-primary z-3' : ''}`}
       data-booking-card="true"
       data-booking-key={booking.bookingId || booking.id}
       data-booking-id={booking.isShared ? booking.bookingId : undefined}
@@ -197,11 +197,11 @@ const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', 
       >
         {isShort ? (
           <div className="flex items-center gap-1 min-w-0 leading-tight">
-            {isUnpaid && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: UNPAID_DOT_COLOR }} title="Unpaid" />}
+            {isUnpaid && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: UNPAID_DOT_COLOR }} title="Unpaid" />}
             <span className="font-body font-medium text-xs text-text-primary truncate">{booking.customerName}</span>
-            <span className="font-data text-[11px] text-text-secondary shrink-[1000] min-w-0 truncate">· {to12h(booking.startTime)}</span>
+            <span className="font-data text-[11px] text-text-secondary shrink-1000 min-w-0 truncate">· {to12h(booking.startTime)}</span>
             {(sharedLabel || booking.specialRequests || booking.patientNotes) && (
-              <span className="flex-shrink-0 ml-auto flex items-center gap-1">
+              <span className="shrink-0 ml-auto flex items-center gap-1">
                 {sharedLabel && <span title={sharedLabel} aria-label={sharedLabel} className="text-text-tertiary"><Icon name="Users" size={11} /></span>}
                 {(booking.specialRequests || booking.patientNotes) && (
                   <span title="Has notes" aria-label="Has notes" style={{ color: booking.patientNotes ? '#C98A12' : undefined }}><Icon name="AlertTriangle" size={11} /></span>
@@ -211,10 +211,10 @@ const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', 
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-1 min-w-0 flex-shrink-0">
-              {isUnpaid && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: UNPAID_DOT_COLOR }} title="Unpaid" />}
+            <div className="flex items-center gap-1 min-w-0 shrink-0">
+              {isUnpaid && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: UNPAID_DOT_COLOR }} title="Unpaid" />}
               <span className="font-body font-medium text-xs text-text-primary leading-tight truncate">{booking.customerName}</span>
-              <span className="ml-auto flex items-center gap-1 flex-shrink-0 text-text-tertiary">
+              <span className="ml-auto flex items-center gap-1 shrink-0 text-text-tertiary">
                 {sharedLabel && (
                   <span title={sharedLabel} aria-label={sharedLabel} className="flex items-center gap-0.5">
                     <Icon name="Users" size={12} />
@@ -222,7 +222,7 @@ const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', 
                   </span>
                 )}
                 {booking.isNewCustomer && (
-                  <span className="px-1 rounded-sm bg-primary/10 text-primary text-[10px] font-medium leading-4">New</span>
+                  <span className="px-1 rounded-xs bg-primary/10 text-primary text-[10px] font-medium leading-4">New</span>
                 )}
                 {(booking.specialRequests || booking.patientNotes) && (
                   <span title="Has notes" aria-label="Has notes" style={booking.patientNotes ? { color: '#C98A12' } : undefined}><Icon name="AlertTriangle" size={12} /></span>
@@ -231,21 +231,21 @@ const CalendarBookingCard = ({ booking, style, onClick, columnMode = 'dentist', 
                 {!isLocked && isPaid && <Icon name="Check" size={12} title="Paid" />}
               </span>
             </div>
-            <div className="font-body text-[11px] text-text-secondary leading-tight truncate flex-shrink-0">
+            <div className="font-body text-[11px] text-text-secondary leading-tight truncate shrink-0">
               {rangeLabel}{booking.treatmentName ? ` · ${booking.treatmentName}` : ''}
             </div>
             {isTall && columnMode === 'chair' && booking.dentistName && (
-              <div className="font-body text-[11px] text-text-tertiary leading-tight truncate flex-shrink-0">
+              <div className="font-body text-[11px] text-text-tertiary leading-tight truncate shrink-0">
                 {booking.dentistName}
               </div>
             )}
             {isTall && columnMode === 'dentist' && booking.chairName && (
-              <div className="font-body text-[11px] text-text-tertiary leading-tight truncate flex-shrink-0">
+              <div className="font-body text-[11px] text-text-tertiary leading-tight truncate shrink-0">
                 {booking.chairName}
               </div>
             )}
             {isTall && durationMins && (
-              <div className="font-body text-[11px] text-text-tertiary mt-auto flex-shrink-0">
+              <div className="font-body text-[11px] text-text-tertiary mt-auto shrink-0">
                 {durationMins} mins
               </div>
             )}

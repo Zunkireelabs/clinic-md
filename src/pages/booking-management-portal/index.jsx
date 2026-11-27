@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { Helmet } from 'react-helmet';
 import CustomerHeader from '../../components/ui/CustomerHeader';
 import BookingSearch from './components/BookingSearch';
 import BookingCard from './components/BookingCard';
@@ -119,10 +118,9 @@ const BookingManagementPortal = () => {
 
   return (
     <>
-      <Helmet>
+      {/* React 19 hoists <title>/<meta> into <head> (replaces react-helmet) */}
         <title>Booking Management Portal - ClinicMD</title>
         <meta name="description" content="Manage your bookings - reschedule, cancel, or view booking history at ClinicMD" />
-      </Helmet>
 
       <div className="min-h-screen bg-background">
         <CustomerHeader />
@@ -137,7 +135,7 @@ const BookingManagementPortal = () => {
               </span>
               <button
                 onClick={() => setNotification(null)}
-                className="p-1 rounded hover:bg-black/10 spa-transition-fast"
+                className="p-1 rounded-sm hover:bg-black/10 spa-transition-fast"
               >
                 <Icon name="X" size={14} />
               </button>
