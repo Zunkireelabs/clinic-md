@@ -14,19 +14,29 @@ const resolveLength = (e, setLen) => {
   a.currentTime = 1e101;
 };
 
-const Recording = ({ path, index }) => {
+const Recording = ({ path, index, canDelete, onDelete, legacyNote }) => {
   const [url, setUrl] = useState(null);
   const [len, setLen] = useState(null);
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
   React.useEffect(() => {
     let off = false;
     getConsultationFileUrl('audio', path).then(({ url: u }) => { if (!off) setUrl(u); });
     return () => { off = true; };
   }, [path]);
   return (
-    <div className="flex items-center gap-3 text-[12.5px]">
+    <div className="flex items-center gap-3 flex-wrap text-[12.5px]">
       <span className="text-text-tertiary w-24 shrink-0">Recording {index + 1}</span>
       {url ? <audio controls preload="metadata" src={url} onLoadedMetadata={(e) => resolveLength(e, setLen)} onDurationChange={(e) => isFinite(e.currentTarget.duration) && setLen(e.currentTarget.duration)} className="h-8 flex-1 min-w-0" /> : <span className="text-text-tertiary">Loading…</span>}
       <span className="tabular-nums text-text-tertiary w-12 shrink-0 text-right">{len != null ? mmss(len) : ''}</span>
+      {canDelete && !asking && <button type="button" onClick={() => setAsking(true)} aria-label={`Delete recording ${index + 1}`} className="h-8 px-2 rounded-md border border-border bg-white text-[12.5px] text-[#B42318]">Delete</button>}
+      {asking && (
+        <div role="alertdialog" aria-label={`Delete recording ${index + 1}?`} className="basis-full rounded-lg border border-[#F7C6C6] bg-[#FFF6F6] px-3 py-2 flex items-center gap-3 flex-wrap">
+          <span className="flex-1 min-w-[200px]">Delete recording {index + 1}? It is removed from the transcript and the next draft. This can’t be undone.{legacyNote ? ' Its words were added before recordings were tracked, so delete them from the transcript yourself.' : ''}</span>
+          <button type="button" disabled={busy} onClick={async () => { setBusy(true); await onDelete(path); setBusy(false); setAsking(false); }} className="h-8 px-3 rounded-md bg-[#B42318] text-white text-[13px] font-medium disabled:opacity-60">Delete recording {index + 1}</button>
+          <button type="button" disabled={busy} onClick={() => setAsking(false)} className="h-8 px-3 rounded-md border border-border bg-white text-[13px] font-medium">Cancel</button>
+        </div>
+      )}
     </div>
   );
 };
@@ -34,7 +44,7 @@ const Recording = ({ path, index }) => {
 // The compact recorder: ready (consent first), recording, and the "recordings so far" summary. Phone recordings show their own state.
 const RecorderBar = ({
   firstName, consent, consentAt, consentBusy, onConsent, locked, recorder, remote, remotePhoneLabel, phones, processing,
-  audioPaths, durationSeconds, onStart, onStop, onRecordOnPhone, onStopRemote, onContinueOnPhone, errorText,
+  audioPaths, durationSeconds, canDeleteRecording, onDeleteRecording, legacyPieces, onStart, onStop, onRecordOnPhone, onStopRemote, onContinueOnPhone, errorText,
 }) => {
   const [listen, setListen] = useState(false);
   const recording = recorder.isRecording;
@@ -90,7 +100,7 @@ const RecorderBar = ({
         {!busy && !locked && (
           <ConsentCheck className="mt-3" firstName={firstName} consent={consent} consentAt={consentAt} busy={consentBusy} onConsent={onConsent} />
         )}
-        {listen && <div className="mt-3 space-y-2">{audioPaths.map((p, i) => <Recording key={p} path={p} index={i} />)}</div>}
+        {listen && <div className="mt-3 space-y-2">{audioPaths.map((p, i) => <Recording key={p} path={p} index={i} canDelete={canDeleteRecording && !busy && !locked} onDelete={onDeleteRecording} legacyNote={legacyPieces?.legacy && !legacyPieces.paths.includes(p)} />)}</div>}
         {errorText && <p role="alert" className="mt-3 text-[13px] text-[#B42318]">{errorText}</p>}
       </div>
     );

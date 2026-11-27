@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { newQueueItem, enqueue, update, remove, hasUnuploaded, failedItems, hasUploadFailure, isBusy, seedTranscribed, untranscribedPaths, readTranscribed, writeTranscribed } from './recordingQueue';
+import { newQueueItem, enqueue, update, remove, hasUnuploaded, failedItems, hasUploadFailure, isBusy, untranscribedPaths } from './recordingQueue';
 
 const blob = { size: 10 };
-const mem = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, v) }; };
 
 describe('recording queue', () => {
   it('keeps several failed recordings (no single slot that a second failure overwrites)', () => {
@@ -31,18 +30,8 @@ describe('recording queue', () => {
 });
 
 describe('per-path transcription tracking', () => {
-  it('seeds from an existing transcript, else nothing is transcribed', () => {
-    expect(seedTranscribed(['a', 'b'], 'hello')).toEqual(['a', 'b']);
-    expect(seedTranscribed(['a', 'b'], '  ')).toEqual([]);
-  });
   it('lists every audio path not yet transcribed (all failed ones, not just the last)', () => {
     expect(untranscribedPaths(['a', 'b', 'c'], ['b'])).toEqual(['a', 'c']);
     expect(untranscribedPaths(['a'], null)).toEqual(['a']);
-  });
-  it('persists across a reload', () => {
-    const s = mem();
-    expect(readTranscribed('c1', s)).toBeNull();
-    writeTranscribed('c1', ['a', 'a', 'b'], s);
-    expect(readTranscribed('c1', s)).toEqual(['a', 'b']);
   });
 });
