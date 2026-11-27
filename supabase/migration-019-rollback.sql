@@ -57,7 +57,7 @@ CREATE OR REPLACE FUNCTION public._hub_scope(p_ctx jsonb, p_org uuid, p_branch u
       WHEN p_ctx ->> 'role' IN ('admin', 'admin_viewer') THEN true
       WHEN p_ctx ->> 'role' = 'practitioner' THEN public.is_my_patient(p_customer)
       ELSE p_branch IS NULL OR COALESCE(p_ctx -> 'branch_ids', '[]'::jsonb) ? p_branch::text   -- no branch yet: any front desk may triage
-    END, false);
+    END, false);   -- strictly true / false
 $$;
 
 -- the wall
@@ -91,6 +91,9 @@ CREATE OR REPLACE FUNCTION public.find_customer_for_booking(p_org_id uuid, p_pho
   ORDER BY (c.phone = p_phone) DESC NULLS LAST
   LIMIT 1;
 $$;
+
+REVOKE ALL ON FUNCTION public.find_customer_for_booking(uuid, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.find_customer_for_booking(uuid, text, text) TO anon, authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.upsert_customer_for_booking(p_org_id uuid, p_branch_id uuid, p_full_name text, p_phone text DEFAULT NULL::text, p_email text DEFAULT NULL::text, p_gender text DEFAULT NULL::text)
  RETURNS uuid
