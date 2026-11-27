@@ -48,7 +48,20 @@ Reset and reseed: `supabase db reset && ./scripts/local-db-bootstrap.sh`.
 
 `scripts/local-create-test-users.sh` (run by the bootstrap) creates `admin@`, `manager@` and `staff@clinicmd.test`
 for org `bright-smile-dental`, branch Kathmandu Main (GoTrue user + `public.users` + `user_branches`).
-Passwords are generated into `supabase/LOCAL_TEST_USERS.md` (gitignored) and reused on re-runs.
+Passwords are generated into `supabase/LOCAL_TEST_USERS.md` (gitignored, mode 600) and reused on re-runs. They are never
+printed and never put on a command line; don't `cat` that file into a terminal or log you share.
+
+```bash
+./scripts/local-create-test-users.sh                  # the stack `supabase status` reports for this repo
+./scripts/local-create-test-users.sh --dry-run        # hosts, emails, roles, new vs reused password; sends and writes nothing
+./scripts/local-create-test-users.sh --workdir DIR    # another LOCAL stack; its passwords go to DIR/supabase/LOCAL_TEST_USERS.md
+```
+
+It runs `supabase status` in the repo (or `--workdir`), never in your current directory, and refuses to send anything
+unless both the DB URL and the API URL have the host `127.0.0.1` or `localhost`. That check is shared with the
+bootstrap in `scripts/lib/local-db-url.sh` (parsed host, one host only, no `host=`/`hostaddr=`/`service=` in the
+query, PG* variables cleared). Run from a git worktree, the default stack is still the shared local one, but the
+passwords file is the worktree's own: a run there resets the users' passwords and the main checkout's file goes stale.
 
 ## Busy calendar seed
 
@@ -89,7 +102,7 @@ Stepping through migrations (for QC or rehearsals; the DB must already have ever
 ```
 
 Test users are created only by a full run against the stack from `supabase status` (not with `--from`, `--db-url`
-or `--no-users`), because `scripts/local-create-test-users.sh` always targets that stack.
+or `--no-users`). For another stack, run `scripts/local-create-test-users.sh --workdir <that stack's folder>` after it.
 
 ## Known gaps
 
