@@ -137,3 +137,29 @@ describe('transcript appended by the server (CMD-146)', () => {
     expect(colsFor(form, s2)).toEqual({});
   });
 });
+
+import { applyRemoved, pieceInfo } from './consultationSync';
+
+describe('delete one recording (CMD-143)', () => {
+  const synced = { ...EMPTY_FORM, transcript: 'a\n\nb', audioPaths: ['p1', 'p2'] };
+  const data = { transcript: 'a', audio_paths: ['p1'], text_removed: true };
+  it('delete, then autosave, does not revert: nothing to send for the path list or the transcript', () => {
+    const r = applyRemoved(synced, synced, data, 'p2');
+    expect(r.form.audioPaths).toEqual(['p1']);
+    expect(r.form.transcript).toBe('a');
+    expect(colsFor(r.form, r.synced)).toEqual({});
+    expect(r.keptTypedText).toBe(false);
+  });
+  it('typed text since the last sync is kept (not overwritten by the server text), and the page is told', () => {
+    const typed = { ...synced, transcript: 'a\n\nb (typed)' };
+    const r = applyRemoved(typed, synced, data, 'p2');
+    expect(r.form.transcript).toBe('a\n\nb (typed)');
+    expect(r.keptTypedText).toBe(true);
+    expect(colsFor(r.form, r.synced).transcript).toBe('a\n\nb (typed)');
+    expect(colsFor(r.form, r.synced).audio_paths).toBeUndefined();
+  });
+  it('pieceInfo: which recordings have their own piece, and whether a legacy piece exists', () => {
+    expect(pieceInfo({ transcript_pieces: [{ path: 'p1' }, { path: null }] })).toEqual({ legacy: true, paths: ['p1'] });
+    expect(pieceInfo({})).toEqual({ legacy: false, paths: [] });
+  });
+});

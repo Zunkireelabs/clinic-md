@@ -85,6 +85,12 @@ export const transcribedPaths = (row) => {
   return pieces.some((x) => !x.path) ? [...new Set([...(row.audio_paths || []), ...pieces.map((x) => x.path).filter(Boolean)])] : pieces.map((x) => x.path);
 };
 
+/** { legacy, paths }: recordings with their own transcript piece, and whether an old whole-transcript piece (path null, migration 023 backfill) exists. */
+export const pieceInfo = (row) => {
+  const pieces = row?.transcript_pieces || [];
+  return { legacy: pieces.some((x) => !x.path), paths: pieces.map((x) => x.path).filter(Boolean) };
+};
+
 /**
  * Apply a row update that arrived from the other device. For each field:
  * - this device has not edited it since the last sync -> take the remote value
@@ -136,5 +142,20 @@ export const applyAppended = (form, synced, data) => {
   return {
     form: { ...form, transcript: edited ? rebaseText(form.transcript, synced.transcript, data.transcript || '') : (data.transcript || ''), language: language ?? form.language },
     synced: nextSynced,
+  };
+};
+
+/**
+ * After consultation_delete_recording returns { transcript, audio_paths, text_removed }: the recording leaves audioPaths in the form AND the
+ * synced snapshot; the transcript takes the server's text unless this device has typed in it since the last sync (then ours stays and the
+ * page tells the doctor). Both move together, so the autosave cannot send the old transcript or the old path list back. CMD-143.
+ */
+export const applyRemoved = (form, synced, data, path) => {
+  const edited = form.transcript !== synced.transcript;
+  const serverText = data.transcript || '';
+  return {
+    form: { ...form, audioPaths: form.audioPaths.filter((p) => p !== path), transcript: edited ? form.transcript : serverText },
+    synced: { ...synced, audioPaths: synced.audioPaths.filter((p) => p !== path), transcript: serverText },
+    keptTypedText: edited && serverText !== synced.transcript,
   };
 };

@@ -11744,6 +11744,19 @@ export async function addConsultationTranscriptPiece(consultationId, audioPath, 
   return callConsultationAction('consultation_add_transcript_piece', { p_consultation: consultationId, p_audio_path: audioPath, p_text: text || '', p_language: language || null });
 }
 
+/**
+ * Delete one recording (migration 024): the database first (piece, segments, audio path, the words if still verbatim; refused when signed or for
+ * front desk), then the audio file through the Storage API. A storage failure is returned as `storageError` and can be retried: the database
+ * call is idempotent for a path that is already gone.
+ */
+export async function deleteConsultationRecording(consultationId, audioPath) {
+  const { data, error } = await callConsultationAction('consultation_delete_recording', { p_consultation: consultationId, p_audio_path: audioPath });
+  if (error) return { data: null, error, storageError: null };
+  const { error: storageError } = await supabase.storage.from(CONSULTATION_BUCKETS.audio).remove([audioPath]);
+  if (storageError) console.error('[API] deleteConsultationRecording storage error:', storageError.message);
+  return { data, error: null, storageError: storageError || null };
+}
+
 /** answer 'agreed' | 'declined'; device 'computer' | 'phone'; script = the id of the words shown (consentScripts.js). */
 export async function recordConsultationConsent(consultationId, answer, device, script) {
   return callConsultationAction('consultation_record_consent', { p_consultation: consultationId, p_answer: answer, p_device: device, p_script: script });

@@ -39,6 +39,7 @@ import {
   createPhonePairing,
   updateConsultationColumns,
   addConsultationTranscriptPiece,
+  deleteConsultationRecording,
   subscribeToConsultation,
   saveConsultation,
   uploadConsultationFile,
@@ -52,7 +53,7 @@ import {
   updateBookingStatus,
 } from '../../services/api';
 import { generateConsultationPdf, exportConsultationJson } from '../../utils/consultationReport';
-import { EMPTY_FORM, formFromRow, columnsForChanges, allColumns, mergeRemote, changedKeys, mergeAfterSave, transcribedPaths, applyAppended } from '../../utils/consultationSync';
+import { EMPTY_FORM, formFromRow, columnsForChanges, allColumns, mergeRemote, changedKeys, mergeAfterSave, transcribedPaths, applyAppended, applyRemoved, pieceInfo } from '../../utils/consultationSync';
 import {
   newQueueItem, enqueue, update as updateQueue, hasUnuploaded, failedItems, hasUploadFailure, isBusy as queueBusy,
   untranscribedPaths,
@@ -144,6 +145,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
   queueRef.current = queue;
   const [transcribed, setTranscribed] = useState([]); // audio paths already in the transcript: from the database (transcript_pieces), not this browser (CMD-146)
   const transcribedRef = useRef(transcribed);
+  const [pieces, setPieces] = useState({ legacy: false, paths: [] }); // which recordings have their own transcript piece (database)
   transcribedRef.current = transcribed;
   const savingRef = useRef(false);
   const [autoStopMsg, setAutoStopMsg] = useState(null);
@@ -224,6 +226,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     setLastSavedJson(row.status === 'completed' ? JSON.stringify(allColumns(next)) : null);
     setSavedAt(row.status === 'completed' && row.updated_at ? new Date(row.updated_at) : null);
     setTranscribed(transcribedPaths(row));
+    setPieces(pieceInfo(row));
   }, []);
 
   // Load the booking and open (or create) its consultation draft. Phone and
@@ -304,6 +307,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       // Which recordings are in the transcript is the database's answer (an append from the other device arrives here too).
       transcribedRef.current = transcribedPaths(row);
       setTranscribed(transcribedRef.current);
+      setPieces(pieceInfo(row));
     });
   }, [consultationId]);
 
@@ -612,6 +616,22 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
     if (!isNoteEmpty(noteRef.current)) { dispatchFlow({ type: 'TRANSCRIPT_ONLY', language }); return; }
     await runDraft();
   }, [bookingId, patchForm, runDraft, phoneView]);
+
+  // Delete one recording (staff, not signed): the server removes its words and audio path, then the audio file; the note is NOT redrafted.
+  const deleteRecording = useCallback(async (path) => {
+    setError(null);
+    const { data, error: delError, storageError } = await deleteConsultationRecording(consultationIdRef.current, path);
+    if (delError) { setError(delError.message || 'Could not delete the recording.'); return; }
+    const applied = applyRemoved(formRef.current, syncedRef.current, data, path);
+    syncedRef.current = applied.synced;
+    formRef.current = applied.form;
+    setForm(applied.form);
+    transcribedRef.current = transcribedRef.current.filter((p) => p !== path);
+    setTranscribed(transcribedRef.current);
+    setPieces((x) => ({ ...x, paths: x.paths.filter((p) => p !== path) }));
+    if (storageError) setError('Removed from the note, but the audio file could not be deleted. Try again.');
+    else if (applied.keptTypedText || (data.had_piece && !data.text_removed)) setNotice('The recording is deleted. You edited the transcript, so delete its words there yourself.');
+  }, []);
 
   const submitToQueue = useCallback((item) => {
     queueRef.current = enqueue(queueRef.current, item);
@@ -1151,6 +1171,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
                 <RecorderBar
                   firstName={patientFirst} consent={consent} consentAt={meta.recording_consent_at} consentBusy={consentBusy} onConsent={recordConsent} recorder={recorder} remote={remote} remotePhoneLabel={remotePhone?.label}
                   locked={stage === 'saved'} phones={phones} processing={processing} audioPaths={form.audioPaths} durationSeconds={form.durationSeconds}
+                  canDeleteRecording={['practitioner', 'manager', 'admin'].includes(profile?.role)} onDeleteRecording={deleteRecording} legacyPieces={pieces}
                   onStart={handleStart} onStop={handleStopDesk} onRecordOnPhone={() => sendCommand({ action: 'start', target: phones[0]?.deviceId })}
                   onStopRemote={() => sendCommand({ action: 'stop', target: remote?.from })} onContinueOnPhone={() => setShowPhone(true)} errorText={recorderError}
                 />
