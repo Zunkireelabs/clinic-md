@@ -4726,7 +4726,7 @@ export async function createBooking({
       let existingCustomer = null;
       if (orgId && (phone || email)) {
         const { data } = await supabase
-          .rpc('find_customer_for_booking', { p_org_id: orgId, p_phone: phone, p_email: email })
+          .rpc('find_customer_for_booking', { p_org_id: orgId, p_phone: phone, p_email: email, p_full_name: customerName })
           .maybeSingle();
         existingCustomer = data;
       }
@@ -8850,17 +8850,28 @@ export async function findOrCreateCustomer({ orgId, branchId, fullName, phone, e
     const normalizedGender = gender || null;
     const normalizedDob = dateOfBirth || null;
 
-    // 1. Look up an existing customer in the org by phone.
+    // 1. Look up an existing customer in the org by phone. A family shares one phone (migration-019), so there can be several:
+    //    take the member whose name matches exactly (case and spaces ignored), else the family contact, else the first.
+    const sameName = (a, b) => String(a || '').trim().replace(/\s+/g, ' ').toLowerCase() === String(b || '').trim().replace(/\s+/g, ' ').toLowerCase();
     let existing = null;
     if (normalizedPhone) {
-      const { data } = await supabase
+      const { data: rows } = await supabase
         .from('customers')
-        .select('id, full_name, phone, email, gender, date_of_birth')
+        .select('id, full_name, phone, email, gender, date_of_birth, family_id')
         .eq('org_id', orgId)
         .eq('phone', normalizedPhone)
-        .limit(1)
-        .maybeSingle();
-      existing = data;
+        .limit(20);
+      if (rows?.length) {
+        existing = rows.find((r) => sameName(r.full_name, fullName)) || null;
+        if (!existing) {
+          const familyId = rows.find((r) => r.family_id)?.family_id;
+          if (familyId) {
+            const { data: fam } = await supabase.from('families').select('contact_customer_id').eq('id', familyId).maybeSingle();
+            existing = rows.find((r) => r.id === fam?.contact_customer_id) || null;
+          }
+          existing = existing || rows[0];
+        }
+      }
     }
     if (!existing && normalizedEmail) {
       const { data } = await supabase
@@ -8878,7 +8889,8 @@ export async function findOrCreateCustomer({ orgId, branchId, fullName, phone, e
       await supabase
         .from('customers')
         .update({
-          full_name: fullName,
+          // never rename a family member to a different typed name (that would rename the family contact)
+          full_name: existing.family_id && !sameName(existing.full_name, fullName) ? existing.full_name : fullName,
           phone: normalizedPhone || existing.phone,
           email: normalizedEmail || existing.email,
           gender: normalizedGender || existing.gender,
