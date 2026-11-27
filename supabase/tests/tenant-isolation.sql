@@ -2791,6 +2791,7 @@ END $prac$;
 -- Consent, signing and the signed-note lock, the service-role writers, retention, and the SQL twin of consultationNote.js (fixtures shared
 -- with Vitest: src/utils/noteSections.fixtures.json, read here through psql). Needs 011, 012 and 020; otherwise skipped. Runs after 3h, which
 -- links the 'practitioner' actor to Dr A1.
+-- relative path: run psql from the repo root
 \set nfix `cat src/utils/noteSections.fixtures.json`
 CREATE TEMP TABLE t_nfix AS SELECT f FROM jsonb_array_elements(:'nfix'::jsonb) f;
 GRANT SELECT ON t_nfix TO PUBLIC;
@@ -2937,6 +2938,10 @@ BEGIN
   PERFORM pg_temp.z_chk('store_draft refuses a signed row', r ->> 'code' = 'SIGNED_LOCKED', r::text);
 
   -- (6) unsign: the signer, within 15 minutes
+  FOR t IN SELECT * FROM (VALUES ('staff', 'FORBIDDEN'), ('admin_viewer', 'FORBIDDEN'), ('admin_of_OTHER_org', 'NOT_FOUND')) v(actor, code) LOOP
+    r := pg_temp.act_run(t.actor, format('SELECT public.consultation_unsign(%L)', c_mine), 1);
+    PERFORM pg_temp.z_chk(format('%s cannot unsign (%s)', t.actor, t.code), pg_temp.act_code(r) = t.code, r::text);
+  END LOOP;
   r := pg_temp.act_run('admin', format('SELECT public.consultation_unsign(%L)', c_mine), 1);
   PERFORM pg_temp.z_chk('another user (admin) cannot unsign', pg_temp.act_code(r) = 'UNSIGN_NOT_ALLOWED', r::text);
   ALTER TABLE consultations DISABLE TRIGGER consultations_lock_signed;
