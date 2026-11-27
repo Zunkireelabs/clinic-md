@@ -3,11 +3,11 @@
 # GoTrue auth user + public.users profile + user_branches grant.
 #
 # Usage:
-#   ./scripts/local-create-test-users.sh                    # the stack `supabase status` reports for this repo
+#   ./scripts/local-create-test-users.sh                    # this repo's stack; passwords file = the MAIN checkout's
 #   ./scripts/local-create-test-users.sh --dry-run          # print the plan only (hosts, emails, roles); no network, no file
 #   ./scripts/local-create-test-users.sh --workdir DIR      # another LOCAL stack: `supabase status` is run in DIR
 #
-# Passwords are generated here and written to <workdir>/supabase/LOCAL_TEST_USERS.md (gitignored, mode 600). They are never
+# Passwords go to the MAIN checkout's supabase/LOCAL_TEST_USERS.md, or <DIR>'s with --workdir (gitignored, mode 600). Never
 # printed, never put on a command line (curl reads them from stdin), and the file is never shown. Re-running reuses the passwords
 # already in that file and is idempotent.
 #
@@ -24,7 +24,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 usage() { sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 die() { echo "local-create-test-users: $*" >&2; exit 1; }
 
-WORKDIR="$REPO_ROOT"; DRY_RUN=0
+WORKDIR=""; DRY_RUN=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --workdir)   [ $# -ge 2 ] || die "--workdir needs a directory"; WORKDIR="$2"; shift 2 ;;
@@ -34,9 +34,25 @@ while [ $# -gt 0 ]; do
     *)           die "unknown option: $1 (see --help)" ;;
   esac
 done
-[ -n "$WORKDIR" ] && [ -d "$WORKDIR" ] || die "--workdir is not a directory: '$WORKDIR'"
-WORKDIR="$(cd "$WORKDIR" && pwd)"
-USERS_FILE="$WORKDIR/supabase/LOCAL_TEST_USERS.md"
+if [ -n "$WORKDIR" ]; then
+  # own separate stack: its own file
+  [ -d "$WORKDIR" ] || die "--workdir is not a directory: '$WORKDIR'"
+  WORKDIR="$(cd "$WORKDIR" && pwd)"
+  [ -f "$WORKDIR/supabase/config.toml" ] || die "refusing: --workdir $WORKDIR has no supabase/config.toml"
+  USERS_FILE="$WORKDIR/supabase/LOCAL_TEST_USERS.md"
+else
+  # CMD-111: every worktree shares one local stack, so the passwords file is the MAIN checkout's; a worktree never makes its own
+  # (new passwords would be PUT to GoTrue and break everyone else's logins).
+  WORKDIR="$REPO_ROOT"
+  # capture git's output first: dirname of "" is ".", which would silently become the caller's cwd
+  GIT_COMMON="$(cd "$REPO_ROOT" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && [ -n "$GIT_COMMON" ] || die "refusing: cannot find the main checkout with git. Nothing changed."
+  MAIN="$(dirname "$GIT_COMMON")"
+  USERS_FILE="$MAIN/supabase/LOCAL_TEST_USERS.md"
+  if [ "$MAIN" != "$REPO_ROOT" ] && { [ ! -f "$USERS_FILE" ] || [ ! -w "$USERS_FILE" ]; }; then
+    die "refusing: this is a worktree and the main checkout's $USERS_FILE is missing or not writable. Nothing changed."
+  fi
+fi
+echo "local-create-test-users: passwords file: $USERS_FILE"
 
 STATUS="$(local_status_env "$WORKDIR")"
 DB_URL="$(local_status_value "$STATUS" DB_URL)"

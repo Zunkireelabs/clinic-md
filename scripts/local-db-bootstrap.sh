@@ -5,6 +5,7 @@
 # Usage:
 #   supabase start                                   # once, to bring up the local stack
 #   ./scripts/local-db-bootstrap.sh                  # schema.sql -> rls.sql -> seed.sql -> migration-NNN-*.sql -> test users
+#   ./scripts/local-db-bootstrap.sh --workdir DIR    # test users: use the stack and passwords file of DIR (a worktree with its own stack)
 #   ./scripts/local-db-bootstrap.sh --dry-run        # print the plan only
 #   ./scripts/local-db-bootstrap.sh --from 11 --to 16   # apply only migrations 011..016 to a DB that already has the rest
 #   ./scripts/local-db-bootstrap.sh --to 0           # schema, RLS and seed only, no migrations
@@ -29,11 +30,11 @@ SUPABASE_DIR="$REPO_ROOT/supabase"
 # shellcheck source=lib/local-db-url.sh
 . "$REPO_ROOT/scripts/lib/local-db-url.sh"
 
-usage() { sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 die() { echo "local-db-bootstrap: $*" >&2; exit 1; }
 is_num() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 
-DB_URL=""; DB_URL_GIVEN=0; FROM=""; TO=""; DRY_RUN=0; NO_USERS=0
+DB_URL=""; DB_URL_GIVEN=0; FROM=""; TO=""; DRY_RUN=0; NO_USERS=0; USERS_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --db-url)   [ $# -ge 2 ] || die "--db-url needs a value"; DB_URL="$2"; DB_URL_GIVEN=1; shift 2 ;;
@@ -42,6 +43,7 @@ while [ $# -gt 0 ]; do
     --to)       [ $# -ge 2 ] || die "--to needs a number"; TO="$2"; shift 2 ;;
     --dry-run)  DRY_RUN=1; shift ;;
     --no-users) NO_USERS=1; shift ;;
+    --workdir)  [ $# -ge 2 ] || die "--workdir needs a directory"; USERS_ARGS=(--workdir "$2"); shift 2 ;;   # passed to the test-user script
     -h|--help)  usage; exit 0 ;;
     *)          die "unknown option: $1 (see --help)" ;;
   esac
@@ -138,7 +140,7 @@ done
 
 if [ "$RUN_USERS" = 1 ]; then
   echo "==> scripts/local-create-test-users.sh"
-  "$REPO_ROOT/scripts/local-create-test-users.sh"
+  "$REPO_ROOT/scripts/local-create-test-users.sh" ${USERS_ARGS[@]+"${USERS_ARGS[@]}"}
 fi
 
 echo
