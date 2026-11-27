@@ -405,7 +405,7 @@ BEGIN
   EXECUTE 'RESET ROLE';
 END $fdyn$;
 
--- ───────────────────────────── 3b. ACTION LAYER (migration-012) ─────────────────────────────
+-- ───────────────────────────── 3b2. ACTION LAYER (migration-012) ─────────────────────────────
 -- The booking actions (act_booking_set_status / reschedule / flag_not_confirmed / act_undo). Needs 011 (practitioner) and 012; otherwise skipped.
 -- Callers: signed-in staff by role, a practitioner linked to Dr A1, the service role (agent / rule), anon, other-org admin, and
 -- two forged calls (an authenticated session carrying a service_role JWT claim). The section seeds its own rows and removes them at the end.
@@ -467,7 +467,7 @@ BEGIN
   -- users.dentist_id is unique: park the shared practitioner's Dr A1 link while this section has its own, restore it at the end
   SELECT id INTO u_prac0 FROM public.users WHERE dentist_id = d1; UPDATE public.users SET dentist_id = NULL WHERE id = u_prac0;
   INSERT INTO auth.users (id, instance_id, aud, role, email, created_at, updated_at) VALUES (u_prac, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-actprac-' || sfx || '@test.invalid', now(), now());
-  UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3d
+  UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3h
   INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES (u_prac, 'rls-actprac-' || sfx || '@test.invalid', 'RLS act practitioner', 'practitioner', a1, oa, true, d1);
   INSERT INTO t_actor VALUES ('act_practitioner', u_prac, oa, 'authenticated');
   INSERT INTO dentists (branch_id, name, gender, org_id) VALUES (a1, 'Dr A1b', 'Male', oa) RETURNING id INTO d1b;
@@ -768,7 +768,7 @@ BEGIN
     (u_p2, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-hubp2-' || sfx || '@test.invalid', now(), now()),
     (u_prof, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-hubprof-' || sfx || '@test.invalid', now(), now()),
     (u_staff2, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-hubs2-' || sfx || '@test.invalid', now(), now());
-  UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3d
+  UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3h
   INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES
     (u_p1, 'rls-hubp1-' || sfx || '@test.invalid', 'Hub Practitioner One', 'practitioner', a1, oa, true, d1),
     (u_p2, 'rls-hubp2-' || sfx || '@test.invalid', 'Hub Practitioner Two', 'practitioner', a1, oa, true, d2),
@@ -1336,7 +1336,7 @@ BEGIN
     CASE WHEN pg_temp.fn_try('admin', format('SELECT phone_pairing_create(%L, ''x'', ''y'', ''verify'', now())', ua)) = 'denied' THEN 'PASS' ELSE 'FAIL' END, 'service_role only');
 END $ai$;
 
--- ───────────────────────────── 3c. MONEY FUNCTION GUARD (migration-014, CMD-83) ─────────────────────────────
+-- ───────────────────────────── 3c2. MONEY FUNCTION GUARD (migration-014, CMD-83) ─────────────────────────────
 -- SECURITY DEFINER money functions skip RLS, so each must refuse roles that may not touch money. practitioner: no money at all;
 -- admin_viewer: money reads only. Needs 011 (practitioner) and 014; otherwise skipped. Seeds its own rows (rolled back with the script).
 CREATE FUNCTION pg_temp.m_val(p_actor text, p_sql text) RETURNS text LANGUAGE plpgsql AS $$
@@ -1381,7 +1381,7 @@ BEGIN
   -- users.dentist_id is unique: park the shared practitioner's Dr A1 link for this section (restored at its end)
   SELECT id INTO u_prac0 FROM public.users WHERE dentist_id = d1; UPDATE public.users SET dentist_id = NULL WHERE id = u_prac0;
   INSERT INTO auth.users (id, instance_id, aud, role, email, created_at, updated_at) VALUES (u_prac, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-mprac-' || sfx || '@test.invalid', now(), now());
-  UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3d
+  UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3h
   INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES (u_prac, 'rls-mprac-' || sfx || '@test.invalid', 'RLS money practitioner', 'practitioner', a1, oa, true, d1);
   INSERT INTO t_actor VALUES ('money_practitioner', u_prac, oa, 'authenticated');
   INSERT INTO customers (branch_id, full_name, org_id) VALUES (a1, 'Referred Cust', oa) RETURNING id INTO cu2;
@@ -1659,7 +1659,7 @@ BEGIN
     (u_pr1, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-agpr1-' || sfx || '@test.invalid', now(), now()),
     (u_pr2, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-agpr2-' || sfx || '@test.invalid', now(), now()),
     (u_sa2, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-agsa2-' || sfx || '@test.invalid', now(), now());
-  UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3d
+  UPDATE public.users SET dentist_id = NULL WHERE id IN (SELECT uid FROM t_actor WHERE name = 'practitioner');   -- merge glue (CMD-79 + CMD-78): dentist_id is unique; the shared practitioner is re-linked at the start of section 3h
   INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active, dentist_id) VALUES
     (u_pr1, 'rls-agpr1-' || sfx || '@test.invalid', 'Agent Practitioner One', 'practitioner', a1, oa, true, d_pr1),
     (u_pr2, 'rls-agpr2-' || sfx || '@test.invalid', 'Agent Practitioner Two', 'practitioner', a1, oa, true, d_pr2),
@@ -2644,7 +2644,7 @@ BEGIN
   END LOOP;
 END $neworg$;
 
--- ───────────────────────────── 3d. PRACTITIONER ACCESS LEVEL (migration-011) ─────────────────────────────
+-- ───────────────────────────── 3h. PRACTITIONER ACCESS LEVEL (migration-011) ─────────────────────────────
 -- Actors: 'practitioner' (users.role = practitioner, linked to Dr A1), 'practitioner_no_profile' (role only, no dentist link),
 -- 'staff' (control), 'customer_no_staff_row' (a signed-in patient: NO users row, so get_user_role() IS NULL).
 -- Seeded: bk_mine_bd (Dr A1 via booking_dentists), bk_mine_col (Dr A1 via bookings.dentist_id only), bk_nobody (branch A1, nobody's).
@@ -2786,7 +2786,7 @@ BEGIN
   INSERT INTO t_res VALUES ('PRACT', 'customer_no_staff_row', 'patient booking UPDATE not newly blocked by an error', CASE WHEN r IN ('ok:0', 'ok:1', 'denied') THEN 'PASS' ELSE 'FAIL' END, 'got ' || r || ' (same as before: patients have no UPDATE policy)');
 END $prac$;
 
--- ───────────────────────────── 3e. PATIENTS DATA LAYER (migration-019, CMD-100) ─────────────────────────────
+-- ───────────────────────────── 3i. PATIENTS DATA LAYER (migration-019, CMD-100) ─────────────────────────────
 -- Front desk wall (database + storage), org-scoped reads, patient number, families and the shared phone, alerts, forms (anon token), archive,
 -- erase, merge, consent. Needs 011, 012, 013 and 019, otherwise skipped. Seeds its own rows; the final ROLLBACK removes them.
 CREATE FUNCTION pg_temp.pt_q(p_actor text, p_sql text) RETURNS jsonb LANGUAGE sql AS $$ SELECT pg_temp.act_run(p_actor, p_sql, 0) $$;
