@@ -20,7 +20,7 @@ const Star = ({ on, onToggle, label, className = '' }) => (
     aria-pressed={on}
     aria-label={on ? `Remove ${label} from favourites` : `Add ${label} to favourites`}
     title={on ? 'Remove from favourites' : 'Add to favourites'}
-    className={`p-1.5 rounded-spa hover:bg-black/[0.05] spa-transition-fast ${on ? 'text-warning' : 'text-text-tertiary hover:text-text-secondary'} ${className}`}
+    className={`p-1.5 rounded-spa hover:bg-black/5 spa-transition-fast ${on ? 'text-warning' : 'text-text-tertiary hover:text-text-secondary'} ${className}`}
   >
     <Icon name="Star" size={16} fill={on ? 'currentColor' : 'none'} />
   </button>
@@ -57,12 +57,12 @@ const ReportsLayout = ({ view, renderReport }) => {
   const menuTop = (
     <>
       <button type="button" className={menuRow(view === 'all-reports' && tab !== 'favourites')} onClick={openCatalogue}>
-        <Icon name="LayoutList" size={15} className="flex-shrink-0" />
+        <Icon name="LayoutList" size={15} className="shrink-0" />
         <span className="flex-1">All reports</span>
         <span className="text-[11px] text-text-tertiary tabular-nums">{visible.length}</span>
       </button>
       <button type="button" className={`${menuRow(view === 'all-reports' && tab === 'favourites')} mt-0.5`} onClick={() => go('all-reports', { tab: 'favourites' })}>
-        <Icon name="Star" size={15} className="flex-shrink-0" />
+        <Icon name="Star" size={15} className="shrink-0" />
         <span className="flex-1">Favourites</span>
         <span className="text-[11px] text-text-tertiary tabular-nums">{favCount}</span>
       </button>
@@ -78,11 +78,11 @@ const ReportsLayout = ({ view, renderReport }) => {
     const groups = REPORT_CATEGORIES.map((c) => ({ ...c, items: matches.filter((r) => r.category === c.id) })).filter((c) => c.items.length);
     return (
       <>
-        <div className="px-4 sm:px-6 lg:px-8 pt-5 pb-4 border-b border-border flex-shrink-0">
+        <div className="px-4 sm:px-6 lg:px-8 pt-5 pb-4 border-b border-border shrink-0">
           <div className="flex items-center gap-2">
             {reopen}
             <h1 className="font-heading font-heading-semibold text-xl text-text-primary">{tab === 'favourites' ? 'Favourites' : 'All reports'}</h1>
-            <span className="px-2 py-0.5 rounded-full bg-black/[0.05] text-[11px] font-medium text-text-secondary tabular-nums">{base.length}</span>
+            <span className="px-2 py-0.5 rounded-full bg-black/5 text-[11px] font-medium text-text-secondary tabular-nums">{base.length}</span>
           </div>
           <p className="mt-1 text-[13px] text-text-secondary">{tab === 'favourites' ? 'Your starred reports.' : `Every report for ${scope}.`}</p>
           <div className="relative mt-4 max-w-md">
@@ -93,7 +93,7 @@ const ReportsLayout = ({ view, renderReport }) => {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search reports"
               aria-label="Search reports"
-              className="w-full h-9 pl-9 pr-3 rounded-spa-lg border border-border bg-surface text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="w-full h-9 pl-9 pr-3 rounded-spa-lg border border-border bg-surface text-sm text-text-primary placeholder:text-text-tertiary focus:outline-hidden focus:ring-2 focus:ring-primary/30"
             />
           </div>
         </div>
@@ -113,9 +113,9 @@ const ReportsLayout = ({ view, renderReport }) => {
                     tabIndex={0}
                     onClick={() => go(r.view)}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(r.view); } }}
-                    className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-black/[0.02] focus:outline-none focus-visible:bg-black/[0.03]"
+                    className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-black/2 focus:outline-hidden focus-visible:bg-black/3"
                   >
-                    <span className="w-10 h-10 rounded-spa-lg bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                    <span className="w-10 h-10 rounded-spa-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
                       <Icon name={r.icon} size={18} />
                     </span>
                     <span className="flex-1 min-w-0">

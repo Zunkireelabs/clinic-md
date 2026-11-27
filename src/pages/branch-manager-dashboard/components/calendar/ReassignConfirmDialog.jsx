@@ -4,7 +4,7 @@ import { formatTimeDisplay } from './calendarDates';
 
 // Confirmation for a drag that changes a booking's column (reassign / consolidate) or reschedules a shared booking.
 const ReassignConfirmDialog = ({ pendingReassign, calendarData, staffLabel, locationLabel, onCancel, onConfirm }) => (
-  <div className="fixed inset-0 bg-text-primary/50 backdrop-blur-sm z-modal flex items-center justify-center p-4">
+  <div className="fixed inset-0 bg-text-primary/50 backdrop-blur-xs z-modal flex items-center justify-center p-4">
     <div className="bg-surface rounded-spa-lg spa-shadow-modal p-6 max-w-sm w-full animate-fade-in">
       <div className="flex items-center gap-2 mb-4">
         <Icon name={pendingReassign.timeOnly ? 'Clock' : pendingReassign.isSharedReassign ? 'Users' : (pendingReassign.type === 'dentist' ? 'UserCheck' : 'DoorOpen')} size={20} className={pendingReassign.isSharedReassign ? 'text-violet-500' : 'text-primary'} />

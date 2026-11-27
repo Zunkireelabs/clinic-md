@@ -101,7 +101,7 @@ const NotificationBell = ({ notifications = [], unreadCount = 0, onMarkAllRead, 
                     onClick={() => { onItemClick?.(n); setOpen(false); }}
                     className={`w-full text-left flex items-start gap-3 px-4 py-3 border-b border-gray-50 last:border-b-0 hover:bg-gray-50 spa-transition-fast ${n.read ? '' : 'bg-primary/5'}`}
                   >
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${iconWrap}`}>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${iconWrap}`}>
                       <Icon name={iconName} size={15} className={iconColor} />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -135,7 +135,7 @@ const NotificationBell = ({ notifications = [], unreadCount = 0, onMarkAllRead, 
                         </>
                       )}
                     </div>
-                    {!n.read && <span className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${dotColor}`} />}
+                    {!n.read && <span className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${dotColor}`} />}
                   </button>
                 );
               })

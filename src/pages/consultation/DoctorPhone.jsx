@@ -238,7 +238,7 @@ const DoctorPhone = () => {
         <div className="grid grid-cols-2 gap-1 p-1 bg-white rounded-2xl shadow-md border border-gray-100">
           {[['now', 'Record'], ['history', 'History']].map(([id, label]) => (
             <button key={id} type="button" onClick={() => { setTab(id); setDetail(null); }}
-                    className={`py-2.5 rounded-xl text-sm font-medium transition ${tab === id ? 'bg-primary text-white shadow-sm' : 'text-text-secondary'}`}>
+                    className={`py-2.5 rounded-xl text-sm font-medium transition ${tab === id ? 'bg-primary text-white shadow-xs' : 'text-text-secondary'}`}>
               {label}
             </button>
           ))}
@@ -274,7 +274,7 @@ const DoctorPhone = () => {
                   key={b.id}
                   type="button"
                   onClick={() => { suppressAutoRef.current = true; setActive({ bookingId: b.id, nonce: Date.now() }); }}
-                  className="w-full text-left bg-white rounded-2xl border border-gray-200 shadow-sm active:scale-[0.99] hover:border-primary p-4 flex items-center gap-3"
+                  className="w-full text-left bg-white rounded-2xl border border-gray-200 shadow-xs active:scale-[0.99] hover:border-primary p-4 flex items-center gap-3"
                 >
                   <span className="w-11 h-11 rounded-full bg-primary text-white flex items-center justify-center shrink-0"><Icon name="Mic" size={20} /></span>
                   <span className="min-w-0">
@@ -288,7 +288,7 @@ const DoctorPhone = () => {
         </div>
 
         <details className="text-left group">
-          <summary className="flex items-center gap-3 cursor-pointer list-none bg-white rounded-2xl border border-gray-200 shadow-sm px-4 py-3.5 active:bg-gray-50">
+          <summary className="flex items-center gap-3 cursor-pointer list-none bg-white rounded-2xl border border-gray-200 shadow-xs px-4 py-3.5 active:bg-gray-50">
             <span className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0"><Icon name="Settings" size={20} /></span>
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-medium text-text-primary">Phone setup</span>
@@ -299,9 +299,9 @@ const DoctorPhone = () => {
           </summary>
           <div className="mt-3 space-y-3">
             {/* 1. Home Screen icon */}
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden text-left">
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden text-left">
               <div className="flex items-center gap-3 p-4">
-                <span className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary to-[#0a4d63] text-white flex items-center justify-center shrink-0"><Icon name="SquarePlus" size={22} /></span>
+                <span className="w-11 h-11 rounded-xl bg-linear-to-br from-primary to-[#0a4d63] text-white flex items-center justify-center shrink-0"><Icon name="SquarePlus" size={22} /></span>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-text-primary">Add to Home Screen</p>
                   <p className="text-xs text-text-tertiary">One tap from your Home Screen starts recording</p>
@@ -328,14 +328,14 @@ const DoctorPhone = () => {
                         <div className="grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-xl">
                           {[['ios', 'iPhone'], ['android', 'Android']].map(([id, label]) => (
                             <button key={id} type="button" onClick={() => setInstallOs(id)}
-                                    className={`py-1.5 rounded-lg text-xs font-medium transition ${os === id ? 'bg-white text-primary shadow-sm' : 'text-text-secondary'}`}>
+                                    className={`py-1.5 rounded-lg text-xs font-medium transition ${os === id ? 'bg-white text-primary shadow-xs' : 'text-text-secondary'}`}>
                               {label}
                             </button>
                           ))}
                         </div>
                         {os === 'android' && installApp.canPrompt && (
                           <button type="button" onClick={installApp.install}
-                                  className="w-full h-11 rounded-xl bg-primary text-white text-sm font-medium shadow-sm shadow-primary/30 active:scale-[0.98] transition">
+                                  className="w-full h-11 rounded-xl bg-primary text-white text-sm font-medium shadow-xs shadow-primary/30 active:scale-[0.98] transition">
                             Install Doctor app
                           </button>
                         )}
@@ -363,9 +363,9 @@ const DoctorPhone = () => {
             </div>
 
             {/* 2. Notifications */}
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden text-left">
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden text-left">
               <div className="flex items-center gap-3 p-4">
-                <span className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${push.subscribed ? 'bg-success/10 text-success' : 'bg-gradient-to-br from-primary to-[#0a4d63] text-white'}`}>
+                <span className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${push.subscribed ? 'bg-success/10 text-success' : 'bg-linear-to-br from-primary to-[#0a4d63] text-white'}`}>
                   <Icon name={push.subscribed ? 'BellRing' : 'Bell'} size={22} />
                 </span>
                 <div className="min-w-0 flex-1">
@@ -390,7 +390,7 @@ const DoctorPhone = () => {
                     </div>
                   ) : (
                     <button type="button" onClick={push.enable} disabled={push.busy || !push.configured}
-                            className="w-full h-11 rounded-xl bg-primary text-white text-sm font-medium shadow-sm shadow-primary/30 active:scale-[0.98] transition disabled:opacity-60">
+                            className="w-full h-11 rounded-xl bg-primary text-white text-sm font-medium shadow-xs shadow-primary/30 active:scale-[0.98] transition disabled:opacity-60">
                       {push.busy ? 'Turning on…' : 'Turn on notifications'}
                     </button>
                   )
@@ -415,7 +415,7 @@ const DoctorPhone = () => {
 
       {/* Always visible while on the Doctor home (not while reading a past consultation, which has its own Close). */}
       {!(tab === 'history' && detail) && (
-        <div className="fixed bottom-0 inset-x-0 z-10 px-5 pt-6 pb-[max(1rem,env(safe-area-inset-bottom))] bg-gradient-to-t from-background via-background/95 to-transparent pointer-events-none">
+        <div className="fixed bottom-0 inset-x-0 z-10 px-5 pt-6 pb-[max(1rem,env(safe-area-inset-bottom))] bg-linear-to-t from-background via-background/95 to-transparent pointer-events-none">
           <div className="max-w-sm mx-auto pointer-events-auto">
             <button type="button" onClick={closeApp}
                     className="w-full h-12 rounded-2xl bg-white border border-gray-200 shadow-md text-sm font-medium text-text-primary flex items-center justify-center gap-2.5 active:scale-[0.98] transition">

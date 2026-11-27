@@ -145,7 +145,7 @@ const DailyOperationalReportPanel = ({ branchId }) => {
       <div className="bg-surface rounded-spa p-4 sm:p-6 border border-border">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 bg-primary/10 rounded-spa flex items-center justify-center flex-shrink-0">
+            <div className="w-10 h-10 bg-primary/10 rounded-spa flex items-center justify-center shrink-0">
               <Icon name="FileText" size={20} className="text-primary" />
             </div>
             <div className="min-w-0">
@@ -657,7 +657,7 @@ const DailyOperationalReportPanel = ({ branchId }) => {
 
       {/* Unpaid Warning Confirmation Modal */}
       {showConfirmModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-modal-overlay flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-modal-overlay flex items-center justify-center p-4">
           <div className="bg-surface rounded-spa shadow-xl w-full max-w-md animate-fade-in">
             <div className="p-6 space-y-4">
               <div className="flex items-center gap-3">

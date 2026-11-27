@@ -30,7 +30,7 @@ const AreaTabs = ({ area, view, children }) => {
   };
 
   const tabRow = tabs.length > 1 ? (
-    <div ref={listRef} role="tablist" aria-label={areaTitle} onKeyDown={onKeyDown} className="mt-2 -mb-[13px] flex gap-6 overflow-x-auto whitespace-nowrap">
+    <div ref={listRef} role="tablist" aria-label={areaTitle} onKeyDown={onKeyDown} className="mt-2 mb-[-13px] flex gap-6 overflow-x-auto whitespace-nowrap">
       {tabs.map((t) => {
         const active = t.view === view;
         return (
@@ -40,7 +40,7 @@ const AreaTabs = ({ area, view, children }) => {
             aria-selected={active}
             tabIndex={active ? 0 : -1}
             to={{ search: `?view=${t.view}` }}
-            className={`py-2.5 px-1 border-b-2 spa-transition-fast font-body font-body-medium text-sm focus:outline-none focus-visible:text-text-primary ${
+            className={`py-2.5 px-1 border-b-2 spa-transition-fast font-body font-body-medium text-sm focus:outline-hidden focus-visible:text-text-primary ${
               active ? 'border-primary text-primary' : 'border-transparent text-text-secondary hover:text-text-primary'
             }`}
           >

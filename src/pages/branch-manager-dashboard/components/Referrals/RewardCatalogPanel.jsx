@@ -153,7 +153,7 @@ const RewardCatalogPanel = () => {
                   <td className="px-4 py-3">
                     <button
                       onClick={() => handleToggleActive(item)}
-                      className={`px-2 py-0.5 rounded text-xs ${item.is_active ? 'bg-success/10 text-success' : 'bg-gray-100 text-gray-500'}`}
+                      className={`px-2 py-0.5 rounded-sm text-xs ${item.is_active ? 'bg-success/10 text-success' : 'bg-gray-100 text-gray-500'}`}
                     >
                       {item.is_active ? 'Active' : 'Inactive'}
                     </button>

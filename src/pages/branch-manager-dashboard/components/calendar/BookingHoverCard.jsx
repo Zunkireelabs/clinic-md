@@ -144,9 +144,9 @@ export function AlertsBlock({ patientNotes, specialRequests, className = '' }) {
     <div className={`rounded-spa px-3 py-2 space-y-1.5 ${className}`} style={{ backgroundColor: AMBER.fill, color: AMBER.text }} role="note" aria-label="Alerts">
       {rows.map((r) => (
         <div key={r.key} className="flex items-start gap-2 text-[13px] leading-snug">
-          <Icon name={r.icon} size={14} className="mt-0.5 flex-shrink-0" />
-          <span className="flex-1 min-w-0 break-words" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{r.text}</span>
-          <span className="flex-shrink-0 text-[10px] uppercase tracking-wider opacity-70 mt-0.5">{r.tag}</span>
+          <Icon name={r.icon} size={14} className="mt-0.5 shrink-0" />
+          <span className="flex-1 min-w-0 wrap-break-word" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{r.text}</span>
+          <span className="shrink-0 text-[10px] uppercase tracking-wider opacity-70 mt-0.5">{r.tag}</span>
         </div>
       ))}
     </div>
@@ -155,7 +155,7 @@ export function AlertsBlock({ patientNotes, specialRequests, className = '' }) {
 
 function Avatars({ names }) {
   return (
-    <span className="flex -space-x-1.5 flex-shrink-0">
+    <span className="flex -space-x-1.5 shrink-0">
       {names.slice(0, 3).map((n) => (
         <span key={n} className="w-5 h-5 rounded-full bg-gray-100 text-gray-700 ring-2 ring-surface flex items-center justify-center text-[9px] font-medium">{initialsOf(n)}</span>
       ))}
@@ -179,8 +179,8 @@ export function BookingHoverContent({ booking, draggable }) {
     <div className="p-4 space-y-2 text-[13px] text-text-primary">
       <div className="flex items-center gap-2 min-w-0">
         <span className="font-body text-[15px] font-semibold text-text-primary truncate min-w-0">{booking.customerName}</span>
-        {booking.isNewCustomer && <span className="flex-shrink-0 px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium">New</span>}
-        <span className="ml-auto flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-medium whitespace-nowrap" style={{ backgroundColor: colors.fill, color: colors.text }}>{booking.status}</span>
+        {booking.isNewCustomer && <span className="shrink-0 px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium">New</span>}
+        <span className="ml-auto shrink-0 px-2 py-0.5 rounded-full text-[11px] font-medium whitespace-nowrap" style={{ backgroundColor: colors.fill, color: colors.text }}>{booking.status}</span>
       </div>
       <div className="font-body text-text-primary">{[range, booking.treatmentName].filter(Boolean).join(' · ')}</div>
       {(names.length > 0 || booking.chairName) && (
@@ -190,10 +190,10 @@ export function BookingHoverContent({ booking, draggable }) {
         </div>
       )}
 
-      <AlertsBlock patientNotes={booking.patientNotes} specialRequests={booking.specialRequests} className="!mt-3" />
+      <AlertsBlock patientNotes={booking.patientNotes} specialRequests={booking.specialRequests} className="mt-3!" />
       {booking.referredBy && <div className="text-xs text-text-secondary">Referred by {booking.referredBy}</div>}
 
-      <div className="border-t border-border pt-2 !mt-3 space-y-2">
+      <div className="border-t border-border pt-2 mt-3! space-y-2">
         <div className="flex items-center flex-wrap gap-x-2 gap-y-1">
           {amount != null && <span className="font-semibold tabular-nums text-text-primary">{npr(amount)}</span>}
           <span className="px-2 py-0.5 rounded-full text-[11px] font-medium" style={{ backgroundColor: pill.fill, color: pill.text }}>{pill.label}</span>
@@ -202,14 +202,14 @@ export function BookingHoverContent({ booking, draggable }) {
         </div>
         {phone && (
           <div className="group flex items-center gap-2">
-            <Icon name="Phone" size={14} className="text-text-tertiary flex-shrink-0" />
+            <Icon name="Phone" size={14} className="text-text-tertiary shrink-0" />
             <a href={`tel:${String(booking.customerPhone).replace(/\s/g, '')}`} className="tabular-nums hover:underline">{phone}</a>
             <span className="ml-auto opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"><CopyButton value={String(booking.customerPhone)} label="Copy phone" /></span>
           </div>
         )}
       </div>
 
-      <div className="border-t border-border pt-2 !mt-3 flex items-center gap-1 text-[11px] text-text-tertiary">
+      <div className="border-t border-border pt-2 mt-3! flex items-center gap-1 text-[11px] text-text-tertiary">
         {booking.bookingNumber && (
           <>
             <span className="tabular-nums">{booking.bookingNumber}</span>

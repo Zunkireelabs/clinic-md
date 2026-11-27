@@ -116,7 +116,7 @@ const CustomerAutocomplete = ({
         onBlur={onBlur}
         required={required}
         placeholder={placeholder}
-        className={inputClassName || "w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"}
+        className={inputClassName || "w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"}
       />
 
       {showSuggestions && (
@@ -146,7 +146,7 @@ const CustomerAutocomplete = ({
                 {m && (
                   <span
                     title={[m.tierName, m.membershipNumber, m.status !== 'active' ? m.status : null].filter(Boolean).join(' · ')}
-                    className={`flex-shrink-0 max-w-[6.5rem] truncate inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium tracking-wide ${pillClass}`}
+                    className={`shrink-0 max-w-26 truncate inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium tracking-wide ${pillClass}`}
                   >
                     {m.tierName || m.membershipNumber}
                     {m.status !== 'active' && ` · ${m.status}`}

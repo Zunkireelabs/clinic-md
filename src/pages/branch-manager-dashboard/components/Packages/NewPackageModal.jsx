@@ -196,7 +196,7 @@ const NewPackageModal = ({ onClose, onIssued }) => {
             <div className="px-5 py-4 space-y-4">
               {isOverall && (
                 <div className="bg-amber-50 border border-amber-200 rounded-spa px-3 py-2 flex items-start space-x-2">
-                  <Icon name="AlertTriangle" size={14} className="text-amber-700 flex-shrink-0 mt-0.5" />
+                  <Icon name="AlertTriangle" size={14} className="text-amber-700 shrink-0 mt-0.5" />
                   <p className="font-body text-xs text-amber-900">
                     Switch to a specific branch (not "Overall") before issuing a package — it needs one branch to issue against.
                   </p>
@@ -215,7 +215,7 @@ const NewPackageModal = ({ onClose, onIssued }) => {
 
               {loadError && (
                 <div className="bg-error/5 border border-error/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-                  <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0 mt-0.5" />
+                  <Icon name="AlertCircle" size={14} className="text-error shrink-0 mt-0.5" />
                   <p className="font-body text-xs text-error">{loadError}</p>
                 </div>
               )}
@@ -242,7 +242,7 @@ const NewPackageModal = ({ onClose, onIssued }) => {
                     branchId={branchId}
                     searchBy="name"
                     placeholder="Full name"
-                    inputClassName="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    inputClassName="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                   />
                 </div>
                 <div className="min-w-0">
@@ -254,7 +254,7 @@ const NewPackageModal = ({ onClose, onIssued }) => {
                       value={guestPhone}
                       onChange={(e) => setGuestPhone(e.target.value)}
                       placeholder="9841234567"
-                      className="flex-1 min-w-0 h-10 px-3 text-sm border border-border rounded-r-spa rounded-l-none bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                      className="flex-1 min-w-0 h-10 px-3 text-sm border border-border rounded-r-spa rounded-l-none bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                     />
                   </div>
                 </div>
@@ -267,7 +267,7 @@ const NewPackageModal = ({ onClose, onIssued }) => {
                   value={guestOtherInfo}
                   onChange={(e) => setGuestOtherInfo(e.target.value)}
                   placeholder="Company or club name..."
-                  className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 />
               </div>
 
@@ -300,7 +300,7 @@ const NewPackageModal = ({ onClose, onIssued }) => {
                     step="1"
                     value={sessionsTotal}
                     onChange={(e) => setSessionsTotal(e.target.value)}
-                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                   />
                 </div>
                 <div>
@@ -311,7 +311,7 @@ const NewPackageModal = ({ onClose, onIssued }) => {
                     step="any"
                     value={paidAmount}
                     onChange={(e) => setPaidAmount(e.target.value)}
-                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                   />
                 </div>
               </div>
@@ -323,7 +323,7 @@ const NewPackageModal = ({ onClose, onIssued }) => {
                     type="date"
                     value={issuedDate}
                     onChange={(e) => handleIssuedDateChange(e.target.value)}
-                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                   />
                 </div>
                 <div>
@@ -332,7 +332,7 @@ const NewPackageModal = ({ onClose, onIssued }) => {
                     type="date"
                     value={expiryDate}
                     onChange={(e) => { setExpiryDate(e.target.value); setExpiryTouched(true); }}
-                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                   />
                 </div>
               </div>
@@ -349,13 +349,13 @@ const NewPackageModal = ({ onClose, onIssued }) => {
                   onChange={(e) => setRemarks(e.target.value)}
                   rows={2}
                   placeholder="Anything to remember for this package..."
-                  className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
+                  className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
                 />
               </div>
 
               {error && (
                 <div className="bg-error/5 border border-error/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-                  <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0 mt-0.5" />
+                  <Icon name="AlertCircle" size={14} className="text-error shrink-0 mt-0.5" />
                   <p className="font-body text-xs text-error">{error}</p>
                 </div>
               )}

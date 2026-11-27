@@ -12,7 +12,7 @@ import { rowToReportData } from '../../utils/consultationHistory';
 
 const npr = (n) => `NPR ${Number(n || 0).toLocaleString('en-IN')}`;
 const fmt = (d) => new Date(`${String(d).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-const Empty = ({ children }) => <p className="text-center text-[13px] text-[#8A8A90] py-14">{children}</p>;
+const Empty = ({ children }) => <p className="text-center text-[13px] text-text-tertiary py-14">{children}</p>;
 const Card = ({ children, className = '' }) => <div className={`border border-border rounded-lg bg-white ${className}`}>{children}</div>;
 
 const STATUS = { 'In-Progress': 'In progress', 'No Show': 'No show' };
@@ -42,14 +42,14 @@ export const VisitsTab = ({ bookings, consultations, notes, customerName, onOpen
           return (
             <li key={b.id} className="border-b border-[#F1F1F3] last:border-0">
               <button type="button" aria-expanded={isOpen} onClick={() => setOpen((m) => ({ ...m, [b.id]: !isOpen }))} className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-[#FAFAFB]">
-                <span className="w-24 text-[12.5px] text-[#8A8A90] flex-shrink-0 tabular-nums">{fmt(b.date)}</span>
+                <span className="w-24 text-[12.5px] text-text-tertiary shrink-0 tabular-nums">{fmt(b.date)}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-[13.5px] font-medium truncate">{visit.treatmentName}</span>
-                  <span className="block text-[12.5px] text-[#8A8A90] truncate">{visit.dentistName} · {b.booking_number}</span>
+                  <span className="block text-[12.5px] text-text-tertiary truncate">{visit.dentistName} · {b.booking_number}</span>
                 </span>
                 <span className="text-[12.5px] text-[#515152] hidden sm:block">{STATUS[b.status] || b.status}</span>
-                <span className="text-[12.5px] text-[#8A8A90] tabular-nums w-44 text-right hidden sm:block">{moneyLabel(b, today)}</span>
-                <Icon name="ChevronDown" size={16} className={`text-[#8A8A90] transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                <span className="text-[12.5px] text-text-tertiary tabular-nums w-44 text-right hidden sm:block">{moneyLabel(b, today)}</span>
+                <Icon name="ChevronDown" size={16} className={`text-text-tertiary transition-transform ${isOpen ? 'rotate-180' : ''}`} />
               </button>
               {isOpen && (
                 <div className="border-t border-[#F1F1F3]">
@@ -67,7 +67,7 @@ export const VisitsTab = ({ bookings, consultations, notes, customerName, onOpen
 
 // ── Clinical notes: consultations, newest first ──────────────────────────────────────────────
 const Section = ({ label, children }) => (children ? (
-  <div><h4 className="text-[11.5px] font-medium uppercase tracking-[.05em] text-[#8A8A90] mb-1">{label}</h4><NoteText text={children} className="text-[13.5px]" /></div>
+  <div><h4 className="text-[11.5px] font-medium uppercase tracking-wider text-text-tertiary mb-1">{label}</h4><NoteText text={children} className="text-[13.5px]" /></div>
 ) : null);
 
 const ConsultationCard = ({ c, focus, customerName }) => {
@@ -81,12 +81,12 @@ const ConsultationCard = ({ c, focus, customerName }) => {
     <Card className={focus ? 'ring-2 ring-primary/30' : ''}>
       <div ref={ref}>
         <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-[#FAFAFB]">
-          <span className="w-24 text-[12.5px] text-[#8A8A90] flex-shrink-0">{fmt(c.session_date || c.created_at)}</span>
+          <span className="w-24 text-[12.5px] text-text-tertiary shrink-0">{fmt(c.session_date || c.created_at)}</span>
           <span className="min-w-0 flex-1">
             <span className="block text-[13.5px] font-medium">Consultation notes</span>
-            <span className="block text-[12.5px] text-[#8A8A90] truncate">{[capturedLine(c), consultationDoctor(c)].filter(Boolean).join(' · ')}</span>
+            <span className="block text-[12.5px] text-text-tertiary truncate">{[capturedLine(c), consultationDoctor(c)].filter(Boolean).join(' · ')}</span>
           </span>
-          <Icon name="ChevronDown" size={16} className={`text-[#8A8A90] transition-transform ${open ? 'rotate-180' : ''}`} />
+          <Icon name="ChevronDown" size={16} className={`text-text-tertiary transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>
         {open && (
           <div className="px-4 pb-4 pt-3 border-t border-[#F1F1F3] space-y-4">
@@ -101,7 +101,7 @@ const ConsultationCard = ({ c, focus, customerName }) => {
             <Section label="Doctor's notes">{c.doctor_notes}</Section>
             <Section label="Private notes (staff only)">{c.additional_notes}</Section>
             {c.transcript && <details className="text-[13px]"><summary className="cursor-pointer text-[#515152]">Transcript</summary><p className="mt-2 whitespace-pre-wrap text-[#515152]">{c.transcript}</p></details>}
-            {!structured && !c.final_summary && !c.preliminary_summary && !c.doctor_notes && !c.additional_notes && !c.transcript && <p className="text-[13px] text-[#8A8A90]">Nothing written down for this consultation.</p>}
+            {!structured && !c.final_summary && !c.preliminary_summary && !c.doctor_notes && !c.additional_notes && !c.transcript && <p className="text-[13px] text-text-tertiary">Nothing written down for this consultation.</p>}
             <button type="button" onClick={report} className="h-7 px-2.5 rounded-md border border-border bg-white text-[12.5px] font-medium inline-flex items-center gap-1.5 hover:bg-[#FAFAFB]"><Icon name="FileText" size={13} />Download PDF report</button>
           </div>
         )}
@@ -131,7 +131,7 @@ const Thumb = ({ item, onOpen }) => {
   return (
     <button type="button" onClick={onOpen} aria-label={`Open ${item.label}`} className="relative w-32 h-32 rounded-lg border border-border bg-[#FAFAFB] overflow-hidden grid place-items-center hover:ring-2 hover:ring-primary/30">
       {url ? <img src={url} alt={item.label} loading="lazy" className="w-full h-full object-cover" /> : <Icon name="Image" size={20} className="text-[#B4B4BA]" />}
-      <span className="absolute left-1.5 bottom-1.5 h-5 px-1.5 rounded bg-black/60 text-white text-[11px] font-medium inline-flex items-center">{item.label}</span>
+      <span className="absolute left-1.5 bottom-1.5 h-5 px-1.5 rounded-sm bg-black/60 text-white text-[11px] font-medium inline-flex items-center">{item.label}</span>
     </button>
   );
 };
@@ -154,7 +154,7 @@ const Lightbox = ({ items, index, onClose, onIndex }) => {
       {index > 0 && <button type="button" aria-label="Previous image" onClick={(e) => { e.stopPropagation(); onIndex(index - 1); }} className="absolute left-4 w-9 h-9 rounded-md grid place-items-center text-white/80 hover:bg-white/10"><Icon name="ChevronLeft" size={22} /></button>}
       {index < items.length - 1 && <button type="button" aria-label="Next image" onClick={(e) => { e.stopPropagation(); onIndex(index + 1); }} className="absolute right-4 w-9 h-9 rounded-md grid place-items-center text-white/80 hover:bg-white/10"><Icon name="ChevronRight" size={22} /></button>}
       <div onClick={(e) => e.stopPropagation()} className="max-w-full max-h-full text-center">
-        {url ? <img src={url} alt={item.label} className="max-w-[90vw] max-h-[82vh] object-contain rounded" /> : <div className="w-64 h-64 grid place-items-center text-white/60">Loading…</div>}
+        {url ? <img src={url} alt={item.label} className="max-w-[90vw] max-h-[82vh] object-contain rounded-sm" /> : <div className="w-64 h-64 grid place-items-center text-white/60">Loading…</div>}
         <p className="text-white/80 text-[13px] mt-2">{item.label} · {index + 1} of {items.length}</p>
       </div>
     </div>
@@ -171,7 +171,7 @@ export const MediaTab = ({ groups }) => {
     <div className="space-y-6">
       {groups.map((g) => (
         <section key={g.date}>
-          <h3 className="text-[12.5px] font-medium text-[#8A8A90] mb-2">{shortDate(g.date)} {g.date.slice(0, 4)}</h3>
+          <h3 className="text-[12.5px] font-medium text-text-tertiary mb-2">{shortDate(g.date)} {g.date.slice(0, 4)}</h3>
           <div className="flex flex-wrap gap-2.5">{g.items.map((it) => { n += 1; const idx = n; return <Thumb key={`${it.path}`} item={it} onOpen={() => setOpen(idx)} />; })}</div>
         </section>
       ))}
@@ -188,7 +188,7 @@ export const BillingTab = ({ patient, bookings, stats, today }) => {
       <div className="grid grid-cols-2 lg:grid-cols-4 border border-border rounded-lg bg-white overflow-hidden">
         {rows.map(([k, v, amber], i) => (
           <div key={k} className={`px-4 py-3 ${i ? 'border-l border-border' : ''}`}>
-            <p className="text-[12px] text-[#8A8A90]">{k}</p>
+            <p className="text-[12px] text-text-tertiary">{k}</p>
             <p className={`text-[15px] font-semibold mt-1 tabular-nums ${amber ? 'text-[#B45309]' : ''}`}>{v}</p>
           </div>
         ))}
@@ -201,10 +201,10 @@ export const BillingTab = ({ patient, bookings, stats, today }) => {
               const label = moneyLabel(b, today) || (STATUS[b.status] || b.status);
               return (
                 <li key={b.id} className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[#F1F1F3] last:border-0 text-[13px]">
-                  <div className="min-w-0"><p className="font-medium truncate">{b.treatment_name_snapshot}</p><p className="text-[12.5px] text-[#8A8A90]">{fmt(b.date)} · {b.booking_number}</p></div>
-                  <div className="text-right flex-shrink-0">
+                  <div className="min-w-0"><p className="font-medium truncate">{b.treatment_name_snapshot}</p><p className="text-[12.5px] text-text-tertiary">{fmt(b.date)} · {b.booking_number}</p></div>
+                  <div className="text-right shrink-0">
                     <p className="font-medium tabular-nums">{npr(b.final_amount)}</p>
-                    <p className={`text-[12.5px] ${m.due > 0 ? 'text-[#B45309]' : 'text-[#8A8A90]'}`}>{['Cancelled', 'No Show'].includes(b.status) ? STATUS[b.status] || b.status : label}</p>
+                    <p className={`text-[12.5px] ${m.due > 0 ? 'text-[#B45309]' : 'text-text-tertiary'}`}>{['Cancelled', 'No Show'].includes(b.status) ? STATUS[b.status] || b.status : label}</p>
                   </div>
                 </li>
               );

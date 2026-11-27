@@ -23,10 +23,10 @@ const NoteText = ({ text, className = '' }) => {
   const blocks = parseNoteLines(text);
   if (!blocks.length) return null;
   return (
-    <div className={`space-y-1 break-words ${className}`}>
+    <div className={`space-y-1 wrap-break-word ${className}`}>
       {blocks.map((b, i) => (b.type === 'list'
         ? (
-          <ul key={i} className="list-disc pl-5 space-y-0.5 marker:text-[#8A8A90]">
+          <ul key={i} className="list-disc pl-5 space-y-0.5 marker:text-text-tertiary">
             {b.items.map((it, j) => (
               <li key={j}>{it.text}{it.children.length > 0 && <ul className="list-[circle] pl-5 mt-0.5 space-y-0.5">{it.children.map((c, k) => <li key={k}>{c}</li>)}</ul>}</li>
             ))}

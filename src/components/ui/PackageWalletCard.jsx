@@ -33,10 +33,10 @@ const PackageWalletCard = ({ packages, selectedPackageId = null, redeemDisabled 
           <div key={p.packageId} className="rounded-spa border bg-primary/5 border-primary/20 px-3 py-2.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2 min-w-0">
-                <Icon name="PackageCheck" size={14} className="text-primary flex-shrink-0" />
+                <Icon name="PackageCheck" size={14} className="text-primary shrink-0" />
                 <span className="font-body font-body-medium text-sm text-text-primary truncate">{p.packageName}</span>
               </div>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <span className="font-data font-data-medium text-sm text-primary">
                   {p.sessionsRemaining} / {p.sessionsTotal} sessions
                 </span>
@@ -51,19 +51,19 @@ const PackageWalletCard = ({ packages, selectedPackageId = null, redeemDisabled 
                 <button
                   type="button"
                   onClick={() => onUndo && onUndo(p)}
-                  className="text-[11px] font-caption text-primary hover:underline flex-shrink-0"
+                  className="text-[11px] font-caption text-primary hover:underline shrink-0"
                 >
                   Selected — undo
                 </button>
               ) : redeemDisabled ? (
-                <span className="text-[11px] font-caption text-text-tertiary flex-shrink-0">
+                <span className="text-[11px] font-caption text-text-tertiary shrink-0">
                   Booking already settled
                 </span>
               ) : (
                 <button
                   type="button"
                   onClick={() => onRedeem && onRedeem(p)}
-                  className="text-[11px] font-caption text-primary hover:underline flex-shrink-0"
+                  className="text-[11px] font-caption text-primary hover:underline shrink-0"
                 >
                   Redeem 1 Session
                 </button>

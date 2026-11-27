@@ -85,7 +85,7 @@ const BookingTimelinePanel = ({ booking, timeline }) => {
               {/* Timeline Item */}
               <div className="flex items-start space-x-4">
                 {/* Icon */}
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center bg-${colorClass}/10 flex-shrink-0`}>
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center bg-${colorClass}/10 shrink-0`}>
                   <Icon name={iconName} size={16} className={`text-${colorClass}`} />
                 </div>
                 
@@ -137,7 +137,7 @@ const BookingTimelinePanel = ({ booking, timeline }) => {
                     
                     {/* Status Badge */}
                     {item.status && (
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-caption font-caption-normal bg-${colorClass}/10 text-${colorClass} ml-3`}>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-caption font-caption-normal bg-${colorClass}/10 text-${colorClass} ml-3`}>
                         {item.status}
                       </span>
                     )}

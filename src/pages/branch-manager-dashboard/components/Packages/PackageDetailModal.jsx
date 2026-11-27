@@ -84,14 +84,14 @@ const PackageDetailModal = ({ packageId, onClose, onChanged: _onChanged }) => {
 
           {loading ? (
             <div className="p-8 space-y-3 animate-pulse">
-              <div className="h-4 bg-background rounded w-48" />
-              <div className="h-20 bg-background rounded" />
-              <div className="h-32 bg-background rounded" />
+              <div className="h-4 bg-background rounded-sm w-48" />
+              <div className="h-20 bg-background rounded-sm" />
+              <div className="h-32 bg-background rounded-sm" />
             </div>
           ) : loadError ? (
             <div className="p-5">
               <div className="bg-error/5 border border-error/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-                <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0 mt-0.5" />
+                <Icon name="AlertCircle" size={14} className="text-error shrink-0 mt-0.5" />
                 <p className="font-body text-xs text-error">{loadError}</p>
               </div>
             </div>
@@ -188,7 +188,7 @@ const PackageDetailModal = ({ packageId, onClose, onChanged: _onChanged }) => {
                             <p className="font-caption text-xs text-text-tertiary mt-0.5">{r.notes}</p>
                           )}
                         </div>
-                        <span className="font-data font-data-medium text-sm text-warning flex-shrink-0">
+                        <span className="font-data font-data-medium text-sm text-warning shrink-0">
                           -1 session
                         </span>
                       </div>
@@ -199,7 +199,7 @@ const PackageDetailModal = ({ packageId, onClose, onChanged: _onChanged }) => {
 
               {pkg.sessionsRemaining <= 0 && (
                 <div className="bg-success/5 border border-success/20 rounded-spa px-3 py-2.5 flex items-center space-x-2">
-                  <Icon name="CheckCircle2" size={14} className="text-success flex-shrink-0" />
+                  <Icon name="CheckCircle2" size={14} className="text-success shrink-0" />
                   <p className="font-body text-xs text-success">All sessions on this package have been redeemed.</p>
                 </div>
               )}

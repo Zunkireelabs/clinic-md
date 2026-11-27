@@ -134,7 +134,7 @@ const RenewModal = ({ membership, branchId, onClose, onSuccess }) => {
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="e.g. 100000"
-                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
               />
             </div>
 
@@ -154,12 +154,12 @@ const RenewModal = ({ membership, branchId, onClose, onSuccess }) => {
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Optional reference"
-                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
               />
             </div>
 
             <div className="bg-primary/5 border border-primary/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-              <Icon name="RefreshCw" size={14} className="text-primary flex-shrink-0 mt-0.5" />
+              <Icon name="RefreshCw" size={14} className="text-primary shrink-0 mt-0.5" />
               <p className="font-body text-xs text-text-secondary">
                 This resets Activated/Expires to today
                 {selectedTier ? ` + ${selectedTier.validity_days} days` : ''} on the same membership card — history stays intact.
@@ -168,7 +168,7 @@ const RenewModal = ({ membership, branchId, onClose, onSuccess }) => {
 
             {error && (
               <div className="bg-error/5 border border-error/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-                <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0 mt-0.5" />
+                <Icon name="AlertCircle" size={14} className="text-error shrink-0 mt-0.5" />
                 <p className="font-body text-xs text-error">{error}</p>
               </div>
             )}

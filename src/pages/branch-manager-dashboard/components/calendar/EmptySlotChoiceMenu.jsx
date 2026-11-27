@@ -50,7 +50,7 @@ const EmptySlotChoiceMenu = ({ x, y, options, onClose }) => {
           className="w-full flex items-center gap-2 px-3 text-[13px] font-body text-text-primary hover:bg-background text-left"
           style={{ height: ITEM_HEIGHT }}
         >
-          <Icon name={opt.icon} size={15} className="text-text-secondary flex-shrink-0" />
+          <Icon name={opt.icon} size={15} className="text-text-secondary shrink-0" />
           <span>{opt.label}</span>
         </button>
       ))}

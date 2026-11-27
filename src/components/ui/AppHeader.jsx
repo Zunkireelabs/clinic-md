@@ -16,7 +16,7 @@ const MobileSearchButton = () => {
       type="button"
       onClick={openPalette}
       aria-label="Search or ask"
-      className="lg:hidden h-[var(--control-h)] w-[var(--control-h)] flex items-center justify-center rounded-spa-lg text-text-secondary hover:bg-black/[0.04]"
+      className="lg:hidden h-(--control-h) w-(--control-h) flex items-center justify-center rounded-spa-lg text-text-secondary hover:bg-black/4"
     >
       <Icon name="Search" size={18} />
     </button>
@@ -33,13 +33,13 @@ const AppHeader = ({
   onMarkAllRead,
   onItemClick,
 }) => (
-  <header className="bg-surface-sidebar sticky top-0 z-header flex-shrink-0">
+  <header className="bg-surface-sidebar sticky top-0 z-header shrink-0">
     <div className="h-12 px-3 sm:px-4 flex items-center justify-between gap-2">
       <div className="flex items-center gap-2 min-w-0">
         <BranchSwitcher />
         {leftExtra}
       </div>
-      <div className="flex items-center gap-2 flex-shrink-0">
+      <div className="flex items-center gap-2 shrink-0">
         <RealtimeStatus status={realtimeStatus} />
         <MobileSearchButton />
         {onToggleAssistant && (
@@ -48,17 +48,17 @@ const AppHeader = ({
             onClick={onToggleAssistant}
             aria-pressed={assistantOpen}
             aria-label="Assistant"
-            className={`h-[var(--control-h)] flex items-center gap-2 px-2.5 sm:px-3 border rounded-spa-lg spa-transition-fast ${
+            className={`h-(--control-h) flex items-center gap-2 px-2.5 sm:px-3 border rounded-spa-lg spa-transition-fast ${
               assistantOpen
                 ? 'bg-primary/10 border-primary/30 text-primary'
-                : 'bg-transparent border-border text-text-primary hover:bg-black/[0.04]'
+                : 'bg-transparent border-border text-text-primary hover:bg-black/4'
             }`}
           >
             <Icon name="Sparkles" size={16} className="text-primary" />
             <span className="hidden sm:inline text-sm font-body font-body-medium">Assistant</span>
           </button>
         )}
-        <div className="[&>button]:h-[var(--control-h)] [&>button]:w-[var(--control-h)] [&>button]:p-0 [&>button]:flex [&>button]:items-center [&>button]:justify-center [&>button]:rounded-spa-lg [&>button]:text-text-secondary [&>button:hover]:bg-black/[0.04]">
+        <div className="[&>button]:h-(--control-h) [&>button]:w-(--control-h) [&>button]:p-0 [&>button]:flex [&>button]:items-center [&>button]:justify-center [&>button]:rounded-spa-lg [&>button]:text-text-secondary [&>button:hover]:bg-black/4">
           <NotificationBell
             notifications={notifications}
             unreadCount={unreadCount}
