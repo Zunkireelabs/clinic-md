@@ -111,7 +111,7 @@ const BookingLookupPanel = ({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="e.g. BK-20260308-0001, sadin, +977..."
-                className="w-full pl-10 pr-10 py-2.5 rounded-spa border border-border bg-background font-body text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary spa-transition-fast"
+                className="w-full pl-10 pr-10 py-2.5 rounded-spa border border-border bg-background font-body text-sm text-text-primary placeholder:text-text-tertiary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary spa-transition-fast"
                 aria-label="Search bookings"
               />
               {query && (
@@ -182,7 +182,7 @@ const BookingLookupPanel = ({
                   className="w-full text-left px-6 py-4 hover:bg-background/50 spa-transition-fast flex items-center gap-4"
                 >
                   {/* Time */}
-                  <div className="flex-shrink-0 w-16 text-center">
+                  <div className="shrink-0 w-16 text-center">
                     <span className="font-data font-data-medium text-sm text-text-primary block">
                       {new Date(`2000-01-01T${booking.time}`).toLocaleTimeString('en-US', {
                         hour: 'numeric',
@@ -205,7 +205,7 @@ const BookingLookupPanel = ({
                         {booking.status}
                       </span>
                       {booking.paymentStatus === 'paid' && (
-                        <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-caption font-caption-medium bg-success/10 text-success">
+                        <span className="inline-flex px-1.5 py-0.5 rounded-sm text-[10px] font-caption font-caption-medium bg-success/10 text-success">
                           Paid
                         </span>
                       )}
@@ -226,7 +226,7 @@ const BookingLookupPanel = ({
                   </div>
 
                   {/* Dentist */}
-                  <div className="flex-shrink-0 text-right">
+                  <div className="shrink-0 text-right">
                     {booking.dentist ? (
                       <span className="font-body text-sm text-text-primary">
                         {booking.dentist.name}
@@ -239,13 +239,13 @@ const BookingLookupPanel = ({
                   </div>
 
                   {/* Price */}
-                  <div className="flex-shrink-0 text-right w-24">
+                  <div className="shrink-0 text-right w-24">
                     <span className="font-data font-data-medium text-sm text-text-primary">
                       NPR {Number(booking.finalAmount).toLocaleString('en-IN')}
                     </span>
                   </div>
 
-                  <Icon name="ChevronRight" size={16} className="text-text-tertiary flex-shrink-0" />
+                  <Icon name="ChevronRight" size={16} className="text-text-tertiary shrink-0" />
                 </button>
               ))}
             </div>

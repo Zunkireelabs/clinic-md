@@ -5,6 +5,7 @@ import { MEMBERSHIP_ENABLED, CUSTOMER_REFERRALS_ENABLED, VOUCHER_ENABLED } from 
 import { toE164, samePhone } from '../utils/phone';
 import { consultationAiError } from '../utils/consultationAiError';
 import { isAfterCheckout } from './dentistBranchWindow';
+import { runAction } from './actions';
 import { expandBlockOccurrences } from '../utils/blockRecurrence';
 import { dedupeTransfersByKey, sortTransfersByTime } from './transferDedup';
 import { transferWindowOccurrencesForDate } from '../utils/transferOccurrences';
@@ -60,15 +61,6 @@ function addMinutesToTime(timeStr, minutes) {
 // Phase 6: Centralized Lifecycle Helpers
 // ============================================================
 
-const VALID_TRANSITIONS = {
-  'Pending':      ['Confirmed', 'Cancelled', 'No Show'],
-  'Confirmed':    ['In-Progress', 'Cancelled', 'No Show'],
-  'In-Progress':  ['Completed'],
-  'Completed':    [],
-  'Cancelled':    [],
-  'No Show':      [],
-};
-
 const TERMINAL_STATUSES = ['Completed', 'Cancelled', 'No Show'];
 
 const DISCOUNT_LIMITS = {
@@ -122,18 +114,6 @@ function validateBookingMutation(booking) {
   }
   if (TERMINAL_STATUSES.includes(booking.status)) {
     return { code: 'BOOKING_IMMUTABLE', message: `${booking.status} bookings cannot be modified.` };
-  }
-  return null;
-}
-
-/**
- * Validate a status transition against the state machine.
- * Returns null if valid, or a structured error object.
- */
-function validateStatusTransition(currentStatus, newStatus) {
-  const allowed = VALID_TRANSITIONS[currentStatus];
-  if (!allowed || !allowed.includes(newStatus)) {
-    return { code: 'INVALID_STATUS_TRANSITION', message: `Cannot transition from ${currentStatus} to ${newStatus}.` };
   }
   return null;
 }
@@ -1679,80 +1659,18 @@ export async function fetchPendingReferralRewardsForBooking(bookingId) {
   }
 }
 
+/**
+ * Change a booking's status. The lifecycle rules, the permission check, the audit row and the side effects (referral credit,
+ * review-request outreach) now run on the server as the `booking.set_status` action (migration-012, CMD-78); this keeps the
+ * old signature and the old error codes so no screen changes.
+ */
 export async function updateBookingStatus({ bookingId, newStatus, reason }) {
   try {
-    // 1. Fetch booking
-    const { data: booking, error: fetchError } = await supabase
-      .from('bookings')
-      .select('id, status, is_locked')
-      .eq('id', bookingId)
-      .single();
+    const result = await runAction('booking.set_status', { bookingId, status: newStatus, reason });
+    if (!result.ok) return { data: null, error: result.error };
 
-    if (fetchError) {
-      if (fetchError.code === 'PGRST116') {
-        return { data: null, error: { code: 'BOOKING_NOT_FOUND', message: 'Booking not found.' } };
-      }
-      throw fetchError;
-    }
-
-    // 2. Lifecycle checks
-    const mutationError = validateBookingMutation(booking);
-    if (mutationError) return { data: null, error: mutationError };
-
-    // 3. State machine validation
-    const transitionError = validateStatusTransition(booking.status, newStatus);
-    if (transitionError) return { data: null, error: transitionError };
-
-    // 4. Auth
-    const { user, error: authError } = await getAuthenticatedUser();
-    if (authError) return { data: null, error: authError };
-
-    // 5. Update
-    if ((newStatus === 'Cancelled' || newStatus === 'No Show') && (!reason || !reason.trim())) {
-      return { data: null, error: { code: 'REASON_REQUIRED', message: 'A reason is required when cancelling or marking a booking as no-show.' } };
-    }
-    const updatePayload = { status: newStatus };
-    if (newStatus === 'Cancelled' || newStatus === 'No Show') {
-      updatePayload.cancellation_reason = reason;
-    }
-    const { data: updated, error: updateError } = await supabase
-      .from('bookings')
-      .update(updatePayload)
-      .eq('id', bookingId)
-      .select('id, status')
-      .single();
-
-    if (updateError) throw updateError;
-
-    // 6. If this booking just completed and carries a pending customer referral,
-    // credit the referring customer's reward. Non-blocking — a crediting failure
-    // must never prevent marking a booking Completed; the pending referral row
-    // remains reconcilable later.
-    if (newStatus === 'Completed') {
-      try {
-        const { error: creditError } = await supabase.rpc('credit_pending_referral_for_booking', {
-          p_booking_id: bookingId,
-        });
-        if (creditError) console.warn('[API] credit_pending_referral_for_booking failed:', creditError.message);
-      } catch (creditErr) {
-        console.warn('[API] credit_pending_referral_for_booking failed:', creditErr.message);
-      }
-
-      // Non-blocking, same reasoning as the referral credit above: enqueue
-      // any review_request outreach for this booking, but never let a
-      // failure here prevent marking the booking Completed.
-      try {
-        const { error: outreachError } = await supabase.rpc('outreach_enqueue_for_completed', {
-          p_booking_id: bookingId,
-        });
-        if (outreachError) console.warn('[API] outreach_enqueue_for_completed failed:', outreachError.message);
-      } catch (outreachErr) {
-        console.warn('[API] outreach_enqueue_for_completed failed:', outreachErr.message);
-      }
-    }
-
-    capture('staff_booking_status_changed', { from_status: booking.status, to_status: newStatus });
-    return { data: { success: true, bookingId, status: updated.status }, error: null };
+    capture('staff_booking_status_changed', { from_status: result.data?.from_status, to_status: newStatus });
+    return { data: { success: true, bookingId, status: result.data?.status ?? newStatus }, error: null };
   } catch (error) {
     console.error('[API] updateBookingStatus error:', error.message);
     return { data: null, error };
@@ -2780,224 +2698,30 @@ export async function markAllNotificationsRead() {
 }
 
 /**
- * Reschedule a booking to a new date/time.
- * Optionally reassign to a different dentist or chair (cross-column drag).
- * Validates lifecycle, checks chair/dentist availability, and updates the booking.
+ * Reschedule a booking to a new date/time, optionally with a different dentist or chair (cross-column drag).
+ * The checks (lifecycle, paid, dentist availability, chair capacity) and the update run on the server as the
+ * `booking.reschedule` action (migration-012, CMD-78); this keeps the old signature and error codes.
+ * `newDentistId` / `newChairId`: undefined = leave as is, null or 'unassigned' = clear, an id = assign.
  */
 export async function rescheduleBooking({ bookingId, newDate, newStartTime, newDentistId, newChairId }) {
   try {
-    // 1. Fetch booking with treatment duration, chair, dentist, and branch
-    const { data: booking, error: fetchError } = await supabase
-      .from('bookings')
-      .select('id, status, is_locked, payment_status, chair_id, dentist_id, branch_id, treatment:treatments(duration_minutes)')
-      .eq('id', bookingId)
-      .single();
+    const changes = {};
+    if (newDentistId !== undefined) changes.dentist_id = newDentistId === 'unassigned' ? null : newDentistId;
+    if (newChairId !== undefined) changes.chair_id = newChairId === 'unassigned' ? null : newChairId;
 
-    if (fetchError) {
-      if (fetchError.code === 'PGRST116') {
-        return { data: null, error: { code: 'BOOKING_NOT_FOUND', message: 'Booking not found.' } };
-      }
-      throw fetchError;
-    }
+    const result = await runAction('booking.reschedule', { bookingId, date: newDate, startTime: newStartTime, changes });
+    if (!result.ok) return { data: null, error: result.error };
 
-    // 2. Lifecycle checks (not terminal, not locked)
-    const mutationError = validateBookingMutation(booking);
-    if (mutationError) return { data: null, error: mutationError };
-
-    // 3. Cannot reschedule paid bookings
-    if (booking.payment_status === 'paid') {
-      return { data: null, error: { code: 'BOOKING_IMMUTABLE', message: 'Cannot reschedule a paid booking.' } };
-    }
-
-    // 4. Auth check
-    const { user, profile, error: authError } = await getAuthenticatedUser();
-    if (authError) return { data: null, error: authError };
-
-    // 5. Compute end_time from treatment duration
-    const durationMinutes = booking.treatment?.duration_minutes;
-    if (!durationMinutes) {
-      return { data: null, error: { code: 'TREATMENT_NOT_FOUND', message: 'Could not determine treatment duration for this booking.' } };
-    }
-    const newEndTime = addMinutesToTime(newStartTime, durationMinutes);
-
-    // 6. Build update payload (time fields always included)
-    const updatePayload = {
-      date: newDate,
-      start_time: newStartTime,
-      end_time: newEndTime,
-    };
-
-    // 6a. Dentist reassignment
-    if (newDentistId !== undefined) {
-      if (newDentistId === 'unassigned' || newDentistId === null) {
-        updatePayload.dentist_id = null;
-        updatePayload.dentist_name_snapshot = null;
-      } else {
-        // Resolve dentist name + check active status
-        const { data: dentist } = await supabase
-          .from('dentists')
-          .select('name, is_active, branch_id')
-          .eq('id', newDentistId)
-          .single();
-
-        if (dentist && !dentist.is_active) {
-          return { data: null, error: { code: 'DENTIST_INACTIVE', message: 'Cannot assign an inactive dentist.' } };
-        }
-        if (dentist) {
-          if (dentist.branch_id !== booking.branch_id) {
-            return { data: null, error: { code: 'INVALID_DENTIST', message: `${dentist.name} is not available in this branch.` } };
-          }
-
-          const { data: attRow } = await supabase
-            .from('dentist_attendance')
-            .select('check_out_time')
-            .eq('dentist_id', newDentistId)
-            .eq('date', newDate)
-            .maybeSingle();
-          if (isAfterCheckout(attRow?.check_out_time, newDate, newStartTime)) {
-            return { data: null, error: { code: 'DENTIST_CHECKED_OUT', message: `${dentist.name} already checked out for this date.` } };
-          }
-        }
-        updatePayload.dentist_id = newDentistId;
-        updatePayload.dentist_name_snapshot = dentist?.name || null;
-      }
-    } else if (booking.dentist_id) {
-      // Dentist isn't being reassigned, but the booking is still moving to a new
-      // date/time — the CURRENTLY assigned dentist's visiting window still needs
-      // re-validating against that new date/time (same reasoning as 6a above).
-      const { data: currentDentist } = await supabase
-        .from('dentists')
-        .select('name, branch_id')
-        .eq('id', booking.dentist_id)
-        .single();
-
-      if (currentDentist) {
-        if (currentDentist.branch_id !== booking.branch_id) {
-          return { data: null, error: { code: 'INVALID_DENTIST', message: `${currentDentist.name} is not available in this branch. Reassign or choose a different date.` } };
-        }
-
-        const { data: attRow } = await supabase
-          .from('dentist_attendance')
-          .select('check_out_time')
-          .eq('dentist_id', booking.dentist_id)
-          .eq('date', newDate)
-          .maybeSingle();
-        if (isAfterCheckout(attRow?.check_out_time, newDate, newStartTime)) {
-          return { data: null, error: { code: 'DENTIST_CHECKED_OUT', message: `${currentDentist.name} already checked out for this date. Reassign or choose a different time.` } };
-        }
-      }
-    }
-
-    // 6b. Chair reassignment
-    const effectiveChairId = newChairId !== undefined
-      ? (newChairId === 'unassigned' || newChairId === null ? null : newChairId)
-      : booking.chair_id;
-
-    if (newChairId !== undefined) {
-      if (newChairId === 'unassigned' || newChairId === null) {
-        updatePayload.chair_id = null;
-        updatePayload.chair_name_snapshot = null;
-      } else {
-        const { data: chair } = await supabase
-          .from('chairs')
-          .select('name')
-          .eq('id', newChairId)
-          .single();
-        updatePayload.chair_id = newChairId;
-        updatePayload.chair_name_snapshot = chair?.name || null;
-      }
-    }
-
-    // 7. Check chair availability with capacity
-    if (effectiveChairId) {
-      // Fetch chair to get capacity
-      const { data: chairData } = await supabase
-        .from('chairs')
-        .select('id, name, capacity')
-        .eq('id', effectiveChairId)
-        .single();
-
-      const capacity = chairData ? getChairCapacity(chairData) : 1;
-
-      const { data: conflicts, error: conflictError } = await supabase
-        .from('bookings')
-        .select('id')
-        .eq('chair_id', effectiveChairId)
-        .eq('branch_id', booking.branch_id)
-        .eq('date', newDate)
-        .not('status', 'in', '("Cancelled","No Show")')
-        .neq('id', bookingId)
-        .lt('start_time', newEndTime)
-        .gt('end_time', newStartTime);
-
-      if (conflictError) throw conflictError;
-
-      if (conflicts && conflicts.length >= capacity) {
-        return {
-          data: null,
-          error: { code: 'CHAIR_CONFLICT', message: `Chair ${chairData?.name || 'unknown'} is fully booked at this time (${conflicts.length}/${capacity} slots used). Change the chair or pick a different time.` },
-        };
-      }
-    }
-
-    // 8. Update the booking
-    const { data: updated, error: updateError } = await supabase
-      .from('bookings')
-      .update(updatePayload)
-      .eq('id', bookingId)
-      .select('id, date, start_time, end_time, dentist_id, chair_id')
-      .single();
-
-    if (updateError) {
-      // GIST exclusion: dentist double-booking
-      if (updateError.code === '23P01') {
-        return { data: null, error: { code: 'DENTIST_CONFLICT', message: 'Dentist is already booked during this time slot.' } };
-      }
-      // Chair-capacity trigger: lost a race against a concurrent booking for the same chair
-      if (updateError.code === 'P0003') {
-        return { data: null, error: { code: 'CHAIR_CONFLICT', message: 'Chair is fully booked at this time. Change the chair or pick a different time.' } };
-      }
-      throw updateError;
-    }
-
-    // 9. Sync booking_dentists junction. If dentist changed, replace the
-    //    junction row(s) so display reads the new dentist. Calendar reads the
-    //    dentist name from this junction when it has any rows, so leaving the
-    //    old dentist_id here causes the card to render the previous name even
-    //    though bookings.dentist_id was updated. Shared-booking reassignment
-    //    goes through assignDentist and never reaches this path.
-    try {
-      if (newDentistId !== undefined) {
-        await supabase.from('booking_dentists').delete().eq('booking_id', bookingId);
-        if (newDentistId !== 'unassigned' && newDentistId !== null) {
-          await supabase.from('booking_dentists').insert({
-            booking_id: bookingId,
-            dentist_id: newDentistId,
-            start_time: updated.start_time,
-            end_time: updated.end_time,
-          });
-        }
-      } else {
-        await supabase
-          .from('booking_dentists')
-          .update({ start_time: updated.start_time, end_time: updated.end_time })
-          .eq('booking_id', bookingId);
-      }
-    } catch (junctionError) {
-      // Best-effort: booking row is already updated and correct. Don't fail
-      // the whole reschedule if this secondary sync write errors.
-      console.error('[API] rescheduleBooking booking_dentists sync error:', junctionError.message);
-    }
-
+    const d = result.data || {};
     return {
       data: {
         success: true,
         bookingId,
-        bookingDate: updated.date,
-        startTime: updated.start_time,
-        endTime: updated.end_time,
-        dentistId: updated.dentist_id,
-        chairId: updated.chair_id,
+        bookingDate: d.date,
+        startTime: d.start_time,
+        endTime: d.end_time,
+        dentistId: d.dentist_id,
+        chairId: d.chair_id,
       },
       error: null,
     };

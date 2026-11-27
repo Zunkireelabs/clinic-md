@@ -26,12 +26,12 @@ const Thumb = ({ path, label }) => {
   );
 };
 
-const Field = ({ icon, label, children, tone = 'text-[#8A8A90]' }) => (
+const Field = ({ icon, label, children, tone = 'text-text-tertiary' }) => (
   <div>
-    <h4 className={`flex items-center gap-1.5 text-[11.5px] uppercase tracking-[.05em] font-medium mb-1 ${tone}`}>
+    <h4 className={`flex items-center gap-1.5 text-[11.5px] uppercase tracking-wider font-medium mb-1 ${tone}`}>
       <Icon name={icon} size={12} /> {label}
     </h4>
-    <div className={`text-sm whitespace-pre-wrap break-words ${children ? 'text-text-primary' : 'text-text-tertiary italic'}`}>{children || 'Not recorded'}</div>
+    <div className={`text-sm whitespace-pre-wrap wrap-break-word ${children ? 'text-text-primary' : 'text-text-tertiary italic'}`}>{children || 'Not recorded'}</div>
   </div>
 );
 

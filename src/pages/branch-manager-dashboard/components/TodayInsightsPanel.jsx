@@ -63,9 +63,9 @@ const TodayInsightsPanel = ({ branchId, period }) => {
   if (loading) {
     return (
       <div className="bg-surface border border-border rounded-spa-lg shadow-spa-resting p-4 sm:p-5 animate-pulse space-y-4">
-        <div className="h-4 bg-gray-100 rounded w-32" />
-        <div className="h-8 bg-gray-100 rounded w-48" />
-        <div className="h-3 bg-gray-100 rounded w-full" />
+        <div className="h-4 bg-gray-100 rounded-sm w-32" />
+        <div className="h-8 bg-gray-100 rounded-sm w-48" />
+        <div className="h-3 bg-gray-100 rounded-sm w-full" />
       </div>
     );
   }
@@ -74,7 +74,7 @@ const TodayInsightsPanel = ({ branchId, period }) => {
     return (
       <div className="bg-red-50 border border-red-200 rounded-spa-lg p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
         <div className="flex items-center gap-2">
-          <Icon name="AlertCircle" size={18} className="text-red-600 flex-shrink-0" />
+          <Icon name="AlertCircle" size={18} className="text-red-600 shrink-0" />
           <p className="text-xs sm:text-sm text-red-600">{error}</p>
         </div>
         <button onClick={loadInsights} className="sm:ml-auto text-xs sm:text-sm font-medium text-red-600 underline self-start sm:self-auto">
@@ -194,7 +194,7 @@ const TodayInsightsPanel = ({ branchId, period }) => {
       <div className="p-4 sm:p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-3">
           <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Sold (value in)</span>
-          <div className="flex items-center justify-between">
+          <div className="mt-3 flex items-center justify-between">
             <span className="text-sm text-gray-700">Memberships</span>
             <span className="text-sm font-semibold text-gray-900">
               {data.membershipSold.count} · {formatNPR(data.membershipSold.value)}
@@ -216,7 +216,7 @@ const TodayInsightsPanel = ({ branchId, period }) => {
 
         <div className="space-y-3">
           <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Redeemed (value used)</span>
-          <div className="flex items-center justify-between">
+          <div className="mt-3 flex items-center justify-between">
             <span className="text-sm text-gray-700">Memberships</span>
             <span className="text-sm font-semibold text-gray-900">
               {data.membershipRedeemed.count} · {formatNPR(data.membershipRedeemed.value)}

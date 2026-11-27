@@ -426,3 +426,12 @@ enabled = true
 # declarative_schema_path = "./database"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+# The communication hub's inbound webhook is called by SMS gateways, which carry no Supabase JWT. It authenticates each provider itself
+# (HMAC signature for the test provider, a secret path token for Aakash): see functions/_shared/hub.ts.
+[functions.hub-inbound]
+verify_jwt = false
+
+# The sender is called by pg_cron with the outreach bearer token (CRON_BEARER_TOKEN), which is not a Supabase JWT; the function checks it itself.
+[functions.hub-send]
+verify_jwt = false

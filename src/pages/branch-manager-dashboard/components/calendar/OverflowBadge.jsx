@@ -100,16 +100,16 @@ const OverflowBadge = ({ count, bookings, style, expandedStyle, onBookingClick, 
     return (
       <div
         ref={wrapRef}
-        className="absolute overflow-hidden border-2 border-primary/50 bg-surface rounded flex flex-col z-dropdown shadow-spa-elevated"
+        className="absolute overflow-hidden border-2 border-primary/50 bg-surface rounded-sm flex flex-col z-dropdown shadow-spa-elevated"
         style={{ ...(expandedStyle || style), opacity: rowDragging ? 0 : 1, pointerEvents: rowDragging ? 'none' : 'auto' }}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex-shrink-0 flex items-center justify-between px-1.5 py-0.5 border-b border-border bg-background/60" style={{ height: 20 }}>
+        <div className="shrink-0 flex items-center justify-between px-1.5 py-0.5 border-b border-border bg-background/60" style={{ height: 20 }}>
           <span className="text-[10px] font-semibold text-text-primary truncate">+{count} more</span>
           <button
             type="button"
             title="Collapse"
-            className="flex-shrink-0 text-text-secondary hover:text-text-primary"
+            className="shrink-0 text-text-secondary hover:text-text-primary"
             onClick={(e) => { e.stopPropagation(); setExpanded(false); }}
           >
             <Icon name="X" size={11} />
@@ -137,7 +137,7 @@ const OverflowBadge = ({ count, bookings, style, expandedStyle, onBookingClick, 
 
   return (
     <div
-      className="absolute overflow-hidden border-2 border-primary/40 bg-background/80 rounded flex flex-col z-dropdown"
+      className="absolute overflow-hidden border-2 border-primary/40 bg-background/80 rounded-sm flex flex-col z-dropdown"
       data-overflow-booking-ids={(bookings || []).map(b => b.bookingId || b.id).join(' ')}
       style={style}
     >
@@ -145,7 +145,7 @@ const OverflowBadge = ({ count, bookings, style, expandedStyle, onBookingClick, 
         <button
           type="button"
           title="Add booking at this time"
-          className="flex-shrink-0 flex items-center justify-center border-b border-primary/30 bg-primary/10 text-primary hover:bg-primary hover:text-white spa-transition-fast"
+          className="shrink-0 flex items-center justify-center border-b border-primary/30 bg-primary/10 text-primary hover:bg-primary hover:text-white spa-transition-fast"
           style={{ height: 18 }}
           onClick={(e) => {
             e.stopPropagation();

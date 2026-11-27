@@ -71,11 +71,11 @@ const UtilizationPanel = ({ branchId, period }) => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {[0, 1, 2].map(i => (
           <div key={i} className="bg-white rounded-lg border border-gray-200 p-5 animate-pulse">
-            <div className="h-4 bg-gray-100 rounded w-32 mb-4" />
+            <div className="h-4 bg-gray-100 rounded-sm w-32 mb-4" />
             <div className="space-y-3">
-              <div className="h-2 bg-gray-100 rounded w-full" />
-              <div className="h-2 bg-gray-100 rounded w-3/4" />
-              <div className="h-2 bg-gray-100 rounded w-1/2" />
+              <div className="h-2 bg-gray-100 rounded-sm w-full" />
+              <div className="h-2 bg-gray-100 rounded-sm w-3/4" />
+              <div className="h-2 bg-gray-100 rounded-sm w-1/2" />
             </div>
           </div>
         ))}
@@ -86,7 +86,7 @@ const UtilizationPanel = ({ branchId, period }) => {
   if (error) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-red-600 flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-red-600 shrink-0" />
         <p className="text-sm text-red-600">{error}</p>
         <button onClick={loadData} className="ml-auto text-sm font-medium text-red-600 underline">
           Retry

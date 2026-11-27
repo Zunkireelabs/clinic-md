@@ -283,7 +283,7 @@ const ReferralsReportPanel = ({ branchId }) => {
         {filtered.length > 0 && (
           <button
             onClick={handleExportCSV}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-spa border border-border bg-surface font-body font-body-medium text-sm text-text-secondary hover:bg-background spa-transition-fast flex-shrink-0"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-spa border border-border bg-surface font-body font-body-medium text-sm text-text-secondary hover:bg-background spa-transition-fast shrink-0"
           >
             <Icon name="Download" size={16} />
             <span>Export CSV</span>
@@ -328,7 +328,7 @@ const ReferralsReportPanel = ({ branchId }) => {
             onChange={(e) => setBulkValue(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') applyBulk(); }}
             placeholder={bulkType === 'percentage' ? '%' : 'NPR'}
-            className="w-24 rounded-spa border border-border bg-surface px-2 py-1.5 font-data text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+            className="w-24 rounded-spa border border-border bg-surface px-2 py-1.5 font-data text-sm text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/50 focus:border-primary"
           />
           <button
             onClick={applyBulk}
@@ -447,7 +447,7 @@ const ReferralsReportPanel = ({ branchId }) => {
                                   #{b.bookingNumber} · {b.treatmentName} · {formatDateOnly(b.date)} · {formatNPR(b.finalAmount)}
                                 </span>
                               </div>
-                              <div className="flex items-center gap-3 flex-shrink-0">
+                              <div className="flex items-center gap-3 shrink-0">
                                 {editing === b.bookingId ? (
                                   <div className="flex items-center gap-1.5">
                                     <div className="w-20">
@@ -462,7 +462,7 @@ const ReferralsReportPanel = ({ branchId }) => {
                                       onChange={(e) => setEditValue(e.target.value)}
                                       onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(b.bookingId); }}
                                       placeholder={editType === 'percentage' ? '%' : 'NPR'}
-                                      className="w-24 rounded-spa border border-border bg-surface px-2 py-1 font-data text-xs text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+                                      className="w-24 rounded-spa border border-border bg-surface px-2 py-1 font-data text-xs text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/50 focus:border-primary"
                                     />
                                     <button
                                       onClick={() => saveEdit(b.bookingId)}

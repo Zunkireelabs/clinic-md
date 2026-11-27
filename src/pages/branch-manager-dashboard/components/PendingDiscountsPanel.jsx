@@ -129,7 +129,7 @@ const PendingDiscountsPanel = ({ branchId, highlightBookingId }) => {
                 <span>{new Date(d.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
               </div>
               <div className="flex items-center space-x-3 text-xs">
-                <span className="font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
+                <span className="font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-sm">
                   {d.discountPercent}% off (NPR {d.discountAmount.toLocaleString('en-IN')})
                 </span>
                 <span className="text-gray-500">
@@ -148,7 +148,7 @@ const PendingDiscountsPanel = ({ branchId, highlightBookingId }) => {
               )}
             </div>
 
-            <div className="flex items-center space-x-2 flex-shrink-0">
+            <div className="flex items-center space-x-2 shrink-0">
               <Button
                 variant="outline"
                 size="sm"

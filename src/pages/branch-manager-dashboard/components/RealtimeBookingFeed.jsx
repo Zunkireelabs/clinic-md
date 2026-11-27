@@ -219,7 +219,7 @@ const RealtimeBookingFeed = ({
             onClick={() => setFilter(tab.key)}
             className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
               filter === tab.key
-                ? 'bg-white text-gray-900 shadow-sm'
+                ? 'bg-white text-gray-900 shadow-xs'
                 : 'text-gray-500 hover:text-gray-900'
             }`}
           >
@@ -244,12 +244,12 @@ const RealtimeBookingFeed = ({
                     <h4 className="text-sm font-medium text-gray-900">
                       {booking.customerName}
                     </h4>
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs ${statusConfig.color}`}>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-sm text-xs ${statusConfig.color}`}>
                       <Icon name={statusConfig.icon} size={12} className="mr-1" />
                       {statusConfig.label}
                     </span>
                     {booking.paymentStatus === 'paid' && (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-green-50 text-green-600">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs bg-green-50 text-green-600">
                         Paid
                       </span>
                     )}

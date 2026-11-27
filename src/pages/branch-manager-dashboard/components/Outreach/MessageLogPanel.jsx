@@ -125,7 +125,7 @@ const MessageLogPanel = () => {
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
-            className="h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+            className="h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
           />
         </div>
         <div>
@@ -134,7 +134,7 @@ const MessageLogPanel = () => {
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
-            className="h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+            className="h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
           />
         </div>
         {(status || channel || dateFrom || dateTo) && (
@@ -151,14 +151,14 @@ const MessageLogPanel = () => {
 
       {loading ? (
         <div className="bg-surface rounded-spa-lg border border-border p-8 animate-pulse">
-          <div className="h-4 bg-background rounded w-48 mb-4" />
+          <div className="h-4 bg-background rounded-sm w-48 mb-4" />
           <div className="space-y-3">
-            {[0, 1, 2].map((i) => <div key={i} className="h-10 bg-background rounded" />)}
+            {[0, 1, 2].map((i) => <div key={i} className="h-10 bg-background rounded-sm" />)}
           </div>
         </div>
       ) : error ? (
         <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-          <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+          <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
           <p className="font-body text-sm text-error">{error}</p>
           <button onClick={loadData} className="ml-auto font-body font-body-medium text-sm text-error underline">
             Retry

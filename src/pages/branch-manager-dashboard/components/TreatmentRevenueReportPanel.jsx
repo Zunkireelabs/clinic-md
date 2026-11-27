@@ -147,7 +147,7 @@ const TreatmentRevenueReportPanel = ({ branchId }) => {
         {filtered.length > 0 && (
           <button
             onClick={handleExportCSV}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-spa border border-border bg-surface font-body font-body-medium text-sm text-text-secondary hover:bg-background spa-transition-fast flex-shrink-0"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-spa border border-border bg-surface font-body font-body-medium text-sm text-text-secondary hover:bg-background spa-transition-fast shrink-0"
           >
             <Icon name="Download" size={16} />
             <span>Export CSV</span>
@@ -252,7 +252,7 @@ const TreatmentRevenueReportPanel = ({ branchId }) => {
                                 <Icon name="Building2" size={14} className="text-primary" />
                                 {b.name}
                               </span>
-                              <div className="flex items-center gap-4 flex-shrink-0">
+                              <div className="flex items-center gap-4 shrink-0">
                                 <span className="font-body text-xs text-text-secondary">
                                   {s.byBranch[b.id].count} booking{s.byBranch[b.id].count !== 1 ? 's' : ''}
                                 </span>

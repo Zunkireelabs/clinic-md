@@ -81,7 +81,7 @@ const OrgFinder = () => {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Minimal Header */}
-      <header className="flex-shrink-0 px-6 md:px-8 py-5 flex justify-between items-center">
+      <header className="shrink-0 px-6 md:px-8 py-5 flex justify-between items-center">
         <div className="flex items-center gap-2.5">
           <BrandWordmark size="sm" />
         </div>
@@ -138,7 +138,7 @@ const OrgFinder = () => {
                   }}
                   placeholder="e.g., bright-smile-dental"
                   disabled={isLoading}
-                  className="w-full px-3.5 py-3 text-sm bg-surface border border-border rounded-[10px] text-text-primary placeholder:text-text-secondary outline-none transition-all duration-150 focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-background disabled:cursor-not-allowed"
+                  className="w-full px-3.5 py-3 text-sm bg-surface border border-border rounded-[10px] text-text-primary placeholder:text-text-secondary outline-hidden transition-all duration-150 focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-background disabled:cursor-not-allowed"
                 />
               </div>
 
@@ -167,7 +167,7 @@ const OrgFinder = () => {
       </main>
 
       {/* Minimal Footer */}
-      <footer className="flex-shrink-0 py-5 flex flex-col items-center gap-3">
+      <footer className="shrink-0 py-5 flex flex-col items-center gap-3">
         <div className="flex items-center gap-1.5 text-[13px]">
           <span className="text-text-secondary">from</span>
           <img

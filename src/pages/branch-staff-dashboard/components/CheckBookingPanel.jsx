@@ -112,7 +112,7 @@ const CheckBookingPanel = ({ branchId }) => {
           </span>
           <button
             onClick={() => setNotification(null)}
-            className="p-1 rounded hover:bg-black/10 spa-transition-fast ml-auto"
+            className="p-1 rounded-sm hover:bg-black/10 spa-transition-fast ml-auto"
           >
             <Icon name="X" size={14} />
           </button>

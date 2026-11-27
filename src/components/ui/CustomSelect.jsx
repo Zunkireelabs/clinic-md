@@ -163,7 +163,7 @@ const CustomSelect = ({
           flex items-center justify-between gap-2 w-full
           border ${error ? 'border-error' : 'border-border'} rounded-spa bg-surface
           font-body font-body-normal
-          focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary
+          focus:outline-hidden focus:ring-2 focus:ring-primary/50 focus:border-primary
           disabled:opacity-50 disabled:cursor-not-allowed
           spa-transition-fast cursor-pointer
           ${SIZE_CLASSES[size] || SIZE_CLASSES.md}
@@ -182,7 +182,7 @@ const CustomSelect = ({
         <Icon
           name="ChevronDown"
           size={14}
-          className={`text-text-secondary flex-shrink-0 transition-transform ${
+          className={`text-text-secondary shrink-0 transition-transform ${
             isOpen ? 'rotate-180' : ''
           }`}
         />
@@ -197,7 +197,7 @@ const CustomSelect = ({
         >
           {/* Search input */}
           {searchable && (
-            <div className="px-2 py-1.5 border-b border-gray-100 flex-shrink-0">
+            <div className="px-2 py-1.5 border-b border-gray-100 shrink-0">
               <div className="relative">
                 <Icon name="Search" size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-secondary" />
                 <input
@@ -207,7 +207,7 @@ const CustomSelect = ({
                   onChange={(e) => setSearchTerm(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Search..."
-                  className="w-full pl-7 pr-2 py-1.5 text-sm border border-border rounded bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  className="w-full pl-7 pr-2 py-1.5 text-sm border border-border rounded-sm bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-1 focus:ring-primary/30"
                   onClick={(e) => e.stopPropagation()}
                 />
               </div>

@@ -164,8 +164,8 @@ const RulesEditorPanel = () => {
       <div className="space-y-3">
         {[0, 1, 2].map((i) => (
           <div key={i} className="bg-surface rounded-spa-lg border border-border p-4 animate-pulse">
-            <div className="h-4 bg-background rounded w-40 mb-3" />
-            <div className="h-10 bg-background rounded" />
+            <div className="h-4 bg-background rounded-sm w-40 mb-3" />
+            <div className="h-10 bg-background rounded-sm" />
           </div>
         ))}
       </div>
@@ -175,7 +175,7 @@ const RulesEditorPanel = () => {
   if (error) {
     return (
       <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
         <p className="font-body text-sm text-error">{error}</p>
         <button onClick={loadData} className="ml-auto font-body font-body-medium text-sm text-error underline">
           Retry
@@ -204,7 +204,7 @@ const RulesEditorPanel = () => {
                 onClick={() => handleToggle(trigger.key)}
                 disabled={isSaving}
                 aria-pressed={row.enabled}
-                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full spa-transition-fast disabled:opacity-50 ${
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full spa-transition-fast disabled:opacity-50 ${
                   row.enabled ? 'bg-primary' : 'bg-border'
                 }`}
               >
@@ -254,7 +254,7 @@ const RulesEditorPanel = () => {
                     value={row[f.key]}
                     onChange={(e) => setRow(trigger.key, { [f.key]: e.target.value })}
                     placeholder={f.hint}
-                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
                   />
                 </div>
               ))}
@@ -262,7 +262,7 @@ const RulesEditorPanel = () => {
 
             {rowErrors[trigger.key] && (
               <div className="mt-3 bg-error/5 border border-error/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-                <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0 mt-0.5" />
+                <Icon name="AlertCircle" size={14} className="text-error shrink-0 mt-0.5" />
                 <p className="font-body text-xs text-error">{rowErrors[trigger.key]}</p>
               </div>
             )}

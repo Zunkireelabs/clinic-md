@@ -4,7 +4,7 @@ import BrandWordmark from './BrandWordmark';
 // Shared shell for the sign-in / sign-up pages (staff login, patient login, patient sign-up): a quiet page, one centred card with the
 // wordmark, a title and a subtitle, and optional content below the card. Inputs and buttons share one style (see the exports below).
 export const authInputClass = (hasError = false) =>
-  `w-full h-11 px-3.5 text-sm bg-surface border rounded-spa-lg text-text-primary placeholder:text-text-tertiary outline-none transition-all duration-150 focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-background disabled:cursor-not-allowed ${
+  `w-full h-11 px-3.5 text-sm bg-surface border rounded-spa-lg text-text-primary placeholder:text-text-tertiary outline-hidden transition-all duration-150 focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-background disabled:cursor-not-allowed ${
     hasError ? 'border-error' : 'border-border'
   }`;
 
@@ -27,7 +27,7 @@ export const AuthDivider = () => (
 );
 
 const AuthFooter = () => (
-  <footer className="flex-shrink-0 py-5 flex flex-col items-center gap-3">
+  <footer className="shrink-0 py-5 flex flex-col items-center gap-3">
     <div className="flex items-center gap-1.5 text-[13px]">
       <span className="text-text-secondary">from</span>
       <img src="/zunkireelabs-icon.png" alt="Zunkireelabs" className="w-[18px] h-[18px]" />
@@ -44,7 +44,7 @@ const AuthFooter = () => (
 // topRight: e.g. the "Connected" pill. below: content under the card (links, demo box). showFooter: the zunkireelabs / Terms footer.
 const AuthCard = ({ title, subtitle, children, below = null, topRight = null, showFooter = false }) => (
   <div className="login-page min-h-screen bg-background flex flex-col">
-    <header className="flex-shrink-0 h-14 px-6 md:px-8 flex items-center justify-end">{topRight}</header>
+    <header className="shrink-0 h-14 px-6 md:px-8 flex items-center justify-end">{topRight}</header>
     <main className="flex-1 flex flex-col items-center px-4 py-6 min-[420px]:py-10">
       <div className="w-full max-w-[400px] bg-surface border border-border rounded-spa-lg shadow-spa-elevated p-6 sm:p-10 max-[419px]:max-w-none max-[419px]:border-0 max-[419px]:shadow-none max-[419px]:rounded-none max-[419px]:bg-transparent max-[419px]:px-1">
         <div className="flex flex-col items-center text-center mb-7">

@@ -228,7 +228,7 @@ const AddBlockModal = ({
                 type="checkbox"
                 checked={preventOnlineBooking}
                 onChange={(e) => setPreventOnlineBooking(e.target.checked)}
-                className="w-4 h-4 rounded border-border text-primary focus:ring-primary/30"
+                className="w-4 h-4 rounded-sm border-border text-primary focus:ring-primary/30"
               />
               Prevent online bookings during this time
             </label>

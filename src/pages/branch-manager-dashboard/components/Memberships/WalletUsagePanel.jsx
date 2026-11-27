@@ -119,15 +119,15 @@ const WalletUsagePanel = () => {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {[0, 1, 2].map((i) => (
             <div key={i} className="bg-surface rounded-spa-lg border border-border p-4 animate-pulse">
-              <div className="h-3 bg-background rounded w-20 mb-2" />
-              <div className="h-6 bg-background rounded w-24" />
+              <div className="h-3 bg-background rounded-sm w-20 mb-2" />
+              <div className="h-6 bg-background rounded-sm w-24" />
             </div>
           ))}
         </div>
         <div className="bg-surface rounded-spa-lg border border-border p-8 animate-pulse">
-          <div className="h-4 bg-background rounded w-48 mb-4" />
+          <div className="h-4 bg-background rounded-sm w-48 mb-4" />
           <div className="space-y-3">
-            {[0, 1, 2].map((i) => <div key={i} className="h-10 bg-background rounded" />)}
+            {[0, 1, 2].map((i) => <div key={i} className="h-10 bg-background rounded-sm" />)}
           </div>
         </div>
       </div>
@@ -137,7 +137,7 @@ const WalletUsagePanel = () => {
   if (error) {
     return (
       <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
         <p className="font-body text-sm text-error">{error}</p>
         <button onClick={loadData} className="ml-auto font-body font-body-medium text-sm text-error underline">
           Retry
@@ -159,7 +159,7 @@ const WalletUsagePanel = () => {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="bg-surface rounded-spa-lg border border-border p-4">
           <div className="flex items-center space-x-2 mb-2">
-            <div className="w-6 h-6 rounded flex items-center justify-center bg-primary/10">
+            <div className="w-6 h-6 rounded-sm flex items-center justify-center bg-primary/10">
               <Icon name="ArrowDownToLine" size={14} className="text-primary" />
             </div>
             <span className="font-caption font-caption-normal text-[11px] text-text-tertiary uppercase tracking-wide">Total Deposited</span>
@@ -168,7 +168,7 @@ const WalletUsagePanel = () => {
         </div>
         <div className="bg-surface rounded-spa-lg border border-border p-4">
           <div className="flex items-center space-x-2 mb-2">
-            <div className="w-6 h-6 rounded flex items-center justify-center bg-warning/10">
+            <div className="w-6 h-6 rounded-sm flex items-center justify-center bg-warning/10">
               <Icon name="ArrowUpFromLine" size={14} className="text-warning" />
             </div>
             <span className="font-caption font-caption-normal text-[11px] text-text-tertiary uppercase tracking-wide">Total Used</span>
@@ -177,7 +177,7 @@ const WalletUsagePanel = () => {
         </div>
         <div className="bg-primary/5 rounded-spa-lg border border-primary/20 p-4">
           <div className="flex items-center space-x-2 mb-2">
-            <div className="w-6 h-6 rounded flex items-center justify-center bg-primary/15">
+            <div className="w-6 h-6 rounded-sm flex items-center justify-center bg-primary/15">
               <Icon name="Wallet" size={14} className="text-primary" />
             </div>
             <span className="font-caption font-caption-normal text-[11px] text-primary uppercase tracking-wide">Remaining</span>
@@ -195,7 +195,7 @@ const WalletUsagePanel = () => {
             placeholder="Search by member or card no..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 bg-surface border border-border rounded-spa text-sm font-body text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-primary/30"
+            className="w-full pl-9 pr-3 py-2 bg-surface border border-border rounded-spa text-sm font-body text-text-primary placeholder:text-text-tertiary focus:outline-hidden focus:ring-1 focus:ring-primary/30"
           />
         </div>
         <span className="font-caption font-caption-normal text-xs text-text-tertiary">
@@ -271,11 +271,11 @@ const WalletUsagePanel = () => {
                           <td colSpan={7} className="px-4 py-2.5">
                             <div className="flex items-center justify-between gap-3 flex-wrap pl-4">
                               <div className="flex items-center gap-2 min-w-0">
-                                <Icon name="Sparkles" size={13} className="text-text-tertiary flex-shrink-0" />
+                                <Icon name="Sparkles" size={13} className="text-text-tertiary shrink-0" />
                                 <span className="font-body font-body-medium text-sm text-text-primary">{t.treatment}</span>
                                 <span className="font-caption text-xs text-text-tertiary">{formatDate(t.date)}</span>
                               </div>
-                              <div className="flex items-center gap-4 flex-shrink-0">
+                              <div className="flex items-center gap-4 shrink-0">
                                 <span className="font-data text-sm text-warning">-{formatNPR(t.amountUsed)}</span>
                                 <span className="font-data text-xs text-text-secondary w-28 text-right">
                                   Balance after: {formatNPR(t.remainingBalance)}

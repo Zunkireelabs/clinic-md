@@ -93,9 +93,9 @@ const DuplicateCustomersPanel = ({ orgId, role, branchId }) => {
   if (loading) {
     return (
       <div className="bg-surface rounded-spa-lg border border-border p-8 animate-pulse">
-        <div className="h-4 bg-background rounded w-64 mb-4" />
+        <div className="h-4 bg-background rounded-sm w-64 mb-4" />
         <div className="space-y-3">
-          {[0, 1].map(i => <div key={i} className="h-20 bg-background rounded" />)}
+          {[0, 1].map(i => <div key={i} className="h-20 bg-background rounded-sm" />)}
         </div>
       </div>
     );
@@ -104,7 +104,7 @@ const DuplicateCustomersPanel = ({ orgId, role, branchId }) => {
   if (error) {
     return (
       <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
         <p className="font-body text-sm text-error">{error}</p>
         <button onClick={load} className="ml-auto font-body font-body-medium text-sm text-error underline">
           Retry

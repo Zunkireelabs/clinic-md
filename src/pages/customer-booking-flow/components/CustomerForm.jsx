@@ -295,7 +295,7 @@ const CustomerForm = ({ customerInfo, onCustomerInfoChange, selectedBranch, sele
 
         {matchedCustomer && (
           <div className="mb-6 flex items-start gap-3 rounded-spa-lg border border-primary/30 bg-primary/5 p-4">
-            <Icon name="UserCheck" size={18} className="text-primary flex-shrink-0 mt-0.5" />
+            <Icon name="UserCheck" size={18} className="text-primary shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <p className="font-body font-body-medium text-sm text-text-primary">
                 We found your info — use it?
@@ -326,7 +326,7 @@ const CustomerForm = ({ customerInfo, onCustomerInfoChange, selectedBranch, sele
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
           {/* First Name */}
           <div className="space-y-2">
-            <label className="font-body font-body-medium text-sm text-text-primary">
+            <label className="inline-block font-body font-body-medium text-sm text-text-primary">
               First Name *
             </label>
             <Input
@@ -348,7 +348,7 @@ const CustomerForm = ({ customerInfo, onCustomerInfoChange, selectedBranch, sele
 
           {/* Last Name */}
           <div className="space-y-2">
-            <label className="font-body font-body-medium text-sm text-text-primary">
+            <label className="inline-block font-body font-body-medium text-sm text-text-primary">
               Last Name *
             </label>
             <Input
@@ -370,7 +370,7 @@ const CustomerForm = ({ customerInfo, onCustomerInfoChange, selectedBranch, sele
 
           {/* Email */}
           <div className="space-y-2">
-            <label className="font-body font-body-medium text-sm text-text-primary">
+            <label className="inline-block font-body font-body-medium text-sm text-text-primary">
               Email Address
             </label>
             <Input
@@ -393,7 +393,7 @@ const CustomerForm = ({ customerInfo, onCustomerInfoChange, selectedBranch, sele
 
           {/* Phone */}
           <div className="space-y-2">
-            <label className="font-body font-body-medium text-sm text-text-primary">
+            <label className="inline-block font-body font-body-medium text-sm text-text-primary">
               Phone Number
             </label>
             <div className="flex">
@@ -422,7 +422,7 @@ const CustomerForm = ({ customerInfo, onCustomerInfoChange, selectedBranch, sele
 
           {/* Gender */}
           <div className="space-y-2 md:col-span-2">
-            <label className="font-body font-body-medium text-sm text-text-primary">
+            <label className="inline-block font-body font-body-medium text-sm text-text-primary">
               Gender *
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -468,7 +468,7 @@ const CustomerForm = ({ customerInfo, onCustomerInfoChange, selectedBranch, sele
               anyway (see the notice above), so there's no point asking. */}
           {customerCheckStatus === 'new' && (
           <div className="space-y-2 md:col-span-2">
-            <label className="font-body font-body-medium text-sm text-text-primary">
+            <label className="inline-block font-body font-body-medium text-sm text-text-primary">
               How did they hear about us? (Optional)
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -567,7 +567,7 @@ const CustomerForm = ({ customerInfo, onCustomerInfoChange, selectedBranch, sele
 
           {/* Special Requests */}
           <div className="space-y-2 md:col-span-2">
-            <label className="font-body font-body-medium text-sm text-text-primary">
+            <label className="inline-block font-body font-body-medium text-sm text-text-primary">
               Special Requests (Optional)
             </label>
             <textarea

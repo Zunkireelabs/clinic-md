@@ -62,7 +62,7 @@ const SortableRow = ({ dentist, disabled, readOnly, showBranch, branchName, onEd
           <button
             {...attributes}
             {...listeners}
-            className="p-1 rounded cursor-grab active:cursor-grabbing text-text-secondary hover:text-text-primary hover:bg-background spa-transition-fast"
+            className="p-1 rounded-sm cursor-grab active:cursor-grabbing text-text-secondary hover:text-text-primary hover:bg-background spa-transition-fast"
             title="Drag to reorder"
           >
             <Icon name="GripVertical" size={16} />
@@ -88,7 +88,7 @@ const SortableRow = ({ dentist, disabled, readOnly, showBranch, branchName, onEd
         <div className="flex flex-wrap gap-1">
           {(dentist.specialties || []).length > 0 ? (
             dentist.specialties.map((s, i) => (
-              <span key={i} className="inline-flex px-2 py-0.5 rounded text-xs font-caption bg-primary/10 text-primary">
+              <span key={i} className="inline-flex px-2 py-0.5 rounded-sm text-xs font-caption bg-primary/10 text-primary">
                 {s}
               </span>
             ))
@@ -113,14 +113,14 @@ const SortableRow = ({ dentist, disabled, readOnly, showBranch, branchName, onEd
           <div className="flex items-center justify-end gap-2">
             <button
               onClick={() => onEdit(dentist)}
-              className="p-1.5 rounded hover:bg-background spa-transition-fast text-text-secondary hover:text-text-primary"
+              className="p-1.5 rounded-sm hover:bg-background spa-transition-fast text-text-secondary hover:text-text-primary"
               title="Edit"
             >
               <Icon name="Pencil" size={16} />
             </button>
             <button
               onClick={() => onDelete(dentist)}
-              className="p-1.5 rounded hover:bg-error/10 spa-transition-fast text-text-secondary hover:text-error"
+              className="p-1.5 rounded-sm hover:bg-error/10 spa-transition-fast text-text-secondary hover:text-error"
               title="Delete"
             >
               <Icon name="Trash2" size={16} />
@@ -516,7 +516,7 @@ const DentistManagementPanel = ({ branchId, readOnly = false }) => {
               <h3 className="font-heading font-heading-semibold text-lg text-text-primary">
                 {editingDentist ? `Edit ${staffLabel}` : `Add ${staffLabel}`}
               </h3>
-              <button onClick={() => setShowModal(false)} className="p-1 rounded hover:bg-background">
+              <button onClick={() => setShowModal(false)} className="p-1 rounded-sm hover:bg-background">
                 <Icon name="X" size={20} className="text-text-secondary" />
               </button>
             </div>
@@ -555,7 +555,7 @@ const DentistManagementPanel = ({ branchId, readOnly = false }) => {
                     <p className="text-xs text-text-secondary px-2 py-1">No positions yet. Use "Add Position" to create one.</p>
                   ) : (
                     allPositionNames.map(pos => (
-                      <label key={pos} className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer hover:bg-primary/5 ${formData.positions.includes(pos) ? 'bg-primary/5' : ''}`}>
+                      <label key={pos} className={`flex items-center gap-2 px-2 py-1 rounded-sm cursor-pointer hover:bg-primary/5 ${formData.positions.includes(pos) ? 'bg-primary/5' : ''}`}>
                         <input
                           type="checkbox"
                           checked={formData.positions.includes(pos)}
@@ -566,7 +566,7 @@ const DentistManagementPanel = ({ branchId, readOnly = false }) => {
                               setFormData(f => ({ ...f, positions: f.positions.filter(p => p !== pos) }));
                             }
                           }}
-                          className="text-primary focus:ring-primary w-3.5 h-3.5 rounded"
+                          className="text-primary focus:ring-primary w-3.5 h-3.5 rounded-sm"
                         />
                         <span className="font-body text-sm text-text-primary">{pos}</span>
                       </label>
@@ -669,7 +669,7 @@ const DentistManagementPanel = ({ branchId, readOnly = false }) => {
           <div className="bg-surface rounded-spa-lg spa-shadow-modal w-full max-w-sm p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="font-heading font-heading-semibold text-lg text-text-primary">Manage Positions</h3>
-              <button onClick={() => setShowPositionModal(false)} className="p-1 rounded hover:bg-background">
+              <button onClick={() => setShowPositionModal(false)} className="p-1 rounded-sm hover:bg-background">
                 <Icon name="X" size={20} className="text-text-secondary" />
               </button>
             </div>
@@ -694,7 +694,7 @@ const DentistManagementPanel = ({ branchId, readOnly = false }) => {
                               if (e.key === 'Escape') setEditingPositionName(null);
                             }}
                             autoFocus
-                            className="flex-1 px-2 py-1 text-sm border border-primary rounded bg-surface focus:outline-none focus:ring-1 focus:ring-primary"
+                            className="flex-1 px-2 py-1 text-sm border border-primary rounded-sm bg-surface focus:outline-hidden focus:ring-1 focus:ring-primary"
                           />
                         ) : (
                           <div className="flex-1 min-w-0">
@@ -702,19 +702,19 @@ const DentistManagementPanel = ({ branchId, readOnly = false }) => {
                             <span className="ml-2 text-xs text-text-secondary">({staffCount} staff)</span>
                           </div>
                         )}
-                        <div className="flex items-center gap-1 flex-shrink-0">
+                        <div className="flex items-center gap-1 shrink-0">
                           {isEditing ? (
                             <>
                               <button
                                 onClick={() => handleRenamePosition(pos, editingPositionValue)}
-                                className="p-1 rounded hover:bg-success/10 text-success"
+                                className="p-1 rounded-sm hover:bg-success/10 text-success"
                                 title="Save"
                               >
                                 <Icon name="Check" size={14} />
                               </button>
                               <button
                                 onClick={() => setEditingPositionName(null)}
-                                className="p-1 rounded hover:bg-background text-text-secondary"
+                                className="p-1 rounded-sm hover:bg-background text-text-secondary"
                                 title="Cancel"
                               >
                                 <Icon name="X" size={14} />
@@ -724,14 +724,14 @@ const DentistManagementPanel = ({ branchId, readOnly = false }) => {
                             <>
                               <button
                                 onClick={() => { setEditingPositionName(pos); setEditingPositionValue(pos); setPositionError(null); }}
-                                className="p-1 rounded hover:bg-background text-text-secondary hover:text-text-primary"
+                                className="p-1 rounded-sm hover:bg-background text-text-secondary hover:text-text-primary"
                                 title="Edit position"
                               >
                                 <Icon name="Pencil" size={14} />
                               </button>
                               <button
                                 onClick={() => handleDeletePosition(pos)}
-                                className="p-1 rounded hover:bg-error/10 text-text-secondary hover:text-error"
+                                className="p-1 rounded-sm hover:bg-error/10 text-text-secondary hover:text-error"
                                 title="Delete position"
                               >
                                 <Icon name="Trash2" size={14} />

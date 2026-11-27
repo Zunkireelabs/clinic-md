@@ -52,7 +52,7 @@ const BirthdayPerkModal = ({ membership, branchId, onClose, onSuccess }) => {
 
           <div className="px-5 py-4 space-y-4">
             <div className="bg-accent/5 border border-accent/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-              <Icon name="Gift" size={14} className="text-accent flex-shrink-0 mt-0.5" />
+              <Icon name="Gift" size={14} className="text-accent shrink-0 mt-0.5" />
               <p className="font-body text-xs text-text-secondary">
                 Records a one-time birthday gift for <span className="font-body-medium text-text-primary">{membership.customerName}</span> on
                 their {membership.tierName}. Does not move money — the gift is delivered as a free 60-min Massage with Sauna/Jacuzzi.
@@ -66,13 +66,13 @@ const BirthdayPerkModal = ({ membership, branchId, onClose, onSuccess }) => {
                 onChange={(e) => setNotes(e.target.value)}
                 rows={2}
                 placeholder="e.g. Booked for 14 June, served by Asha."
-                className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
+                className="w-full px-3 py-2 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
               />
             </div>
 
             {error && (
               <div className="bg-error/5 border border-error/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-                <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0 mt-0.5" />
+                <Icon name="AlertCircle" size={14} className="text-error shrink-0 mt-0.5" />
                 <p className="font-body text-xs text-error">{error}</p>
               </div>
             )}
