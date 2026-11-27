@@ -44,7 +44,9 @@ else
   # CMD-111: every worktree shares one local stack, so the passwords file is the MAIN checkout's; a worktree never makes its own
   # (new passwords would be PUT to GoTrue and break everyone else's logins).
   WORKDIR="$REPO_ROOT"
-  MAIN="$(dirname "$(cd "$REPO_ROOT" && git rev-parse --path-format=absolute --git-common-dir)")" || die "refusing: cannot find the main checkout with git. Nothing changed."
+  # capture git's output first: dirname of "" is ".", which would silently become the caller's cwd
+  GIT_COMMON="$(cd "$REPO_ROOT" && git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && [ -n "$GIT_COMMON" ] || die "refusing: cannot find the main checkout with git. Nothing changed."
+  MAIN="$(dirname "$GIT_COMMON")"
   USERS_FILE="$MAIN/supabase/LOCAL_TEST_USERS.md"
   if [ "$MAIN" != "$REPO_ROOT" ] && { [ ! -f "$USERS_FILE" ] || [ ! -w "$USERS_FILE" ]; }; then
     die "refusing: this is a worktree and the main checkout's $USERS_FILE is missing or not writable. Nothing changed."
