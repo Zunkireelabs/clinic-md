@@ -99,6 +99,8 @@ const NoteCard = ({
               {noAiKind === 'upload' ? (
                 <span><b className="font-medium">Recording not uploaded yet.</b> <span className="text-[#515152]">It is still on this computer — keep this page open.{' '}
                   <button type="button" onClick={onTryAgain} disabled={tryAgainBusy} className="underline text-text-primary disabled:opacity-60">Retry</button>.</span></span>
+              ) : noAiKind === 'nospeech' ? (
+                <span><b className="font-medium">No clinical details were heard in the recording.</b> <span className="text-[#515152]">Record again, or write the note below.</span></span>
               ) : (
                 <span><b className="font-medium">AI drafting isn’t available right now.</b> <span className="text-[#515152]">Your recording is saved. Write the note below, or{' '}
                   <button type="button" onClick={onTryAgain} disabled={tryAgainBusy} className="underline text-text-primary disabled:opacity-60">try drafting again</button>.</span></span>
