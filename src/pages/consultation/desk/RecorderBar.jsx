@@ -4,10 +4,19 @@ import LevelMeter from './LevelMeter';
 import ConsentCheck from './ConsentCheck';
 import { getConsultationFileUrl } from '../../../services/api';
 
-const mmss = (s) => `${String(Math.floor((s || 0) / 60)).padStart(2, '0')}:${String(s % 60 || 0).padStart(2, '0')}`;
+const mmss = (s) => { const n = Math.round(s || 0); return `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`; };
+
+// MediaRecorder webm has no duration in its header, so browsers report Infinity. Seeking past the end makes them compute it (Safari records mp4, which has one).
+const resolveLength = (e, setLen) => {
+  const a = e.currentTarget;
+  if (isFinite(a.duration)) return setLen(a.duration);
+  a.addEventListener('timeupdate', () => { a.currentTime = 0; }, { once: true });
+  a.currentTime = 1e101;
+};
 
 const Recording = ({ path, index }) => {
   const [url, setUrl] = useState(null);
+  const [len, setLen] = useState(null);
   React.useEffect(() => {
     let off = false;
     getConsultationFileUrl('audio', path).then(({ url: u }) => { if (!off) setUrl(u); });
@@ -16,7 +25,8 @@ const Recording = ({ path, index }) => {
   return (
     <div className="flex items-center gap-3 text-[12.5px]">
       <span className="text-text-tertiary w-24 shrink-0">Recording {index + 1}</span>
-      {url ? <audio controls src={url} className="h-8 flex-1 min-w-0" /> : <span className="text-text-tertiary">Loading…</span>}
+      {url ? <audio controls preload="metadata" src={url} onLoadedMetadata={(e) => resolveLength(e, setLen)} onDurationChange={(e) => isFinite(e.currentTarget.duration) && setLen(e.currentTarget.duration)} className="h-8 flex-1 min-w-0" /> : <span className="text-text-tertiary">Loading…</span>}
+      <span className="tabular-nums text-text-tertiary w-12 shrink-0 text-right">{len != null ? mmss(len) : ''}</span>
     </div>
   );
 };
