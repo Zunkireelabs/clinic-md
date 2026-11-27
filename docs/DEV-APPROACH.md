@@ -66,4 +66,4 @@ A handoff without a Not verified list is sent back. "Nothing" is only acceptable
 - **No design direction file** (`docs/DESIGN-DIRECTION.md`): to be written by the lead when Sadin gives the direction.
 - **No phase plan** with exit tests and dates for ClinicMD.
 - Branch protection on `main` is unverified (CMD-42); deploy pre-check runs build only, no tests (CMD-43).
-- Tenant-isolation test is not in CI (CMD-20).
+- Tenant-isolation test runs in CI as the `rls` job on PRs to `main` (CMD-20); the deploy workflow still does not run it.
