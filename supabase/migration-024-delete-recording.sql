@@ -8,8 +8,9 @@
 -- or a nonexistent id answers NOT_FOUND; a signed note answers SIGNED_LOCKED. The row is locked FOR UPDATE. In one UPDATE it removes
 --   * the recording's piece from transcript_pieces and its rows from transcript_segments (they hold its words);
 --   * the path from audio_paths;
---   * the piece's words from `transcript` ONLY when they are still there verbatim (first occurrence plus one blank-line separator). If the
---     doctor edited the transcript, it is left alone and text_removed=false tells the page to say so.
+--   * the piece's words from `transcript` ONLY when they are still there as a whole untouched block (they start the text or follow a blank
+--     line, and end it or precede one; the block plus one blank-line separator is cut). If the doctor edited them, the transcript is left
+--     alone and text_removed=false tells the page to say so.
 -- It does NOT touch ai_draft, the note or note_sources and does not redraft: the transcript changed, so the page's staleness check offers
 -- "Update the draft". Audited in action_log as consultation.delete_recording: ids and the audio path only, never audio or words.
 -- The storage object is deleted by the CLIENT through the Storage API AFTER this returns ok (never SQL on storage.objects). Calling this
@@ -23,7 +24,7 @@ CREATE OR REPLACE FUNCTION public.consultation_delete_recording(p_consultation u
     AS $$
 DECLARE
   ctx jsonb; c public.consultations; v_inputs jsonb; v_code text; a constant text := 'consultation.delete_recording';
-  v_piece jsonb; v_t text; v_pos int; v_before text; v_after text; v_new text; v_text_removed boolean := false; v_was_listed boolean;
+  v_piece jsonb; v_t text; v_pos int; v_before text; v_after text; v_new text; v_text_removed boolean := false; v_was_listed boolean; v_from int; v_hit int;
 BEGIN
   ctx := public._act_resolve(NULL);
   IF NOT (ctx ->> 'ok')::boolean THEN
@@ -50,7 +51,17 @@ BEGIN
   v_new := c.transcript;
   IF v_piece IS NOT NULL THEN
     v_t := btrim(coalesce(v_piece ->> 'text', ''));
-    v_pos := CASE WHEN v_t = '' THEN 0 ELSE strpos(coalesce(c.transcript, ''), v_t) END;
+    -- only a WHOLE block counts as untouched: the words must start the text or follow a blank line, and end the text or precede one. Words
+    -- that sit inside a sentence the doctor edited are left alone.
+    v_pos := 0; v_from := 1;
+    WHILE v_t <> '' AND v_from <= length(coalesce(c.transcript, '')) LOOP
+      v_hit := strpos(substr(c.transcript, v_from), v_t);
+      EXIT WHEN v_hit = 0;
+      v_hit := v_hit + v_from - 1;
+      IF (v_hit = 1 OR substr(c.transcript, v_hit - 2, 2) = E'\n\n')
+         AND (v_hit + length(v_t) > length(c.transcript) OR substr(c.transcript, v_hit + length(v_t), 2) = E'\n\n') THEN v_pos := v_hit; EXIT; END IF;
+      v_from := v_hit + 1;
+    END LOOP;
     IF v_pos > 0 THEN
       v_before := regexp_replace(left(c.transcript, v_pos - 1), E'\n\n$', '');
       v_after := substr(c.transcript, v_pos + length(v_t));
