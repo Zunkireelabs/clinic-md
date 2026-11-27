@@ -3,11 +3,11 @@
 # GoTrue auth user + public.users profile + user_branches grant.
 #
 # Usage:
-#   ./scripts/local-create-test-users.sh                    # the stack `supabase status` reports for this repo
+#   ./scripts/local-create-test-users.sh                    # this repo's stack; passwords file = the MAIN checkout's
 #   ./scripts/local-create-test-users.sh --dry-run          # print the plan only (hosts, emails, roles); no network, no file
 #   ./scripts/local-create-test-users.sh --workdir DIR      # another LOCAL stack: `supabase status` is run in DIR
 #
-# Passwords are generated here and written to <workdir>/supabase/LOCAL_TEST_USERS.md (gitignored, mode 600). They are never
+# Passwords go to the MAIN checkout's supabase/LOCAL_TEST_USERS.md, or <DIR>'s with --workdir (gitignored, mode 600). Never
 # printed, never put on a command line (curl reads them from stdin), and the file is never shown. Re-running reuses the passwords
 # already in that file and is idempotent.
 #

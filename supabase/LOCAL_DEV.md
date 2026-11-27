@@ -60,8 +60,7 @@ printed and never put on a command line; don't `cat` that file into a terminal o
 It runs `supabase status` in the repo (or `--workdir`), never in your current directory, and refuses to send anything
 unless both the DB URL and the API URL have the host `127.0.0.1` or `localhost`. That check is shared with the
 bootstrap in `scripts/lib/local-db-url.sh` (parsed host, one host only, no `host=`/`hostaddr=`/`service=` in the
-query, PG* variables cleared). Run from a git worktree, the default stack is still the shared local one, but the
-passwords file is the worktree's own: a run there resets the users' passwords and the main checkout's file goes stale.
+query, PG* variables cleared).
 
 Worktrees share the one local stack, so the script always uses the **main checkout's** `supabase/LOCAL_TEST_USERS.md`
 (it prints which file) and reuses those passwords; it refuses, changing nothing, if that file is missing. Never copy the
