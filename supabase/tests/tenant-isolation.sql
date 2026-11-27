@@ -3057,7 +3057,8 @@ BEGIN
              WHERE p.pronamespace = 'public'::regnamespace AND p.prosecdef AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
                AND p.prosrc ~* '(treatment_notes|consultations|doctor_notes|xray_analysis|transcript)'
                AND p.proname NOT IN ('patient_clinical_index', 'act_patient_erase', 'act_undo', 'consultation_remote_topic_ok',
-                                    'consultation_record_consent', 'consultation_sign', 'consultation_unsign') LOOP   -- 020: gated by _consult_gate (front desk = FORBIDDEN, see section 3j)
+                                    'consultation_record_consent', 'consultation_sign', 'consultation_unsign',
+                                    'consultation_add_transcript_piece') LOOP   -- 020/023: gated by _consult_gate (front desk = FORBIDDEN, see sections 3j and 3m)
     PERFORM pg_temp.act_chk('WALL (RPC): ' || rr.proname || ' touches clinical tables and is not on the reviewed list', false, 'review it and add it to the list, or remove access');
   END LOOP;
   PERFORM pg_temp.act_chk('WALL (views): no public view reads the clinical tables', NOT EXISTS (SELECT 1 FROM information_schema.views WHERE table_schema = 'public' AND view_definition ~* '(treatment_notes|consultations)'), 'views');
@@ -3675,6 +3676,119 @@ BEGIN
   DELETE FROM public.users WHERE id = u_a2;
   PERFORM pg_temp.p_chk('deleting a users row removes its user_pins row (cascade)', NOT EXISTS (SELECT 1 FROM public.user_pins WHERE user_id = u_a2), 'cascade');
 END $pin$;
+
+-- ───────────────────────────── 3m. transcript pieces (migration 023, CMD-146) ─────────────────────────────
+DO $tp$
+DECLARE
+  oa uuid; ob uuid; br_a uuid; tr uuid; cu uuid; d_a1 uuid; bk uuid; bk_b uuid; bk2 uuid; c uuid; c_b uuid; p1 text; p2 text; p3 text; pb text;
+  r jsonb; res text; n0 bigint; n1 bigint; pieces jsonb; tx text; ver text;
+BEGIN
+  IF to_regprocedure('public.consultation_add_transcript_piece(uuid,text,text,text)') IS NULL THEN
+    INSERT INTO t_res VALUES ('CONSULT', '-', 'migration-023 checks', 'INFO', 'skipped: 023 not applied');
+    RETURN;
+  END IF;
+  EXECUTE 'RESET ROLE';
+  SELECT org INTO oa FROM t_actor WHERE name = 'admin'; SELECT org INTO ob FROM t_actor WHERE name = 'admin_of_OTHER_org';
+  SELECT t.v INTO bk_b FROM t_prac t WHERE t.k = 'bk_b'; SELECT t.v INTO d_a1 FROM t_prac t WHERE t.k = 'd_a1';
+  SELECT b.branch_id, b.treatment_id, b.customer_id INTO br_a, tr, cu FROM bookings b WHERE b.id = (SELECT t.v FROM t_prac t WHERE t.k = 'bk_mine_bd');
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, dentist_id)
+    VALUES (br_a, tr, cu, 'Cust A1', '2031-03-21', '10:00', '10:30', '2031-03-21 10:00+00', '2031-03-21 10:30+00', 1000, 1000, d_a1) RETURNING id INTO bk;
+  INSERT INTO bookings (branch_id, treatment_id, customer_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount, dentist_id)
+    VALUES (br_a, tr, cu, 'Cust A1', '2031-03-22', '10:00', '10:30', '2031-03-22 10:00+00', '2031-03-22 10:30+00', 1000, 1000, d_a1) RETURNING id INTO bk2;
+  INSERT INTO consultations (org_id, branch_id, booking_id, patient_name, status) VALUES (oa, br_a, bk, 'Cust A1', 'draft') RETURNING id INTO c;
+  SELECT x.id INTO c_b FROM consultations x WHERE x.booking_id = bk_b ORDER BY x.created_at LIMIT 1;
+  p1 := oa::text || '/' || bk::text || '/r1.webm'; p2 := oa::text || '/' || bk::text || '/r2.webm'; p3 := oa::text || '/' || bk::text || '/r3.webm'; pb := ob::text || '/' || bk_b::text || '/rb.webm';
+
+  -- (e) 020's triggers are all still enabled after 023
+  PERFORM pg_temp.p_chk('023: every user trigger on consultations is enabled (the backfill re-enabled them)',
+    NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.consultations'::regclass AND NOT tgisinternal AND tgenabled <> 'O'),
+    (SELECT string_agg(tgname::text || '=' || tgenabled::text, ',') FROM pg_trigger WHERE tgrelid = 'public.consultations'::regclass AND NOT tgisinternal));
+  PERFORM pg_temp.p_chk('023: the 020 lock trigger and the pieces trigger both exist',
+    (SELECT count(*) FROM pg_trigger WHERE tgrelid = 'public.consultations'::regclass AND tgname IN ('consultations_lock_signed', 'consultations_pieces_fn_only')) = 2, NULL);
+
+  -- who may add a piece
+  r := pg_temp.act_run('staff', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''x'', ''en'')', c, p1), 1);
+  PERFORM pg_temp.p_chk('front desk cannot add a transcript piece', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.act_run('admin_viewer', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''x'', ''en'')', c, p1), 1);
+  PERFORM pg_temp.p_chk('admin_viewer cannot add a transcript piece', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.act_run('admin_of_OTHER_org', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''x'', ''en'')', c, p1), 1);
+  PERFORM pg_temp.p_chk('another clinic gets NOT_FOUND', pg_temp.act_code(r) = 'NOT_FOUND', r::text);
+  PERFORM pg_temp.p_chk('...and the audit row carries the CALLER''s org, never NULL',
+    (SELECT org_id FROM public.action_log WHERE action = 'consultation.add_transcript_piece' AND actor_user_id = (SELECT uid FROM t_actor WHERE name = 'admin_of_OTHER_org') AND error_code = 'NOT_FOUND') = ob, NULL);
+  r := pg_temp.act_run('admin', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''x'', ''en'')', gen_random_uuid(), p1), 1);
+  PERFORM pg_temp.p_chk('a consultation id that does not exist gets NOT_FOUND', pg_temp.act_code(r) = 'NOT_FOUND', r::text);
+  PERFORM pg_temp.p_chk('...with an audit row whose org is the caller''s, not NULL',
+    (SELECT bool_and(org_id = oa) FROM public.action_log WHERE action = 'consultation.add_transcript_piece' AND actor_user_id = (SELECT uid FROM t_actor WHERE name = 'admin') AND error_code = 'NOT_FOUND'), NULL);
+  r := pg_temp.act_run('admin', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''x'', ''en'')', c_b, pb), 1);
+  PERFORM pg_temp.p_chk('org A admin cannot add to org B''s consultation (NOT_FOUND)', pg_temp.act_code(r) = 'NOT_FOUND', r::text);
+  r := pg_temp.act_run('anon', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''x'', ''en'')', c, p1), 0);
+  PERFORM pg_temp.p_chk('anon cannot call it (42501)', pg_temp.act_code(r) = 'raised:42501', r::text);
+  r := pg_temp.act_run('service', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''x'', ''en'')', c, p1), 0);
+  PERFORM pg_temp.p_chk('service_role is refused (INVALID_CONTEXT, no audit row)', pg_temp.act_code(r) IN ('INVALID_CONTEXT', 'raised:42501'), r::text);
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''x'', ''en'')', c, pb), 1);
+  PERFORM pg_temp.p_chk('a path of another booking/clinic is INVALID_PATH', pg_temp.act_code(r) = 'INVALID_PATH', r::text);
+
+  -- N recordings -> N pieces
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''first words'', ''en'')', c, p1), 1);
+  PERFORM pg_temp.p_chk('practitioner adds recording 1', pg_temp.act_code(r) = 'ok' AND (r #>> '{data,added}') = 'true', r::text);
+  r := pg_temp.act_run('manager_2_branches', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''second words'', ''ne'')', c, p2), 1);
+  PERFORM pg_temp.p_chk('a manager adds recording 2', pg_temp.act_code(r) = 'ok' AND (r #>> '{data,added}') = 'true', r::text);
+  SELECT transcript_pieces, transcript INTO pieces, tx FROM consultations WHERE id = c;
+  PERFORM pg_temp.p_chk('2 recordings -> 2 pieces, text joined by a blank line, language from the last piece',
+    jsonb_array_length(pieces) = 2 AND tx = E'first words\n\nsecond words' AND (SELECT detected_language FROM consultations WHERE id = c) = 'ne', tx);
+  -- (b) the same path again: nothing changes (retry, reload, stale storage, second device all end here)
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''first words'', ''en'')', c, p1), 1);
+  SELECT transcript_pieces, transcript INTO pieces, tx FROM consultations WHERE id = c;
+  PERFORM pg_temp.p_chk('the same path again: ok, added=false, 2 pieces, transcript unchanged',
+    pg_temp.act_code(r) = 'ok' AND (r #>> '{data,added}') = 'false' AND jsonb_array_length(pieces) = 2 AND tx = E'first words\n\nsecond words', r::text);
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_add_transcript_piece(%L, %L, '' '', NULL)', c, p3), 1);
+  SELECT transcript_pieces, transcript INTO pieces, tx FROM consultations WHERE id = c;
+  PERFORM pg_temp.p_chk('an empty-text piece marks its path done and adds no text', jsonb_array_length(pieces) = 3 AND tx = E'first words\n\nsecond words', tx);
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''late words'', ''en'')', c, p3), 1);
+  PERFORM pg_temp.p_chk('...so the same path with text later still adds nothing', (r #>> '{data,added}') = 'false'
+    AND (SELECT transcript FROM consultations WHERE id = c) = E'first words\n\nsecond words', r::text);
+  PERFORM pg_temp.p_chk('the audit row has the path but never the words',
+    NOT EXISTS (SELECT 1 FROM public.action_log WHERE action = 'consultation.add_transcript_piece' AND inputs::text LIKE '%first words%')
+    AND EXISTS (SELECT 1 FROM public.action_log WHERE action = 'consultation.add_transcript_piece' AND inputs ->> 'audio_path' = p1), NULL);
+
+  -- (c) direct client writes
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', (SELECT uid FROM t_actor WHERE name = 'practitioner'), 'role', 'authenticated')::text, true);
+  BEGIN UPDATE consultations SET transcript_pieces = '[]'::jsonb WHERE id = c; res := 'allowed';
+  EXCEPTION WHEN OTHERS THEN res := 'raised:' || SQLSTATE; END;
+  EXECUTE 'RESET ROLE';
+  PERFORM pg_temp.p_chk('a direct client UPDATE of transcript_pieces is refused (42501)', res = 'raised:42501', res);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', (SELECT uid FROM t_actor WHERE name = 'practitioner'), 'role', 'authenticated')::text, true);
+  BEGIN UPDATE consultations SET additional_notes = 'a note', transcript = E'first words\n\nsecond words (typed by hand)' WHERE id = c; res := 'allowed';
+  EXCEPTION WHEN OTHERS THEN res := 'raised:' || SQLSTATE; END;
+  EXECUTE 'RESET ROLE';
+  PERFORM pg_temp.p_chk('a normal autosave of notes and a hand-typed transcript still works', res = 'allowed', res);
+  PERFORM pg_temp.p_chk('...and left the pieces alone', (SELECT jsonb_array_length(transcript_pieces) FROM consultations WHERE id = c) = 3, NULL);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', (SELECT uid FROM t_actor WHERE name = 'admin'), 'role', 'authenticated')::text, true);
+  BEGIN
+    INSERT INTO consultations (org_id, branch_id, booking_id, patient_name, status) VALUES (oa, br_a, bk2, 'Cust A1', 'draft');
+    res := 'allowed';
+  EXCEPTION WHEN OTHERS THEN res := 'raised:' || SQLSTATE; END;
+  EXECUTE 'RESET ROLE';
+  PERFORM pg_temp.p_chk('the get-or-create INSERT (no pieces column) still works', res = 'allowed', res);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', (SELECT uid FROM t_actor WHERE name = 'admin'), 'role', 'authenticated')::text, true);
+  BEGIN
+    INSERT INTO consultations (org_id, branch_id, booking_id, patient_name, status, transcript_pieces)
+      VALUES (oa, br_a, bk2, 'Cust A1', 'draft', '[{"path":"x"}]'::jsonb);
+    res := 'allowed';
+  EXCEPTION WHEN OTHERS THEN res := 'raised:' || SQLSTATE; END;
+  EXECUTE 'RESET ROLE';
+  PERFORM pg_temp.p_chk('an INSERT that carries pieces is refused (42501)', res = 'raised:42501', res);
+
+  -- a signed note refuses an append
+  UPDATE consultations SET signed_at = now(), signed_by = (SELECT uid FROM t_actor WHERE name = 'practitioner'), status = 'completed' WHERE id = c;
+  r := pg_temp.act_run('practitioner', format('SELECT public.consultation_add_transcript_piece(%L, %L, ''after signing'', ''en'')', c, oa::text || '/' || bk::text || '/r9.webm'), 1);
+  PERFORM pg_temp.p_chk('a signed consultation answers SIGNED_LOCKED', pg_temp.act_code(r) = 'SIGNED_LOCKED', r::text);
+  PERFORM pg_temp.p_chk('...and nothing changed', (SELECT jsonb_array_length(transcript_pieces) FROM consultations WHERE id = c) = 3, NULL);
+END $tp$;
 
 -- ───────────────────────────── 4. REPORT ─────────────────────────────
 SELECT status || '|' || kind || '|' || caller || '|' || subject || '|' || detail
