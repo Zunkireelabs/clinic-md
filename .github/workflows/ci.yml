@@ -44,6 +44,13 @@ jobs:
       # Only the database: the test needs Postgres with Supabase's roles and auth schema, not GoTrue or the API.
       - run: supabase db start
 
-      - run: ./scripts/local-db-bootstrap.sh --no-users
+      # The port comes from supabase/config.toml [db], so CI never hard-codes a number; no dependence on `supabase status`.
+      - name: Local DB URL
+        run: |
+          port=$(awk '/^\[db\]/{d=1;next} /^\[/{d=0} d && /^port[ ]*=/{print $3; exit}' supabase/config.toml)
+          test -n "$port"
+          echo "RLS_DB_URL=postgresql://postgres:postgres@127.0.0.1:$port/postgres" >> "$GITHUB_ENV"
+
+      - run: ./scripts/local-db-bootstrap.sh --no-users --db-url "$RLS_DB_URL"
 
       - run: npm run test:rls
