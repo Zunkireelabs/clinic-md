@@ -125,9 +125,9 @@ const DiscountsPanel = ({ branchId }) => {
   if (loading) {
     return (
       <div className="bg-surface rounded-spa-lg border border-border p-6 animate-pulse">
-        <div className="h-4 bg-background rounded w-48 mb-4" />
+        <div className="h-4 bg-background rounded-sm w-48 mb-4" />
         <div className="space-y-3">
-          {[0, 1, 2].map(i => <div key={i} className="h-12 bg-background rounded" />)}
+          {[0, 1, 2].map(i => <div key={i} className="h-12 bg-background rounded-sm" />)}
         </div>
       </div>
     );
@@ -136,7 +136,7 @@ const DiscountsPanel = ({ branchId }) => {
   if (error) {
     return (
       <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
         <p className="font-body text-sm text-error">{error}</p>
         <button onClick={loadData} className="ml-auto font-body font-body-medium text-sm text-error underline">
           Retry
@@ -266,7 +266,7 @@ const DiscountsPanel = ({ branchId }) => {
 
                 {/* Status */}
                 <div className="lg:text-center">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-caption font-caption-medium capitalize ${STATUS_BADGE[d.discountStatus] || 'bg-gray-100 text-gray-500'}`}>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-sm text-[11px] font-caption font-caption-medium capitalize ${STATUS_BADGE[d.discountStatus] || 'bg-gray-100 text-gray-500'}`}>
                     {d.discountStatus}
                   </span>
                 </div>

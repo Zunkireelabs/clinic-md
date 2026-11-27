@@ -13,7 +13,7 @@ const CustomerReferralStats = ({ stats }) => {
       <h2 className="text-lg font-semibold text-text-primary mb-4">Your referrals</h2>
       <div className="rounded-spa border border-border bg-surface px-4 py-3 flex items-center justify-between gap-4">
         <div className="flex items-center space-x-2">
-          <Icon name="Users" size={14} className="text-primary flex-shrink-0" />
+          <Icon name="Users" size={14} className="text-primary shrink-0" />
           <span className="font-body text-sm text-text-primary">
             {stats.totalReferred} friend{stats.totalReferred === 1 ? '' : 's'} referred
           </span>

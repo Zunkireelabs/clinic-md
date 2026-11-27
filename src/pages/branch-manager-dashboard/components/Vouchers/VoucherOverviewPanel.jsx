@@ -45,15 +45,15 @@ const VoucherOverviewPanel = () => {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="bg-surface rounded-spa-lg border border-border p-4 animate-pulse">
-              <div className="h-3 bg-background rounded w-16 mb-2" />
-              <div className="h-6 bg-background rounded w-20" />
+              <div className="h-3 bg-background rounded-sm w-16 mb-2" />
+              <div className="h-6 bg-background rounded-sm w-20" />
             </div>
           ))}
         </div>
         <div className="bg-surface rounded-spa-lg border border-border p-8 animate-pulse">
-          <div className="h-4 bg-background rounded w-48 mb-4" />
+          <div className="h-4 bg-background rounded-sm w-48 mb-4" />
           <div className="space-y-3">
-            {[0, 1, 2].map((i) => <div key={i} className="h-10 bg-background rounded" />)}
+            {[0, 1, 2].map((i) => <div key={i} className="h-10 bg-background rounded-sm" />)}
           </div>
         </div>
       </div>
@@ -63,7 +63,7 @@ const VoucherOverviewPanel = () => {
   if (error) {
     return (
       <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
         <p className="font-body text-sm text-error">{error}</p>
         <button onClick={loadData} className="ml-auto font-body font-body-medium text-sm text-error underline">
           Retry
@@ -83,7 +83,7 @@ const VoucherOverviewPanel = () => {
         <button
           type="button"
           onClick={() => setShowNewVoucher(true)}
-          className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-spa bg-primary text-white text-sm font-body font-body-medium hover:bg-primary/90 spa-transition-fast flex-shrink-0"
+          className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-spa bg-primary text-white text-sm font-body font-body-medium hover:bg-primary/90 spa-transition-fast shrink-0"
         >
           <Icon name="Plus" size={14} />
           <span>New Voucher</span>
@@ -94,7 +94,7 @@ const VoucherOverviewPanel = () => {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-surface rounded-spa-lg border border-border p-4">
           <div className="flex items-center space-x-2 mb-2">
-            <div className="w-6 h-6 rounded flex items-center justify-center bg-primary/10">
+            <div className="w-6 h-6 rounded-sm flex items-center justify-center bg-primary/10">
               <Icon name="Ticket" size={14} className="text-primary" />
             </div>
             <span className="font-caption font-caption-normal text-[11px] text-text-tertiary uppercase tracking-wide">Total Issued</span>
@@ -103,7 +103,7 @@ const VoucherOverviewPanel = () => {
         </div>
         <div className="bg-surface rounded-spa-lg border border-border p-4">
           <div className="flex items-center space-x-2 mb-2">
-            <div className="w-6 h-6 rounded flex items-center justify-center bg-primary/10">
+            <div className="w-6 h-6 rounded-sm flex items-center justify-center bg-primary/10">
               <Icon name="ArrowDownToLine" size={14} className="text-primary" />
             </div>
             <span className="font-caption font-caption-normal text-[11px] text-text-tertiary uppercase tracking-wide">Amount Issued</span>
@@ -112,7 +112,7 @@ const VoucherOverviewPanel = () => {
         </div>
         <div className="bg-surface rounded-spa-lg border border-border p-4">
           <div className="flex items-center space-x-2 mb-2">
-            <div className="w-6 h-6 rounded flex items-center justify-center bg-warning/10">
+            <div className="w-6 h-6 rounded-sm flex items-center justify-center bg-warning/10">
               <Icon name="ArrowUpFromLine" size={14} className="text-warning" />
             </div>
             <span className="font-caption font-caption-normal text-[11px] text-text-tertiary uppercase tracking-wide">Amount Claimed</span>
@@ -121,7 +121,7 @@ const VoucherOverviewPanel = () => {
         </div>
         <div className="bg-primary/5 rounded-spa-lg border border-primary/20 p-4">
           <div className="flex items-center space-x-2 mb-2">
-            <div className="w-6 h-6 rounded flex items-center justify-center bg-primary/15">
+            <div className="w-6 h-6 rounded-sm flex items-center justify-center bg-primary/15">
               <Icon name="AlertCircle" size={14} className="text-primary" />
             </div>
             <span className="font-caption font-caption-normal text-[11px] text-primary uppercase tracking-wide">Outstanding</span>
@@ -155,7 +155,7 @@ const VoucherOverviewPanel = () => {
                     <td className="px-4 py-3">
                       <span className="font-body font-body-medium text-sm text-text-primary">{t.name}</span>
                       {t.is_wallet && (
-                        <span className="ml-2 px-1.5 py-0.5 rounded bg-primary/10 text-primary font-caption text-[10px] uppercase tracking-wide">
+                        <span className="ml-2 px-1.5 py-0.5 rounded-sm bg-primary/10 text-primary font-caption text-[10px] uppercase tracking-wide">
                           Wallet
                         </span>
                       )}

@@ -85,7 +85,7 @@ const ExtendMembershipModal = ({ membership, branchId, onClose, onSuccess }) => 
             </div>
 
             <div className="bg-primary/5 border border-primary/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-              <Icon name="Info" size={14} className="text-primary flex-shrink-0 mt-0.5" />
+              <Icon name="Info" size={14} className="text-primary shrink-0 mt-0.5" />
               <p className="font-body text-xs text-text-secondary">
                 This membership has lapsed, but the remaining balance is still available. Extend the validity period to
                 continue using the existing balance — no new payment is needed.
@@ -99,7 +99,7 @@ const ExtendMembershipModal = ({ membership, branchId, onClose, onSuccess }) => 
                 min={minDate}
                 value={newExpiryDate}
                 onChange={(e) => setNewExpiryDate(e.target.value)}
-                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
               />
             </div>
 
@@ -110,13 +110,13 @@ const ExtendMembershipModal = ({ membership, branchId, onClose, onSuccess }) => 
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Optional reference"
-                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                className="w-full h-10 px-3 text-sm border border-border rounded-spa bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary"
               />
             </div>
 
             {error && (
               <div className="bg-error/5 border border-error/20 rounded-spa px-3 py-2 flex items-start space-x-2">
-                <Icon name="AlertCircle" size={14} className="text-error flex-shrink-0 mt-0.5" />
+                <Icon name="AlertCircle" size={14} className="text-error shrink-0 mt-0.5" />
                 <p className="font-body text-xs text-error">{error}</p>
               </div>
             )}

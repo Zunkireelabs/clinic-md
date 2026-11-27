@@ -75,15 +75,15 @@ const MembershipCollectionPanel = () => {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {[0, 1, 2].map((i) => (
             <div key={i} className="bg-surface rounded-spa-lg border border-border p-4 animate-pulse">
-              <div className="h-3 bg-background rounded w-20 mb-2" />
-              <div className="h-6 bg-background rounded w-24" />
+              <div className="h-3 bg-background rounded-sm w-20 mb-2" />
+              <div className="h-6 bg-background rounded-sm w-24" />
             </div>
           ))}
         </div>
         <div className="bg-surface rounded-spa-lg border border-border p-8 animate-pulse">
-          <div className="h-4 bg-background rounded w-48 mb-4" />
+          <div className="h-4 bg-background rounded-sm w-48 mb-4" />
           <div className="space-y-3">
-            {[0, 1, 2].map((i) => <div key={i} className="h-10 bg-background rounded" />)}
+            {[0, 1, 2].map((i) => <div key={i} className="h-10 bg-background rounded-sm" />)}
           </div>
         </div>
       </div>
@@ -93,7 +93,7 @@ const MembershipCollectionPanel = () => {
   if (error) {
     return (
       <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
         <p className="font-body text-sm text-error">{error}</p>
         <button onClick={loadData} className="ml-auto font-body font-body-medium text-sm text-error underline">
           Retry
@@ -116,7 +116,7 @@ const MembershipCollectionPanel = () => {
         {tiers.map((t) => (
           <div key={t.tier} className="bg-surface rounded-spa-lg border border-border p-4">
             <div className="flex items-center space-x-2 mb-2">
-              <div className="w-6 h-6 rounded flex items-center justify-center bg-primary/10">
+              <div className="w-6 h-6 rounded-sm flex items-center justify-center bg-primary/10">
                 <Icon name="CreditCard" size={14} className="text-primary" />
               </div>
               <span className="font-caption font-caption-normal text-[11px] text-text-tertiary uppercase tracking-wide">
@@ -129,7 +129,7 @@ const MembershipCollectionPanel = () => {
         ))}
         <div className="bg-primary/5 rounded-spa-lg border border-primary/20 p-4">
           <div className="flex items-center space-x-2 mb-2">
-            <div className="w-6 h-6 rounded flex items-center justify-center bg-primary/15">
+            <div className="w-6 h-6 rounded-sm flex items-center justify-center bg-primary/15">
               <Icon name="PiggyBank" size={14} className="text-primary" />
             </div>
             <span className="font-caption font-caption-normal text-[11px] text-primary uppercase tracking-wide">

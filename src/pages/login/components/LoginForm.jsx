@@ -303,7 +303,7 @@ const LoginForm = ({ orgName, topRight }) => {
 
           <div className="mb-4 flex items-center justify-between gap-3 h-11 px-3.5 bg-background border border-border rounded-spa-lg">
             <span className="text-sm text-text-primary truncate" data-testid="email-chip">{email}</span>
-            <button type="button" onClick={backToEmailStep} disabled={isDisabled} className="text-sm text-text-secondary hover:text-primary underline underline-offset-2 flex-shrink-0">
+            <button type="button" onClick={backToEmailStep} disabled={isDisabled} className="text-sm text-text-secondary hover:text-primary underline underline-offset-2 shrink-0">
               Edit
             </button>
           </div>

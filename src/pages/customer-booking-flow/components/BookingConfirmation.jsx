@@ -138,9 +138,9 @@ const BookingConfirmation = ({
 
   return (
     <div className="space-y-4">
-      <div className="relative overflow-hidden rounded-spa-lg shadow-sm">
+      <div className="relative overflow-hidden rounded-spa-lg shadow-xs">
         <Image src={selectedTreatment?.image} alt={selectedTreatment?.name} className="w-full h-48 object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+        <div className="absolute inset-0 bg-linear-to-t from-black/60 to-transparent" />
         <div className="absolute bottom-3 left-4">
           <h3 className="font-heading font-bold text-xl text-white">{selectedTreatment?.name}</h3>
           <p className="text-xs text-white/80">{selectedTreatment?.duration} session</p>
@@ -164,7 +164,7 @@ const BookingConfirmation = ({
             <div className="flex justify-between text-sm"><span className="text-text-secondary">Phone</span><span className="font-medium">{customerInfo.phoneCountryCode || '+977'} {customerInfo.phone}</span></div>
             {referralSummary() && (
               <div className="flex justify-between text-sm gap-3">
-                <span className="text-text-secondary flex-shrink-0">
+                <span className="text-text-secondary shrink-0">
                   {customerInfo.referralSource === 'client' ? 'Referred by' : 'Heard about us'}
                 </span>
                 <span className="font-medium text-right">{referralSummary()}</span>

@@ -119,9 +119,9 @@ const AIAssistantPanel = () => {
         style={{ width: panelWidth }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gradient-to-r from-purple-50 to-pink-50 rounded-t-xl">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-linear-to-r from-purple-50 to-pink-50 rounded-t-xl">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full bg-linear-to-br from-purple-500 to-pink-500 flex items-center justify-center">
               <Icon name="Sparkles" size={16} className="text-white" />
             </div>
             <div>

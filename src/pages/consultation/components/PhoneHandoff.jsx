@@ -67,7 +67,7 @@ const PhoneHandoff = ({ orgSlug, bookingId, onClose, phoneCount = 0, phoneLabel 
   };
 
   return (
-    <div className="fixed inset-0 bg-text-primary/50 backdrop-blur-sm z-modal-overlay flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-text-primary/50 backdrop-blur-xs z-modal-overlay flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-surface rounded-spa-lg spa-shadow-modal w-full max-w-sm animate-fade-in" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div className="flex items-center gap-2">

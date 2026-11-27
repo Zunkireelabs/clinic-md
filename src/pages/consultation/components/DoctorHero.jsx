@@ -21,13 +21,13 @@ const greeting = () => {
 
 /** Top of the Doctor app: gradient banner with the doctor's name, today's date and live status. */
 const DoctorHero = ({ name, clinic, computerConnected, screenOn, waiting = true }) => (
-  <div className="relative overflow-hidden bg-gradient-to-br from-primary to-[#0a4d63] text-white px-5 pt-[max(1.5rem,env(safe-area-inset-top))] pb-14 rounded-b-[2rem]">
+  <div className="relative overflow-hidden bg-linear-to-br from-primary to-[#0a4d63] text-white px-5 pt-[max(1.5rem,env(safe-area-inset-top))] pb-14 rounded-b-4xl">
     <div className="absolute -right-10 -top-10 w-44 h-44 rounded-full bg-white/10" />
     <div className="absolute right-14 top-24 w-16 h-16 rounded-full bg-white/10" />
     <ToothArt className="absolute right-3 top-3 w-24 h-28 text-white" />
     <div className="relative max-w-sm mx-auto">
       <p className="text-sm text-white/80">{greeting()}</p>
-      <h1 className="font-heading font-heading-semibold text-2xl leading-tight mt-0.5 pr-24 break-words">{name || 'Doctor'}</h1>
+      <h1 className="font-heading font-heading-semibold text-2xl leading-tight mt-0.5 pr-24 wrap-break-word">{name || 'Doctor'}</h1>
       <p className="text-xs text-white/70 mt-1">
         {clinic ? `${clinic} · ` : ''}{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
       </p>

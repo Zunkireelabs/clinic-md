@@ -4,7 +4,7 @@ const TypingIndicator = () => {
   return (
     <div className="flex items-start gap-3 px-4">
       {/* Assistant Avatar */}
-      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
+      <div className="w-8 h-8 rounded-full bg-linear-to-br from-purple-500 to-pink-500 flex items-center justify-center shrink-0">
         <svg
           className="w-4 h-4 text-white"
           fill="none"

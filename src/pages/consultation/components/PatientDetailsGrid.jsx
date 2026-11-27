@@ -5,7 +5,7 @@ import React from 'react';
 const Field = ({ label, children, wide = false }) => (
   <div className={wide ? 'col-span-2' : ''}>
     <dt className="text-text-tertiary text-xs mb-0.5">{label}</dt>
-    <dd className="text-sm text-text-primary break-words">{children || '—'}</dd>
+    <dd className="text-sm text-text-primary wrap-break-word">{children || '—'}</dd>
   </div>
 );
 

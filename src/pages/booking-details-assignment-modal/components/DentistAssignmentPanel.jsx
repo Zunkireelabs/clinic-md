@@ -246,7 +246,7 @@ const DentistAssignmentPanel = ({
 
       {/* Treatment Notes — saved to the customer's treatment history on assignment */}
       <div className="space-y-2">
-        <label className="font-body font-body-medium text-sm text-text-primary">
+        <label className="inline-block font-body font-body-medium text-sm text-text-primary">
           Treatment Notes
         </label>
         <textarea

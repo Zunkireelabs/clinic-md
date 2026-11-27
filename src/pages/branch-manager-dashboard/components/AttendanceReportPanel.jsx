@@ -113,7 +113,7 @@ const AttendanceGrid = ({ rankedStaff, data }) => {
           { label: 'No record', cls: 'bg-border/50' },
         ].map((l) => (
           <span key={l.label} className="inline-flex items-center gap-1.5 font-body text-xs text-text-secondary">
-            <span className={`inline-block w-4 h-4 rounded-sm ${l.cls}`} />
+            <span className={`inline-block w-4 h-4 rounded-xs ${l.cls}`} />
             {l.label}
           </span>
         ))}
@@ -190,7 +190,7 @@ const AttendanceGrid = ({ rankedStaff, data }) => {
                           title={`${s.dentistName} · ${iso} · ${cell.title}`}
                         >
                           <span
-                            className={`inline-block w-7 h-7 rounded-sm ${cell.bg}`}
+                            className={`inline-block w-7 h-7 rounded-xs ${cell.bg}`}
                           />
                         </td>
                       );
@@ -332,12 +332,12 @@ const AttendanceReportPanel = ({ branchId }) => {
   if (loading) {
     return (
       <div className="bg-surface rounded-spa-lg border border-border p-6 animate-pulse">
-        <div className="h-5 bg-background rounded w-56 mb-4" />
+        <div className="h-5 bg-background rounded-sm w-56 mb-4" />
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
-          {[0, 1, 2, 3, 4, 5].map(i => <div key={i} className="h-16 bg-background rounded" />)}
+          {[0, 1, 2, 3, 4, 5].map(i => <div key={i} className="h-16 bg-background rounded-sm" />)}
         </div>
         <div className="space-y-3">
-          {[0, 1, 2].map(i => <div key={i} className="h-12 bg-background rounded" />)}
+          {[0, 1, 2].map(i => <div key={i} className="h-12 bg-background rounded-sm" />)}
         </div>
       </div>
     );
@@ -346,7 +346,7 @@ const AttendanceReportPanel = ({ branchId }) => {
   if (error) {
     return (
       <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
         <p className="font-body text-sm text-error">{error}</p>
         <button onClick={loadData} className="ml-auto font-body font-body-medium text-sm text-error underline">
           Retry
@@ -394,7 +394,7 @@ const AttendanceReportPanel = ({ branchId }) => {
               onClick={() => setDisplayMode('table')}
               title="Table view"
               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-body-medium transition-colors ${
-                displayMode === 'table' ? 'bg-surface text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'
+                displayMode === 'table' ? 'bg-surface text-primary shadow-xs' : 'text-text-secondary hover:text-text-primary'
               }`}
             >
               <Icon name="List" size={14} />
@@ -404,7 +404,7 @@ const AttendanceReportPanel = ({ branchId }) => {
               onClick={() => setDisplayMode('grid')}
               title="Calendar grid view"
               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-body-medium transition-colors ${
-                displayMode === 'grid' ? 'bg-surface text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'
+                displayMode === 'grid' ? 'bg-surface text-primary shadow-xs' : 'text-text-secondary hover:text-text-primary'
               }`}
             >
               <Icon name="LayoutGrid" size={14} />

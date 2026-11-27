@@ -330,7 +330,7 @@ const DateTimeSelection = ({ selectedDateTime, onDateTimeSelect, selectedTreatme
                     }
                   />
                 </div>
-                <span className="font-body font-body-medium text-[11px] sm:text-sm leading-tight text-text-primary">
+                <span className="font-body font-body-medium text-[11px] sm:text-sm leading-tight sm:leading-5 text-text-primary">
                   {option.label}
                 </span>
               </label>
@@ -357,7 +357,7 @@ const DateTimeSelection = ({ selectedDateTime, onDateTimeSelect, selectedTreatme
                 }`}
               >
                 <Icon name="Zap" size={14} />
-                <span className="font-body font-body-medium text-xs sm:text-sm min-w-0 break-words">{formatQuickPickLabel(slot)}</span>
+                <span className="font-body font-body-medium text-xs sm:text-sm min-w-0 wrap-break-word">{formatQuickPickLabel(slot)}</span>
               </button>
             ))}
           </div>

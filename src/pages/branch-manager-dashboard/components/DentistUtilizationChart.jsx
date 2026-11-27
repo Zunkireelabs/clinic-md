@@ -68,7 +68,7 @@ const DentistUtilizationChart = ({ branchId, period }) => {
     return (
       <div className="bg-white rounded-lg p-4 sm:p-6 border border-gray-200">
         <div className="flex items-center space-x-2 sm:space-x-3 mb-4 sm:mb-6">
-          <div className="w-9 h-9 sm:w-10 sm:h-10 bg-purple-50 rounded-lg flex items-center justify-center flex-shrink-0">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 bg-purple-50 rounded-lg flex items-center justify-center shrink-0">
             <Icon name="Users" size={18} className="sm:w-5 sm:h-5 text-purple-600" />
           </div>
           <div>
@@ -82,9 +82,9 @@ const DentistUtilizationChart = ({ branchId, period }) => {
         </div>
         <div className="h-48 sm:h-64 flex items-center justify-center">
           <div className="animate-pulse space-y-3 w-full">
-            <div className="h-4 bg-gray-100 rounded w-full" />
-            <div className="h-4 bg-gray-100 rounded w-3/4" />
-            <div className="h-4 bg-gray-100 rounded w-1/2" />
+            <div className="h-4 bg-gray-100 rounded-sm w-full" />
+            <div className="h-4 bg-gray-100 rounded-sm w-3/4" />
+            <div className="h-4 bg-gray-100 rounded-sm w-1/2" />
           </div>
         </div>
       </div>
@@ -109,7 +109,7 @@ const DentistUtilizationChart = ({ branchId, period }) => {
     <div className="bg-white rounded-lg p-4 sm:p-6 border border-gray-200">
       <div className="flex items-center justify-between mb-4 sm:mb-6 gap-2">
         <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
-          <div className="w-9 h-9 sm:w-10 sm:h-10 bg-purple-50 rounded-lg flex items-center justify-center flex-shrink-0">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 bg-purple-50 rounded-lg flex items-center justify-center shrink-0">
             <Icon name="Users" size={18} className="sm:w-5 sm:h-5 text-purple-600" />
           </div>
           <div className="min-w-0">
@@ -121,7 +121,7 @@ const DentistUtilizationChart = ({ branchId, period }) => {
             </p>
           </div>
         </div>
-        <button className="p-2 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0 min-h-[36px] min-w-[36px] flex items-center justify-center">
+        <button className="p-2 rounded-lg hover:bg-gray-100 transition-colors shrink-0 min-h-[36px] min-w-[36px] flex items-center justify-center">
           <Icon name="MoreVertical" size={16} className="text-gray-500" />
         </button>
       </div>

@@ -54,7 +54,7 @@ const PhonePair = () => {
           <>
             <Icon name="AlertCircle" size={40} className="text-error mx-auto" />
             <p className="font-body text-text-secondary">{message}</p>
-            <Link to={org ? `/${org}/login` : '/login'} className="inline-block text-primary font-medium text-sm">
+            <Link to={org ? `/${org}/login` : '/login'} className="block w-fit mx-auto text-primary font-medium text-sm">
               Log in with email instead
             </Link>
           </>

@@ -33,7 +33,7 @@ const Section = ({ title, children }) => (
   </div>
 );
 
-const Text = ({ value }) => <p className="font-body text-sm text-text-primary whitespace-pre-wrap break-words">{value}</p>;
+const Text = ({ value }) => <p className="font-body text-sm text-text-primary whitespace-pre-wrap wrap-break-word">{value}</p>;
 
 // Read-only record of one past visit, shown inside the customer profile panel.
 const VisitDetail = ({ visit, customerName, notes, onBack }) => {

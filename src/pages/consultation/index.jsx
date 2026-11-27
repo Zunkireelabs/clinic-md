@@ -61,8 +61,8 @@ const hasContent = (f) =>
 const formatTimer = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
 const Card = ({ title, icon, children, action }) => (
-  <div className="bg-white rounded-2xl border border-gray-200/80 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
-    <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 bg-gradient-to-r from-primary/[0.05] to-transparent">
+  <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs hover:shadow-md transition-shadow overflow-hidden">
+    <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 bg-linear-to-r from-primary/5 to-transparent">
       <div className="flex items-center gap-3">
         <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
           <Icon name={icon} size={18} />
@@ -713,7 +713,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
 
   if (phoneView) {
     return (
-      <div className="h-[100dvh] flex flex-col bg-gradient-to-b from-primary/15 via-background to-background overflow-hidden">
+      <div className="h-dvh flex flex-col bg-linear-to-b from-primary/15 via-background to-background overflow-hidden">
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-6">
         {loading && (
           <div className="p-12 text-center">
@@ -729,7 +729,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
         )}
         {!loading && !loadError && booking && (
           <div className="max-w-md mx-auto p-4 space-y-4">
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-xs p-4">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center text-lg font-heading font-heading-semibold shrink-0">
                   {(booking.customer_name || '?').trim().charAt(0).toUpperCase()}
@@ -858,7 +858,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
 
             {(form.transcript.trim() || form.preliminarySummary.trim()) && (
               <Card title="Recorded so far" icon="FileText">
-                <div className="space-y-3 max-h-64 overflow-auto text-sm text-text-primary whitespace-pre-wrap break-words">
+                <div className="space-y-3 max-h-64 overflow-auto text-sm text-text-primary whitespace-pre-wrap wrap-break-word">
                   {form.preliminarySummary.trim() && <div><p className="text-xs uppercase tracking-wider text-text-tertiary mb-1">Summary</p>{form.preliminarySummary}</div>}
                   {form.transcript.trim() && <div><p className="text-xs uppercase tracking-wider text-text-tertiary mb-1">Transcript</p>{form.transcript}</div>}
                 </div>
@@ -937,7 +937,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
               {/* Primary action: a compact floating pill, clear of the bar below */}
               <div className="pointer-events-auto self-end flex flex-col items-end gap-1.5">
                 {(recorder.isRecording || processing !== null) && (
-                  <p className="text-xs text-text-secondary bg-white/90 rounded-full px-3 py-1 shadow-sm">
+                  <p className="text-xs text-text-secondary bg-white/90 rounded-full px-3 py-1 shadow-xs">
                     {recorder.isRecording ? 'Stop the recording to finish' : 'Wait for processing to finish'}
                   </p>
                 )}
@@ -964,7 +964,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
 
               {/* Leave: back to the patient list (this also covers switching patient) */}
               <button type="button" onClick={closePhoneView}
-                      className="pointer-events-auto w-full flex items-center justify-center gap-1.5 py-2.5 rounded-2xl bg-white/95 border border-gray-200 shadow-sm text-sm text-text-secondary active:bg-gray-50">
+                      className="pointer-events-auto w-full flex items-center justify-center gap-1.5 py-2.5 rounded-2xl bg-white/95 border border-gray-200 shadow-xs text-sm text-text-secondary active:bg-gray-50">
                 <Icon name="X" size={15} /> Close
               </button>
             </div>
@@ -1056,7 +1056,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
             <div className="mt-4 p-3 bg-[#FFFAF0] border border-[#F5D9A8] rounded-lg text-[13px] flex items-center gap-2"><Icon name="AlertTriangle" size={15} className="text-[#B45309]" />This booking is {booking.status}. Consultations are normally started once the booking is In-Progress.</div>
           )}
           {stage === 'saved' && bookingInProgress && (
-            <div role="status" className="mt-4 px-4 py-2.5 rounded-lg border border-[#BFE6D3] bg-[#F1FBF6] text-[13px] flex items-start sm:items-center gap-2"><Icon name="Check" size={15} className="text-[#1F9D6C] shrink-0" />
+            <div role="status" className="mt-4 px-4 py-2.5 rounded-lg border border-[#BFE6D3] bg-[#F1FBF6] text-[13px] flex items-start sm:items-center gap-2"><Icon name="Check" size={15} className="text-success shrink-0" />
               <span><b className="font-medium text-[#0F5F40]">Note saved to {patientFirst}’s chart</b> by {userName} at {hhmm(savedAt)}. The visit is still in progress: complete it when {patientFirst} leaves, so it can be billed.</span></div>
           )}
           {error && (
@@ -1067,22 +1067,22 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
             </div>
           )}
           {autoStopMsg && (
-            <div role="alert" className="mt-4 p-3 bg-[#FFFAF0] border border-[#F5D9A8] rounded-lg text-[13px] flex items-center gap-2"><Icon name="AlertTriangle" size={15} className="text-[#B45309] shrink-0" /><span className="flex-1">{autoStopMsg}</span><button type="button" onClick={() => setAutoStopMsg(null)} aria-label="Dismiss"><Icon name="X" size={14} className="text-[#8A8A90]" /></button></div>
+            <div role="alert" className="mt-4 p-3 bg-[#FFFAF0] border border-[#F5D9A8] rounded-lg text-[13px] flex items-center gap-2"><Icon name="AlertTriangle" size={15} className="text-[#B45309] shrink-0" /><span className="flex-1">{autoStopMsg}</span><button type="button" onClick={() => setAutoStopMsg(null)} aria-label="Dismiss"><Icon name="X" size={14} className="text-text-tertiary" /></button></div>
           )}
-          {received && <div className="mt-4 p-3 bg-[#F1FBF6] border border-[#BFE6D3] rounded-lg text-[13px] flex items-center gap-2"><Icon name="Download" size={15} className="text-[#1F9D6C]" />{received}</div>}
+          {received && <div className="mt-4 p-3 bg-[#F1FBF6] border border-[#BFE6D3] rounded-lg text-[13px] flex items-center gap-2"><Icon name="Download" size={15} className="text-success" />{received}</div>}
 
           <div className="mt-5 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-5 items-start">
             <div className="space-y-4 min-w-0">
               {stage === 'drafting' ? (
                 <section aria-label="Drafting progress" className="rounded-xl border border-border bg-white px-5 py-4 flex items-center gap-4">
-                  <span className="w-14 h-14 rounded-full bg-[#F1F1F3] grid place-items-center flex-shrink-0"><Icon name="Mic" size={20} className="text-[#515152]" /></span>
+                  <span className="w-14 h-14 rounded-full bg-[#F1F1F3] grid place-items-center shrink-0"><Icon name="Mic" size={20} className="text-[#515152]" /></span>
                   <ul className="space-y-1.5 text-[13.5px]">
                     {draftingSteps(flow, { sources: sourcesText(form) }).map((st) => (
                       <li key={st.key} className="flex items-center gap-2.5">
-                        {st.state === 'done' ? <span className="w-[18px] h-[18px] rounded-full bg-[#1F9D6C] grid place-items-center"><Icon name="Check" size={11} className="text-white" /></span>
+                        {st.state === 'done' ? <span className="w-[18px] h-[18px] rounded-full bg-success grid place-items-center"><Icon name="Check" size={11} className="text-white" /></span>
                           : st.state === 'active' ? <span className="w-[18px] h-[18px] rounded-full border-2 border-primary border-t-transparent animate-spin" />
                           : <span className="w-[18px] h-[18px] rounded-full border border-[#D6D6DB]" />}
-                        <span className={st.state === 'todo' ? 'text-[#8A8A90]' : ''}>{st.label}</span>
+                        <span className={st.state === 'todo' ? 'text-text-tertiary' : ''}>{st.label}</span>
                       </li>
                     ))}
                   </ul>
@@ -1096,7 +1096,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
                 />
               )}
               {recorder.isRecording && (
-                <p className="text-[12.5px] text-[#8A8A90] -mt-2 flex items-center gap-1.5"><Icon name="Lock" size={12} />Keep this page open while recording. If you try to leave, you’ll be asked to stop first so nothing is lost.</p>
+                <p className="text-[12.5px] text-text-tertiary -mt-2 flex items-center gap-1.5"><Icon name="Lock" size={12} />Keep this page open while recording. If you try to leave, you’ll be asked to stop first so nothing is lost.</p>
               )}
               {(flow.aiError || (orphanCount > 0 && flow.step === 'idle' && !queueBusy(queue))) && stage !== 'noai' && stage !== 'drafting' && !(stage === 'ready' && !flow.aiError) && (
                 <div role="alert" className="rounded-lg border border-[#F5D9A8] bg-[#FFFAF0] px-4 py-2.5 text-[13px] flex items-center gap-2 flex-wrap">

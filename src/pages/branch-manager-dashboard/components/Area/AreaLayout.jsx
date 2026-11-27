@@ -7,7 +7,7 @@ import Icon from '../../../../components/AppIcon';
 //
 // menuTop: extra rows above the category list (e.g. Reports' "All reports" / "Favourites"), rendered with the same row styles.
 export const menuRow = (active) => `w-full h-8 flex items-center gap-2.5 px-2.5 rounded-spa text-[13px] text-left spa-transition-fast ${
-  active ? 'bg-white shadow-[0_0_0_1px_#E9E9EC] text-text-primary font-medium' : 'text-text-secondary hover:bg-black/[0.04]'
+  active ? 'bg-white shadow-[0_0_0_1px_#E9E9EC] text-text-primary font-medium' : 'text-text-secondary hover:bg-black/4'
 }`;
 
 const AreaLayout = ({ title, menuStorageKey, menuTop = null, categories, activeView, onNavigate, children }) => {
@@ -15,16 +15,16 @@ const AreaLayout = ({ title, menuStorageKey, menuTop = null, categories, activeV
   const toggleMenu = () => setMenuOpen((o) => { try { localStorage.setItem(menuStorageKey, o ? 'collapsed' : 'open'); } catch { /* ignore */ } return !o; });
 
   const reopen = !menuOpen && (
-    <button type="button" onClick={toggleMenu} aria-label={`Show ${title.toLowerCase()} menu`} title={`Show ${title.toLowerCase()} menu`} className="hidden lg:inline-flex p-1.5 -ml-1.5 rounded-spa hover:bg-black/[0.05] text-text-secondary">
+    <button type="button" onClick={toggleMenu} aria-label={`Show ${title.toLowerCase()} menu`} title={`Show ${title.toLowerCase()} menu`} className="hidden lg:inline-flex p-1.5 -ml-1.5 rounded-spa hover:bg-black/5 text-text-secondary">
       <Icon name="PanelLeftOpen" size={16} />
     </button>
   );
 
   const menu = menuOpen && (
-    <aside className="hidden lg:flex w-[232px] flex-shrink-0 flex-col border-r border-border bg-background">
-      <div className="h-11 px-3 flex items-center justify-between flex-shrink-0">
+    <aside className="hidden lg:flex w-[232px] shrink-0 flex-col border-r border-border bg-background">
+      <div className="h-11 px-3 flex items-center justify-between shrink-0">
         <span className="text-[13px] font-semibold text-text-primary px-0.5">{title}</span>
-        <button type="button" onClick={toggleMenu} aria-label={`Hide ${title.toLowerCase()} menu`} title={`Hide ${title.toLowerCase()} menu`} className="p-1.5 rounded-spa hover:bg-black/[0.05] text-text-tertiary hover:text-text-secondary">
+        <button type="button" onClick={toggleMenu} aria-label={`Hide ${title.toLowerCase()} menu`} title={`Hide ${title.toLowerCase()} menu`} className="p-1.5 rounded-spa hover:bg-black/5 text-text-tertiary hover:text-text-secondary">
           <Icon name="PanelLeftClose" size={16} />
         </button>
       </div>
@@ -35,7 +35,7 @@ const AreaLayout = ({ title, menuStorageKey, menuTop = null, categories, activeV
             <p className="px-2.5 mb-1 text-[11px] font-medium uppercase tracking-wide text-text-tertiary">{c.label}</p>
             {c.items.map((r) => (
               <button key={r.id} type="button" className={`${menuRow(activeView === r.view)} mb-0.5`} onClick={() => onNavigate(r.view)} aria-current={activeView === r.view ? 'page' : undefined}>
-                <Icon name={r.icon} size={15} className="flex-shrink-0" />
+                <Icon name={r.icon} size={15} className="shrink-0" />
                 <span className="flex-1 truncate">{r.title}</span>
               </button>
             ))}
@@ -58,7 +58,7 @@ const AreaLayout = ({ title, menuStorageKey, menuTop = null, categories, activeV
 // A page inside an area: slim header (back link on mobile, title, optional ☆, description) over a `.content-scroll` body.
 export const AreaPage = ({ title, description, titleExtra = null, backLabel, onBack, reopen, tabs = null, children }) => (
   <>
-    <div className="px-4 sm:px-6 lg:px-8 pt-3 pb-3 border-b border-border flex-shrink-0">
+    <div className="px-4 sm:px-6 lg:px-8 pt-3 pb-3 border-b border-border shrink-0">
       {backLabel && (
         <button type="button" onClick={onBack} className="lg:hidden mb-2 inline-flex items-center gap-1 text-[13px] text-text-secondary hover:text-text-primary">
           <Icon name="ChevronLeft" size={14} /> {backLabel}

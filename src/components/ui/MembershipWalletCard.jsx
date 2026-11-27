@@ -31,7 +31,7 @@ const MembershipWalletCard = ({ membership, paidThisVisit = 0, pendingDeduction 
     <div className={`rounded-spa border ${styles.container} px-3 py-2.5`}>
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2 min-w-0">
-          <Icon name="Wallet" size={14} className="text-primary flex-shrink-0" />
+          <Icon name="Wallet" size={14} className="text-primary shrink-0" />
           <span className="font-body font-body-medium text-sm text-text-primary truncate">{membership.tierName}</span>
           {membership.membershipNumber && (
             <span className="font-data font-data-medium text-[11px] tracking-widest text-text-secondary">{membership.membershipNumber}</span>
@@ -40,7 +40,7 @@ const MembershipWalletCard = ({ membership, paidThisVisit = 0, pendingDeduction 
             {styles.label}
           </span>
         </div>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           <span className={`font-data font-data-medium text-sm text-primary ${pendingDeduction > 0 ? 'line-through text-text-tertiary' : ''}`}>
             {formatNPR(membership.balance)}
           </span>

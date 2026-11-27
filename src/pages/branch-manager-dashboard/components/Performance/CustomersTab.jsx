@@ -60,7 +60,7 @@ const CustomersTab = ({ dentistId, branchId, range }) => {
   if (loading) {
     return (
       <div className="bg-surface rounded-spa-lg border border-border p-6 space-y-3 animate-pulse">
-        {[0, 1, 2].map(i => <div key={i} className="h-10 bg-background rounded" />)}
+        {[0, 1, 2].map(i => <div key={i} className="h-10 bg-background rounded-sm" />)}
       </div>
     );
   }
@@ -68,7 +68,7 @@ const CustomersTab = ({ dentistId, branchId, range }) => {
   if (error) {
     return (
       <div className="bg-error/5 border border-error/20 rounded-spa p-4 flex items-center space-x-3">
-        <Icon name="AlertCircle" size={18} className="text-error flex-shrink-0" />
+        <Icon name="AlertCircle" size={18} className="text-error shrink-0" />
         <p className="font-body text-sm text-error">{error}</p>
         <button onClick={loadData} className="ml-auto font-body font-body-medium text-sm text-error underline">
           Retry
@@ -84,7 +84,7 @@ const CustomersTab = ({ dentistId, branchId, range }) => {
           {uniqueAttendedCount} customer{uniqueAttendedCount === 1 ? '' : 's'} attended
         </p>
         <label className="inline-flex items-center gap-1.5 font-caption text-xs text-text-secondary cursor-pointer">
-          <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} className="rounded border-border" />
+          <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} className="rounded-sm border-border" />
           Show cancelled / no-show
         </label>
       </div>
@@ -136,7 +136,7 @@ const CustomersTab = ({ dentistId, branchId, range }) => {
                     </td>
                     {showAll && (
                       <td className="px-4 py-3 text-center">
-                        <span className={`inline-flex px-2 py-0.5 rounded text-[11px] font-caption font-caption-medium ${STATUS_COLORS[c.status] || 'bg-background text-text-secondary'}`}>
+                        <span className={`inline-flex px-2 py-0.5 rounded-sm text-[11px] font-caption font-caption-medium ${STATUS_COLORS[c.status] || 'bg-background text-text-secondary'}`}>
                           {c.status}
                         </span>
                       </td>
@@ -154,7 +154,7 @@ const CustomersTab = ({ dentistId, branchId, range }) => {
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-body font-body-medium text-sm text-text-primary truncate min-w-0">{c.customerName || '—'}</span>
                   {c.customerType && (
-                    <span className={`inline-flex px-2 py-0.5 rounded text-[11px] font-caption font-caption-medium flex-shrink-0 ${
+                    <span className={`inline-flex px-2 py-0.5 rounded text-[11px] font-caption font-caption-medium shrink-0 ${
                       c.customerType === 'New' ? 'bg-success/10 text-success' : 'bg-primary/10 text-primary'
                     }`}>
                       {c.customerType}
@@ -165,7 +165,7 @@ const CustomersTab = ({ dentistId, branchId, range }) => {
                 <div className="flex items-center gap-2 text-xs text-text-tertiary">
                   <span>{formatDateTime(c.date, c.startTime)}</span>
                   {c.durationMinutes && <><span>·</span><span>{c.durationMinutes} min</span></>}
-                  {showAll && <><span>·</span><span className={`px-1.5 py-0.5 rounded ${STATUS_COLORS[c.status] || ''}`}>{c.status}</span></>}
+                  {showAll && <><span>·</span><span className={`px-1.5 py-0.5 rounded-sm ${STATUS_COLORS[c.status] || ''}`}>{c.status}</span></>}
                 </div>
               </div>
             ))}

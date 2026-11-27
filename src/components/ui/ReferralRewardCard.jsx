@@ -22,7 +22,7 @@ const ReferralRewardCard = ({ referralReward, pendingWalletDeduction = 0, onAppl
   return (
     <div className="rounded-spa border bg-background border-border px-3 py-2.5 space-y-2">
       <div className="flex items-center space-x-2">
-        <Icon name="Gift" size={14} className="text-text-secondary flex-shrink-0" />
+        <Icon name="Gift" size={14} className="text-text-secondary shrink-0" />
         <span className="font-body font-body-medium text-sm text-text-primary">Referral reward</span>
       </div>
 
@@ -53,7 +53,7 @@ const ReferralRewardCard = ({ referralReward, pendingWalletDeduction = 0, onAppl
               <button
                 type="button"
                 onClick={() => onApplyVoucher(v)}
-                className="flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-caption font-caption-medium border border-border bg-surface text-text-primary hover:bg-background spa-transition-fast"
+                className="shrink-0 px-2 py-0.5 rounded-full text-[11px] font-caption font-caption-medium border border-border bg-surface text-text-primary hover:bg-background spa-transition-fast"
               >
                 Apply
               </button>

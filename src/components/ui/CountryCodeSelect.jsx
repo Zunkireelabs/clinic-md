@@ -166,7 +166,7 @@ const CountryCodeSelect = ({ value = '+977', onChange, disabled = false }) => {
         type="button"
         onClick={toggle}
         disabled={disabled}
-        className="inline-flex flex-shrink-0 items-center justify-center gap-1 w-[88px] h-full px-2 py-2 text-sm border border-r-0 border-border rounded-l-spa bg-background text-text-primary hover:bg-border/40 focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 spa-transition-fast"
+        className="inline-flex shrink-0 items-center justify-center gap-1 w-[88px] h-full px-2 py-2 text-sm border border-r-0 border-border rounded-l-spa bg-background text-text-primary hover:bg-border/40 focus:outline-hidden focus:ring-2 focus:ring-primary/30 disabled:opacity-50 spa-transition-fast"
       >
         <span className="text-base leading-none">{isoToFlag(selected.iso)}</span>
         <span className="font-body">{selected.dial}</span>
@@ -192,7 +192,7 @@ const CountryCodeSelect = ({ value = '+977', onChange, disabled = false }) => {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Country or code…"
-                className="w-full pl-7 pr-2 py-1.5 text-sm border border-border rounded bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                className="w-full pl-7 pr-2 py-1.5 text-sm border border-border rounded-sm bg-surface text-text-primary placeholder:text-text-secondary/50 focus:outline-hidden focus:ring-1 focus:ring-primary/30"
               />
             </div>
           </div>

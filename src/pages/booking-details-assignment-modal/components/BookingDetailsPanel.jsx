@@ -98,7 +98,7 @@ const BookingDetailsPanel = ({ booking, onStatusUpdate, onRecordPayment, onStart
       {/* Lock / Immutability Banners */}
       {isLocked && (
         <div className="flex items-center space-x-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-spa">
-          <Icon name="Lock" size={16} className="text-amber-600 flex-shrink-0" />
+          <Icon name="Lock" size={16} className="text-amber-600 shrink-0" />
           <span className="font-body font-body-medium text-xs text-amber-700">
             Day Closed — Locked
           </span>
@@ -113,7 +113,7 @@ const BookingDetailsPanel = ({ booking, onStatusUpdate, onRecordPayment, onStart
         const iconColor = banner.iconColor || banner.color;
         return (
           <div className={`flex items-center space-x-2 px-3 py-2 ${banner.bg} border ${banner.border} rounded-spa`}>
-            <Icon name={banner.icon} size={16} className={`${iconColor} flex-shrink-0`} />
+            <Icon name={banner.icon} size={16} className={`${iconColor} shrink-0`} />
             <span className={`font-body font-body-medium text-xs ${banner.color}`}>
               {banner.label}
             </span>
@@ -139,7 +139,7 @@ const BookingDetailsPanel = ({ booking, onStatusUpdate, onRecordPayment, onStart
       {/* Lifecycle Progress Bar */}
       {['cancelled', 'no show'].includes(booking.status) ? (
         <div className="flex items-center space-x-2 px-3 py-2 bg-error/5 border border-error/20 rounded-spa">
-          <Icon name="XCircle" size={16} className="text-error flex-shrink-0" />
+          <Icon name="XCircle" size={16} className="text-error shrink-0" />
           <span className="font-body font-body-medium text-sm text-error capitalize">
             {booking.status === 'no show' ? 'No Show' : 'Cancelled'}
           </span>
