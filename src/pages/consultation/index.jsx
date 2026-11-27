@@ -24,8 +24,10 @@ import ConsentCheck from './desk/ConsentCheck';
 import NoteCard from './desk/NoteCard';
 import ConsultationRail from './desk/ConsultationRail';
 import useLeaveGuard from './desk/useLeaveGuard';
+import { consultationLoadError } from '../../utils/consultationLoadError';
 import { flowReducer, initialFlow, deriveStage, showNoAiBanner, draftingSteps, draftInputsKey, draftIsStale } from '../../utils/consultationFlow';
 import { markdownToNote, noteToMarkdown, normalizeNote, isNoteEmpty, sameNote, emptyNote } from '../../utils/consultationNote';
+import { draftFailure } from '../../utils/consultationAiError';
 import { parseSummarySections } from '../../utils/summarySections';
 import { CURRENT_CONSENT_SCRIPT } from '../../utils/consentScripts';
 import { EMPTY_META, metaFromRow, canUnsign, provenanceLine } from '../../utils/consultationMeta';
@@ -237,7 +239,8 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       const { data, error: bookingError } = await fetchBookingById(bookingId);
       if (cancelled) return;
       if (bookingError) {
-        setLoadError(bookingError.message || 'Failed to load booking.');
+        console.error('[consultation] load booking failed:', bookingError);
+        setLoadError(consultationLoadError(bookingError));
         setLoading(false);
         return;
       }
@@ -246,7 +249,8 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       const { data: row, error: rowError } = await getOrCreateConsultation(data);
       if (cancelled) return;
       if (rowError || !row) {
-        setLoadError(rowError?.message || 'Could not open the consultation.');
+        console.error('[consultation] open failed:', rowError);
+        setLoadError(consultationLoadError(rowError));
         setLoading(false);
         return;
       }
@@ -539,8 +543,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       consultationId: consultationIdRef.current,
     });
     const drafted = aiNote ? normalizeNote(aiNote) : null;
-    if (aiError || !drafted || isNoteEmpty(drafted)) {
-      dispatchFlow({ type: 'FAILED', at: 'drafting', error: aiError || { code: 'AI_FAILED', message: "The AI didn't return a note. Your recording is saved; try again." } });
+    const failure = draftFailure(aiError, drafted, drafted && isNoteEmpty(drafted));
+    if (failure) {
+      dispatchFlow({ type: 'FAILED', at: 'drafting', error: failure });
       return false;
     }
     if (savingRef.current || stageRef.current === 'saved') {
@@ -802,7 +807,8 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
         {!loading && loadError && (
           <div className="p-8 text-center">
             <Icon name="AlertCircle" size={40} className="text-error mx-auto mb-3" />
-            <p className="font-body text-text-secondary">{loadError}</p>
+            <p className="font-body text-text-secondary">{loadError.title}</p>
+            {loadError.hint && <p className="font-body text-sm text-text-tertiary mt-1">{loadError.hint}</p>}
           </div>
         )}
         {!loading && !loadError && booking && (
@@ -1112,8 +1118,9 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
       {!loading && loadError && (
         <div className="p-12 text-center">
           <Icon name="AlertCircle" size={48} className="text-error mx-auto mb-4" />
-          <p className="font-body text-text-secondary mb-4">{loadError}</p>
-          <Button variant="primary" onClick={() => navigate(`/${orgSlug}/dashboard`)}>Back to dashboard</Button>
+          <p className="font-body text-text-secondary">{loadError.title}</p>
+          {loadError.hint && <p className="font-body text-sm text-text-tertiary mt-1">{loadError.hint}</p>}
+          <Button variant="primary" className="mt-4" onClick={() => navigate(`/${orgSlug}/bookings/${bookingId}`)}>Back to the booking</Button>
         </div>
       )}
 
@@ -1195,7 +1202,7 @@ const ConsultationPage = ({ bookingIdProp, forcePhoneView = false, onDone, onSwi
               <NoteCard
                 stage={stage} note={note} onNoteChange={editNote} view={noteView} onView={setNoteView}
                 transcript={form.transcript} onTranscript={(v) => patchForm({ transcript: v })} hasTranscript={!!form.transcript.trim()}
-                badge={badge} drafting={drafting} noAiBanner={noAiBanner} noAiKind={hasUploadFailure(queue) ? 'upload' : 'ai'} onTryAgain={retryDraft} tryAgainBusy={flow.step !== 'idle'}
+                badge={badge} drafting={drafting} noAiBanner={noAiBanner} noAiKind={hasUploadFailure(queue) ? 'upload' : flow.aiError?.code === 'NO_SPEECH' ? 'nospeech' : 'ai'} onTryAgain={retryDraft} tryAgainBusy={flow.step !== 'idle'}
                 readOnly={stage === 'saved' || readOnlyRole} findingsTags={findingsTags} footer={footer} onRedraft={flow.aiDrafted && stage === 'review' && !readOnlyRole ? redraft : null}
                 updateDraftOffer={stage === 'review' && hasNote && draftIsStale(flow, draftInputsKey(form), { readOnly: readOnlyRole })} onUpdateDraft={redraft}
                 onWriteMyself={() => dispatchFlow({ type: 'WRITE_MYSELF' })} earlierDoctorNotes={form.doctorNotes.trim() ? form.doctorNotes : ''}

@@ -13,6 +13,7 @@ import { useBranch } from '../../contexts/BranchContext';
 import { fetchBookingById, fetchDentists, recordPayment, updateBookingStatus, assignDentist, fetchDueHolderNames, createTreatmentNote } from '../../services/api';
 import { transformBooking, toDbStatus } from '../../services/bookingTransformers';
 import { useAiConsultationEnabled } from '../../hooks/useAiConsultationEnabled';
+import { canOpenConsultation } from '../../utils/consultationLoadError';
 
 const BookingDetailsAssignmentModal = () => {
   const aiConsultationOn = useAiConsultationEnabled(); // build flag AND this clinic's AI switch
@@ -118,7 +119,7 @@ const BookingDetailsAssignmentModal = () => {
 
     if (result.error) {
       showActionError(result.error.message || 'Failed to update status.');
-    } else if (newStatus === 'in-progress' && aiConsultationOn && userRole !== 'admin_viewer') {
+    } else if (newStatus === 'in-progress' && aiConsultationOn && canOpenConsultation(userRole)) {
       navigate(`/${urlOrgSlug || profile?.organizations?.slug}/bookings/${bookingIdFromUrl}/consultation`);
       return;
     } else {
@@ -306,7 +307,7 @@ const BookingDetailsAssignmentModal = () => {
                               onStatusUpdate={handleStatusUpdate}
                               onRecordPayment={() => setShowPaymentModal(true)}
                               onStartConsultation={
-                                aiConsultationOn && userRole !== 'admin_viewer'
+                                aiConsultationOn && canOpenConsultation(userRole)
                                   ? () => navigate(`/${urlOrgSlug || profile?.organizations?.slug}/bookings/${bookingIdFromUrl}/consultation`)
                                   : undefined
                               }

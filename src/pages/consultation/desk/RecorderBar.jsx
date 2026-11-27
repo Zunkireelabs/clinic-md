@@ -4,10 +4,19 @@ import LevelMeter from './LevelMeter';
 import ConsentCheck from './ConsentCheck';
 import { getConsultationFileUrl } from '../../../services/api';
 
-const mmss = (s) => `${String(Math.floor((s || 0) / 60)).padStart(2, '0')}:${String(s % 60 || 0).padStart(2, '0')}`;
+const mmss = (s) => { const n = Math.round(s || 0); return `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`; };
+
+// MediaRecorder webm has no duration in its header, so browsers report Infinity. Seeking past the end makes them compute it (Safari records mp4, which has one).
+const resolveLength = (e, setLen) => {
+  const a = e.currentTarget;
+  if (isFinite(a.duration)) return setLen(a.duration);
+  a.addEventListener('timeupdate', () => { a.currentTime = 0; }, { once: true });
+  a.currentTime = 1e101;
+};
 
 const Recording = ({ path, index, canDelete, onDelete, legacyNote }) => {
   const [url, setUrl] = useState(null);
+  const [len, setLen] = useState(null);
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   React.useEffect(() => {
@@ -18,7 +27,8 @@ const Recording = ({ path, index, canDelete, onDelete, legacyNote }) => {
   return (
     <div className="flex items-center gap-3 flex-wrap text-[12.5px]">
       <span className="text-text-tertiary w-24 shrink-0">Recording {index + 1}</span>
-      {url ? <audio controls src={url} className="h-8 flex-1 min-w-0" /> : <span className="text-text-tertiary">Loading…</span>}
+      {url ? <audio controls preload="metadata" src={url} onLoadedMetadata={(e) => resolveLength(e, setLen)} onDurationChange={(e) => isFinite(e.currentTarget.duration) && setLen(e.currentTarget.duration)} className="h-8 flex-1 min-w-0" /> : <span className="text-text-tertiary">Loading…</span>}
+      <span className="tabular-nums text-text-tertiary w-12 shrink-0 text-right">{len != null ? mmss(len) : ''}</span>
       {canDelete && !asking && <button type="button" onClick={() => setAsking(true)} aria-label={`Delete recording ${index + 1}`} className="h-8 px-2 rounded-md border border-border bg-white text-[12.5px] text-[#B42318]">Delete</button>}
       {asking && (
         <div role="alertdialog" aria-label={`Delete recording ${index + 1}?`} className="basis-full rounded-lg border border-[#F7C6C6] bg-[#FFF6F6] px-3 py-2 flex items-center gap-3 flex-wrap">
@@ -75,8 +85,11 @@ const RecorderBar = ({
     return (
       <div className="rounded-xl border border-border bg-white px-5 py-4">
         <div className="flex items-center gap-4 flex-wrap">
-          <button type="button" onClick={onStart} disabled={busy || !consent || locked} aria-label="Record more" title={consent ? 'Record more' : `Confirm ${firstName} has agreed to be recorded`}
-            className="w-14 h-14 rounded-full bg-primary text-white grid place-items-center shrink-0 disabled:opacity-40 hover:opacity-95"><Icon name="Mic" size={22} /></button>
+          <button type="button" onClick={onStart} disabled={busy || !consent || locked} title={consent ? 'Record more' : `Confirm ${firstName} has agreed to be recorded`}
+            className="group flex flex-col items-center gap-1 shrink-0 rounded-lg touch-manipulation disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+            <span className="w-14 h-14 rounded-full bg-primary text-white grid place-items-center group-enabled:group-hover:opacity-95"><Icon name="Mic" size={22} /></span>
+            <span className="text-[12px] font-medium text-text-primary">Record more</span>
+          </button>
           <div className="min-w-0">
             <p className="text-[15px] font-medium">{audioPaths.length} recording{audioPaths.length === 1 ? '' : 's'}{durationSeconds ? ` · ${mmss(durationSeconds)}` : ''}</p>
             <p className="text-[12.5px] text-text-tertiary">{locked ? 'Press Edit note to add more' : consent ? 'Tap to record more' : `Tick that ${firstName} has agreed to record more`}</p>
@@ -96,8 +109,11 @@ const RecorderBar = ({
   return (
     <div className="rounded-xl border border-border bg-white px-5 py-4">
       <div className="flex items-start gap-4">
-        <button type="button" onClick={onStart} disabled={!consent} aria-label="Start recording" title={consent ? 'Start recording' : `Confirm ${firstName} has agreed to be recorded`}
-          className="w-14 h-14 rounded-full bg-primary text-white grid place-items-center shrink-0 disabled:opacity-40 hover:opacity-95"><Icon name="Mic" size={22} /></button>
+        <button type="button" onClick={onStart} disabled={!consent} title={consent ? 'Start recording' : `Confirm ${firstName} has agreed to be recorded`}
+            className="group flex flex-col items-center gap-1 shrink-0 rounded-lg touch-manipulation disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+            <span className="w-14 h-14 rounded-full bg-primary text-white grid place-items-center group-enabled:group-hover:opacity-95"><Icon name="Mic" size={22} /></span>
+            <span className="text-[12px] font-medium text-text-primary">Start recording</span>
+          </button>
         <div className="min-w-0">
           <p className="text-[15px] font-semibold">Record the consultation</p>
           <p className="text-[12.5px] text-text-tertiary">Uses this computer’s mic · or <button type="button" onClick={onContinueOnPhone} className="text-text-primary font-medium underline">continue on phone</button></p>
