@@ -12,6 +12,7 @@ import { excludeRelatedFromPreviousDue } from '../../services/bookingTransformer
 import { useBranch } from '../../contexts/BranchContext';
 import { useAiConsultationEnabled } from '../../hooks/useAiConsultationEnabled';
 import { getExtendOptions } from '../../utils/treatmentVariants';
+import { canOpenConsultation } from '../../utils/consultationLoadError';
 import BlockOverlapWarning from './BlockOverlapWarning';
 import SidePanel from './SidePanel';
 import { AlertsBlock } from '../../pages/branch-manager-dashboard/components/calendar/BookingHoverCard';
@@ -552,7 +553,7 @@ const BookingActionModal = ({
       }
       setPendingStatus(null);
       // Starting the visit drops the doctor straight into the consultation.
-      if (newStatus === 'in-progress' && aiConsultationOn && userRole !== 'admin_viewer' && orgSlug) {
+      if (newStatus === 'in-progress' && aiConsultationOn && canOpenConsultation(userRole) && orgSlug) {
         onClose();
         navigate(`/${orgSlug}/bookings/${booking.bookingId}/consultation`);
       } else if (variant === 'panel') {
@@ -873,7 +874,7 @@ const BookingActionModal = ({
   })();
   // Visible secondary actions (left), in collapse-priority order; disabled ones are not shown here (only in the overflow).
   const secondaryVisible = [
-    aiConsultationOn && booking.status === 'in-progress' && userRole !== 'admin_viewer' && orgSlug && !isEditing && { key: 'consult', label: 'Consultation', icon: 'Mic', run: () => navigate(`/${orgSlug}/bookings/${booking.bookingId}/consultation`) },
+    aiConsultationOn && booking.status === 'in-progress' && canOpenConsultation(userRole) && orgSlug && !isEditing && { key: 'consult', label: 'Consultation', icon: 'Mic', run: () => navigate(`/${orgSlug}/bookings/${booking.bookingId}/consultation`) },
     onCreateBooking && !isEditing && { key: 'rebook', label: rebookLabel, icon: 'CalendarClock', run: () => onRebookStart?.(booking) },
     onCreateBooking && !isEditing && { key: 'add', label: '+ Treatment', icon: 'PlusCircle', run: () => { setActiveTab('details'); openNewBookingForm('add-treatment'); } },
     !isTerminal && !isLocked && extendOptions.length > 0 && { key: 'extend', label: 'Extend', icon: 'Timer', run: () => { setActiveTab('details'); setShowExtendPanel(true); } },
@@ -1081,10 +1082,10 @@ const BookingActionModal = ({
                       {booking.status.replace('-', ' ')}
                     </span>
                   </div>
-                  {(aiConsultationOn && booking.status === 'in-progress' && userRole !== 'admin_viewer' && orgSlug)
+                  {(aiConsultationOn && booking.status === 'in-progress' && canOpenConsultation(userRole) && orgSlug)
                     || (!isTerminal && !isLocked && nextStatuses.length > 0) ? (
                     <div className="flex flex-wrap gap-2">
-                      {aiConsultationOn && booking.status === 'in-progress' && userRole !== 'admin_viewer' && orgSlug && (
+                      {aiConsultationOn && booking.status === 'in-progress' && canOpenConsultation(userRole) && orgSlug && (
                         <Button
                           variant="primary"
                           size="sm"
