@@ -49,7 +49,7 @@ async function makeUser(label, role, org, branch) {
 function makeBooking(org, branch) {
   const id = randomUUID();
   psql(`INSERT INTO public.bookings (id, booking_number, branch_id, treatment_id, customer_name, date, start_time, end_time, start_datetime, end_datetime, base_amount, final_amount)
-        VALUES ('${id}', 'EDGE-${RUN}-${id.slice(0, 6)}', '${branch}', '${TREATMENT_A}', 'Edge Patient', current_date, '10:00', '10:30', now(), now() + interval '30 minutes', 0, 0)`);
+        VALUES ('${id}', 'EDGE-${RUN}-${id.slice(0, 6)}', '${branch}', '${TREATMENT_A}', 'Edge Patient', current_date, '10:00', '10:30', now(), now() + interval '30 minutes', 1000, 1000)`);
   made.bookings.push(id);
   return id;
 }
@@ -103,9 +103,11 @@ after(async () => {
       await admin(`/auth/v1/admin/users/${u}`, { method: 'DELETE' });
     }
   } finally {
-    // deleting an org cascades to what was made under it; users/consultations/bookings above are already gone
-    psql(`DELETE FROM public.treatments WHERE id = '${TREATMENT_A}'`);
-    for (const org of [ORG_A, ORG_B]) psql(`DELETE FROM public.organizations WHERE id = '${org}'`);
+    // org creation seeds agent_settings and playbooks (migration 018) and nothing cascades from org to branch: delete in dependency order
+    // (replica role skips the append-only triggers on those tables; this DB is local and the ids are ours)
+    for (const org of [ORG_A, ORG_B]) {
+      psql(`SET session_replication_role = replica; DELETE FROM public.agent_settings WHERE org_id = '${org}'; DELETE FROM public.playbooks WHERE org_id = '${org}'; DELETE FROM public.action_log WHERE org_id = '${org}'; DELETE FROM public.treatments WHERE org_id = '${org}'; DELETE FROM public.branches WHERE org_id = '${org}'; DELETE FROM public.organizations WHERE id = '${org}'`);
+    }
   }
 });
 
