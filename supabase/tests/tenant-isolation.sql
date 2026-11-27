@@ -3395,6 +3395,287 @@ SELECT 'COVERAGE', '-', c.relname, 'INFO', 'not seeded: dynamic matrix skipped (
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname NOT IN (SELECT tbl FROM t_seed) ORDER BY 3;
 
+-- ───────────────────────────── 3k. STAFF PINs HASHED (migration-022, CMD-62) ─────────────────────────────
+-- No role can read a PIN or a hash; the right PIN logs in, a wrong one does not; 5 wrong guesses lock the account (even for the right PIN) for 15
+-- minutes; the same message for unknown email / wrong PIN / locked / wrong org; set_my_pin and admin_reset_pin keep their rules; a PIN never reaches
+-- action_log. Seeds its own users (rolled back with the script). Skipped if 022 is absent. The backfill and the rollback round trip are run outside
+-- this file (supabase/tests/migration-022-roundtrip.sh).
+CREATE FUNCTION pg_temp.p_chk(p_label text, p_ok boolean, p_detail text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO t_res VALUES ('PIN', '-', p_label, CASE WHEN COALESCE(p_ok, false) THEN 'PASS' ELSE 'FAIL' END, p_detail);
+  IF NOT COALESCE(p_ok, false) THEN RAISE NOTICE 'FAILED CHECK: % -- %', p_label, left(p_detail, 300); END IF;
+END $$;
+CREATE FUNCTION pg_temp.p_login(p_email text, p_pin text, p_org text DEFAULT NULL) RETURNS text LANGUAGE sql AS
+$$ SELECT public.login_with_pin(p_email, p_pin, p_org)::text $$;
+CREATE FUNCTION pg_temp.p_good(p_login text) RETURNS boolean LANGUAGE sql AS
+$$ SELECT (p_login::json ->> 'success')::boolean $$;
+
+DO $pin$
+DECLARE
+  u_adm uuid; u_vw uuid; u_mg uuid; u_st uuid; u_pr uuid; u_pn uuid; u_ab uuid; u_a2 uuid; oa uuid; ob uuid; a1 uuid; sfx text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+  e_adm text; e_vw text; e_mg text; e_st text; e_ab text; e_a2 text; e_pn text; sl_a text; sl_b text;
+  generic constant text := '{"success" : false, "error" : "Invalid email or PIN"}';
+  act text; r jsonb; v text; n bigint; n0 bigint; h text; lk timestamptz; lk2 timestamptz; tmp text; i int; b1 boolean; b2 boolean;
+  has011 boolean := EXISTS (SELECT 1 FROM t_actor WHERE name = 'practitioner_no_profile');
+  actors text[] := ARRAY['anon', 'admin', 'admin_viewer', 'manager_2_branches', 'staff', 'customer_no_staff_row', 'admin_of_OTHER_org'];
+BEGIN
+  IF to_regclass('public.user_pins') IS NULL THEN
+    INSERT INTO t_res VALUES ('PIN', '-', 'migration-022 checks', 'INFO', 'skipped: user_pins (022) is not present');
+    RETURN;
+  END IF;
+  IF has011 THEN actors := array_append(actors, 'practitioner'::text); END IF;
+
+  SELECT uid, org INTO u_adm, oa FROM t_actor WHERE name = 'admin';  SELECT uid INTO u_vw FROM t_actor WHERE name = 'admin_viewer';
+  SELECT uid INTO u_mg FROM t_actor WHERE name = 'manager_2_branches'; SELECT uid INTO u_st FROM t_actor WHERE name = 'staff';
+  SELECT uid, org INTO u_ab, ob FROM t_actor WHERE name = 'admin_of_OTHER_org';
+  IF has011 THEN SELECT uid INTO u_pr FROM t_actor WHERE name = 'practitioner'; SELECT uid INTO u_pn FROM t_actor WHERE name = 'practitioner_no_profile'; END IF;
+  SELECT email INTO e_adm FROM public.users WHERE id = u_adm; SELECT email INTO e_vw FROM public.users WHERE id = u_vw; SELECT email INTO e_mg FROM public.users WHERE id = u_mg;
+  SELECT email INTO e_st FROM public.users WHERE id = u_st;  SELECT email INTO e_ab FROM public.users WHERE id = u_ab; SELECT email INTO e_pn FROM public.users WHERE id = u_pn;
+  SELECT slug INTO sl_a FROM organizations WHERE id = oa; SELECT slug INTO sl_b FROM organizations WHERE id = ob; SELECT branch_id INTO a1 FROM public.users WHERE id = u_adm;
+  -- a second admin of org A (an admin may reset another admin, never themselves)
+  u_a2 := gen_random_uuid(); e_a2 := 'rls-admin2-' || sfx || '@test.invalid';
+  INSERT INTO auth.users (id, instance_id, aud, role, email, created_at, updated_at) VALUES (u_a2, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', e_a2, now(), now());
+  INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active) VALUES (u_a2, e_a2, 'RLS admin A2', 'admin', a1, oa, true);
+  INSERT INTO t_actor VALUES ('admin_2', u_a2, oa, 'authenticated'), ('svc_role', NULL, oa, 'service_role');
+
+  -- ===== static: the table, the grants, the function bodies =====
+  PERFORM pg_temp.p_chk('user_pins: RLS on, no policy, and no API role (nor PUBLIC) holds any privilege on it',
+    (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.user_pins'::regclass) AND NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'user_pins')
+    AND NOT EXISTS (SELECT 1 FROM unnest(ARRAY['anon', 'authenticated', 'service_role']) ro, unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) pr
+                    WHERE has_table_privilege(ro, 'public.user_pins', pr))
+    AND NOT EXISTS (SELECT 1 FROM pg_class c, aclexplode(c.relacl) a WHERE c.oid = 'public.user_pins'::regclass AND a.grantee = 0), 'table');
+  PERFORM pg_temp.p_chk('login_with_pin and verify_pin: EXECUTE for service_role only (unchanged from 009)',
+    (SELECT bool_and(has_function_privilege('service_role', f, 'EXECUTE') AND NOT has_function_privilege('anon', f, 'EXECUTE') AND NOT has_function_privilege('authenticated', f, 'EXECUTE'))
+       FROM unnest(ARRAY['public.login_with_pin(text,text,text)', 'public.verify_pin(text,text,text)']) f), 'grants');
+  PERFORM pg_temp.p_chk('set_my_pin and admin_reset_pin: EXECUTE for authenticated only (not anon, not service_role)',
+    (SELECT bool_and(has_function_privilege('authenticated', f, 'EXECUTE') AND NOT has_function_privilege('anon', f, 'EXECUTE') AND NOT has_function_privilege('service_role', f, 'EXECUTE'))
+       FROM unnest(ARRAY['public.set_my_pin(text,text)', 'public.admin_reset_pin(uuid)']) f)
+    AND NOT EXISTS (SELECT 1 FROM pg_proc p, aclexplode(p.proacl) a WHERE p.proname IN ('set_my_pin', 'admin_reset_pin') AND a.grantee = 0), 'grants');
+  PERFORM pg_temp.p_chk('the helpers and the trigger function: nobody but the owner may EXECUTE them',
+    NOT EXISTS (SELECT 1 FROM unnest(ARRAY['anon', 'authenticated', 'service_role']) ro, unnest(ARRAY['public._pin_try(uuid,text,boolean)', 'public._pin_random()', 'public._pin_is_trivial(text)', 'public._users_hash_plain_pin()']) f
+                WHERE has_function_privilege(ro, f, 'EXECUTE')), 'grants');
+  PERFORM pg_temp.p_chk('the five PIN functions are SECURITY DEFINER with a fixed search_path and none contains a RAISE (a PIN can not end up in an error text)',
+    (SELECT bool_and(p.prosecdef AND p.proconfig::text LIKE '%search_path%' AND p.prosrc !~* 'raise')
+       FROM pg_proc p WHERE p.proname IN ('login_with_pin', 'verify_pin', 'set_my_pin', 'admin_reset_pin', '_pin_try')), 'bodies');
+  PERFORM pg_temp.p_chk('users_hash_plain_pin is an enabled BEFORE INSERT OR UPDATE trigger on users (temporary bridge)',
+    EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid = 'public.users'::regclass AND t.tgname = 'users_hash_plain_pin' AND t.tgenabled = 'O' AND (t.tgtype & 2) = 2), 'trigger');
+  PERFORM pg_temp.p_chk('_pin_is_trivial: 1111, 0000, 1234, 4321, 0123, 9876 are trivial; 1357, 2580, 1212, 7391 are not',
+    (SELECT bool_and(public._pin_is_trivial(p) = (p = ANY (ARRAY['1111', '0000', '1234', '4321', '0123', '9876']))) FROM unnest(ARRAY['1111', '0000', '1234', '4321', '0123', '9876', '1357', '2580', '1212', '7391']) p), 'trivial');
+  PERFORM pg_temp.p_chk('_pin_random: 200 draws are all 4 digits and none is trivial',
+    (SELECT bool_and(p ~ '^[0-9]{4}$' AND NOT public._pin_is_trivial(p)) FROM (SELECT public._pin_random() p FROM generate_series(1, 200)) s), 'random');
+
+  -- ===== the hashing trigger (temporary bridge): a plain write is hashed and the column stays NULL =====
+  UPDATE public.users SET pin = '2468' WHERE id = u_adm;
+  UPDATE public.users SET pin = '3579' WHERE id = u_vw;
+  UPDATE public.users SET pin = '4680' WHERE id = u_mg;
+  UPDATE public.users SET pin = '8024' WHERE id = u_ab;
+  BEGIN EXECUTE 'SET LOCAL ROLE service_role'; UPDATE public.users SET pin = '1357' WHERE id = u_st; EXECUTE 'RESET ROLE';
+  EXCEPTION WHEN OTHERS THEN EXECUTE 'RESET ROLE'; RAISE NOTICE 'service_role pin write failed: %', SQLERRM; END;
+  SELECT pin_hash INTO h FROM public.user_pins WHERE user_id = u_adm;
+  PERFORM pg_temp.p_chk('a plain write to users.pin (postgres) is hashed into user_pins and users.pin stays NULL',
+    h LIKE '$2%' AND h <> '2468' AND (SELECT pin IS NULL FROM public.users WHERE id = u_adm), 'trigger');
+  PERFORM pg_temp.p_chk('the same through service_role',
+    (SELECT pin_hash LIKE '$2%' AND pin_hash <> '1357' FROM public.user_pins WHERE user_id = u_st) AND (SELECT pin IS NULL FROM public.users WHERE id = u_st), 'trigger');
+  IF has011 THEN
+    UPDATE public.users SET pin = '' WHERE id = u_pn;
+    PERFORM pg_temp.p_chk('an empty-string pin produces no hash and the column is NULL',
+      NOT EXISTS (SELECT 1 FROM public.user_pins WHERE user_id = u_pn AND pin_hash IS NOT NULL) AND (SELECT pin IS NULL FROM public.users WHERE id = u_pn), 'empty');
+  END IF;
+  PERFORM pg_temp.p_chk('after the writes no users row has a non-NULL pin', NOT EXISTS (SELECT 1 FROM public.users WHERE pin IS NOT NULL), 'plain pins');
+
+  -- ===== nobody reads a PIN or a hash, and nobody writes one =====
+  FOREACH act IN ARRAY actors LOOP
+    v := pg_temp.m_val(act, 'SELECT count(*) FROM public.user_pins');
+    PERFORM pg_temp.p_chk(act || ': SELECT on user_pins is denied', v = 'denied', v);
+    v := pg_temp.m_val(act, 'SELECT pin_hash FROM public.user_pins LIMIT 1');
+    PERFORM pg_temp.p_chk(act || ': SELECT pin_hash is denied', v = 'denied', v);
+    v := pg_temp.m_val(act, 'SELECT count(pin) FROM public.users');
+    PERFORM pg_temp.p_chk(act || ': users.pin is NULL in every row this role can see', v = 'ok:0', v);
+    v := pg_temp.m_val(act, 'SELECT count(*) FROM (SELECT * FROM public.users) s WHERE s.pin IS NOT NULL');
+    PERFORM pg_temp.p_chk(act || ': SELECT * FROM users returns no PIN data', v = 'ok:0', v);
+    v := pg_temp.m_val(act, 'SELECT count(*) FROM public.users u WHERE to_jsonb(u)::text ~ ''\$2[aby]\$''');
+    PERFORM pg_temp.p_chk(act || ': no users column holds a bcrypt hash', v = 'ok:0', v);
+    v := pg_temp.m_val(act, format('WITH u AS (UPDATE public.users SET pin = ''9999'' WHERE id = %L RETURNING 1) SELECT count(*) FROM u', u_st));
+    PERFORM pg_temp.p_chk(act || ': UPDATE users.pin of a colleague changes nothing', v IN ('ok:0', 'denied'), v);
+    v := pg_temp.m_val(act, format('WITH u AS (UPDATE public.users SET pin = ''9999'' WHERE id = %L RETURNING 1) SELECT count(*) FROM u', (SELECT uid FROM t_actor WHERE name = act)));
+    PERFORM pg_temp.p_chk(act || ': UPDATE users.pin of their own row changes nothing', v IN ('ok:0', 'denied') OR act IN ('anon', 'customer_no_staff_row') AND v = 'ok:0', v);
+    v := pg_temp.m_val(act, format('WITH d AS (DELETE FROM public.user_pins WHERE user_id = %L RETURNING 1) SELECT count(*) FROM d', u_st));
+    PERFORM pg_temp.p_chk(act || ': DELETE on user_pins is denied', v = 'denied', v);
+    v := pg_temp.m_val(act, format('INSERT INTO public.user_pins (user_id, pin_hash) VALUES (%L, ''x'')', gen_random_uuid()));
+    PERFORM pg_temp.p_chk(act || ': INSERT on user_pins is denied', v = 'denied', v);
+    v := pg_temp.m_val(act, format('INSERT INTO public.users (id, email, full_name, role, org_id, pin) VALUES (%L, ''x@x.invalid'', ''x'', ''staff'', %L, ''5555'')', gen_random_uuid(), oa));
+    PERFORM pg_temp.p_chk(act || ': INSERT of a users row with a pin is refused', v IN ('denied', 'raised:23503'), v);
+  END LOOP;
+  b1 := pg_temp.p_good(pg_temp.p_login(e_st, '1357', sl_a)); b2 := pg_temp.p_good(pg_temp.p_login(e_st, '9999', sl_a));
+  PERFORM pg_temp.p_chk('after every attempt above the PINs are unchanged: the colleague still logs in with the old PIN and not with 9999',
+    b1 AND NOT b2 AND NOT EXISTS (SELECT 1 FROM public.user_pins WHERE user_id NOT IN (SELECT id FROM public.users)), 'unchanged');
+  UPDATE public.user_pins SET failed_count = 0, locked_until = NULL;       -- the one wrong guess above is not part of the lockout tests
+
+  -- ===== login: right, wrong, unknown, one message =====
+  v := pg_temp.p_login(e_adm, '2468', sl_a);
+  PERFORM pg_temp.p_chk('the right PIN logs in and returns user_id, email, role, full_name, org_slug',
+    pg_temp.p_good(v) AND (v::json ->> 'user_id')::uuid = u_adm AND v::json ->> 'role' = 'admin' AND v::json ->> 'org_slug' = sl_a AND v::json ->> 'email' = e_adm AND v::json ->> 'full_name' = 'RLS admin A', v);
+  PERFORM pg_temp.p_chk('a wrong PIN does not log in and gives the generic text', pg_temp.p_login(e_adm, '1111', sl_a) = generic, pg_temp.p_login(e_adm, '1111', sl_a));
+  PERFORM pg_temp.p_chk('an unknown email gives the same text', pg_temp.p_login('nobody-' || sfx || '@test.invalid', '2468', sl_a) = generic, pg_temp.p_login('nobody-' || sfx || '@test.invalid', '2468', sl_a));
+  PERFORM pg_temp.p_chk('the right PIN with the wrong organization slug gives the same text (no PIN oracle)', pg_temp.p_login(e_adm, '2468', sl_b) = generic, pg_temp.p_login(e_adm, '2468', sl_b));
+  PERFORM pg_temp.p_chk('no slug given: the right PIN logs in', pg_temp.p_good(pg_temp.p_login(e_adm, '2468')), 'no slug');
+  UPDATE public.users SET is_active = false WHERE id = u_vw;
+  PERFORM pg_temp.p_chk('an inactive user with the right PIN gets the generic text', pg_temp.p_login(e_vw, '3579', sl_a) = generic, pg_temp.p_login(e_vw, '3579', sl_a));
+  UPDATE public.users SET is_active = true WHERE id = u_vw;
+  IF has011 THEN
+    n0 := (SELECT count(*) FROM public.user_pins);
+    v := pg_temp.p_login(e_pn, '2468', sl_a);
+    PERFORM pg_temp.p_chk('a user with no PIN gets the generic text and no user_pins row is created', v = generic AND (SELECT count(*) FROM public.user_pins) = n0, v);
+  END IF;
+  v := pg_temp.m_val('svc_role', format('SELECT public.login_with_pin(%L, ''2468'', %L)::text', e_adm, sl_a));
+  PERFORM pg_temp.p_chk('service_role can call login_with_pin', v LIKE 'ok:{"success" : true%', v);
+  FOREACH act IN ARRAY ARRAY['anon', 'admin', 'staff'] LOOP
+    v := pg_temp.m_val(act, format('SELECT public.login_with_pin(%L, ''2468'', NULL)::text', e_adm));
+    PERFORM pg_temp.p_chk(act || ': login_with_pin is denied', v = 'denied', v);
+    v := pg_temp.m_val(act, format('SELECT public.verify_pin(%L, ''2468'', NULL)::text', e_adm));
+    PERFORM pg_temp.p_chk(act || ': verify_pin is denied', v = 'denied', v);
+  END LOOP;
+  v := pg_temp.m_val('svc_role', format('SELECT public.verify_pin(%L, ''2468'', %L)::text', e_adm, sl_a));
+  PERFORM pg_temp.p_chk('verify_pin: right PIN gives valid true with the old shape', v LIKE 'ok:{"valid" : true, "user_id" :%"role" : "admin"%', v);
+  PERFORM pg_temp.p_chk('verify_pin: wrong PIN gives {"valid" : false, "error" : "Invalid email or PIN"}',
+    pg_temp.m_val('svc_role', format('SELECT public.verify_pin(%L, ''1111'', NULL)::text', e_adm)) = 'ok:{"valid" : false, "error" : "Invalid email or PIN"}', 'verify');
+
+  -- ===== lockout =====
+  UPDATE public.user_pins SET failed_count = 0, locked_until = NULL;
+  FOR i IN 1..4 LOOP PERFORM pg_temp.p_login(e_st, '0258', sl_a); END LOOP;
+  SELECT failed_count INTO n FROM public.user_pins WHERE user_id = u_st;
+  b1 := pg_temp.p_good(pg_temp.p_login(e_st, '1357', sl_a));
+  PERFORM pg_temp.p_chk('4 wrong guesses do not lock: the right PIN still logs in, and it resets the counter',
+    n = 4 AND b1 AND (SELECT failed_count = 0 AND locked_until IS NULL FROM public.user_pins WHERE user_id = u_st), 'count before ' || n);
+  FOR i IN 1..5 LOOP PERFORM pg_temp.p_login(e_st, '0258', sl_a); END LOOP;
+  SELECT locked_until INTO lk FROM public.user_pins WHERE user_id = u_st;
+  PERFORM pg_temp.p_chk('the 5th wrong guess locks the account for 15 minutes',
+    lk IS NOT NULL AND lk > now() + interval '14 minutes' AND lk <= now() + interval '15 minutes' AND (SELECT failed_count = 5 FROM public.user_pins WHERE user_id = u_st), coalesce(lk::text, 'not locked'));
+  PERFORM pg_temp.p_chk('a locked account refuses the RIGHT PIN, with the same text', pg_temp.p_login(e_st, '1357', sl_a) = generic, pg_temp.p_login(e_st, '1357', sl_a));
+  PERFORM pg_temp.p_chk('verify_pin refuses it too (one shared counter)', pg_temp.m_val('svc_role', format('SELECT public.verify_pin(%L, ''1357'', NULL)::text', e_st)) = 'ok:{"valid" : false, "error" : "Invalid email or PIN"}', 'verify locked');
+  PERFORM pg_temp.p_login(e_st, '0258', sl_a); PERFORM pg_temp.p_login(e_st, '0258', sl_a);
+  SELECT locked_until INTO lk2 FROM public.user_pins WHERE user_id = u_st;
+  PERFORM pg_temp.p_chk('more guessing while locked does not extend the lock', lk2 = lk, lk::text || ' -> ' || lk2::text);
+  PERFORM pg_temp.p_chk('unknown email, wrong PIN, locked and wrong org slug all return exactly the same JSON',
+    (SELECT count(DISTINCT t) = 1 AND min(t) = generic FROM (VALUES (pg_temp.p_login('nobody-' || sfx || '@test.invalid', '1357', sl_a)), (pg_temp.p_login(e_adm, '1111', sl_a)), (pg_temp.p_login(e_st, '1357', sl_a)), (pg_temp.p_login(e_adm, '2468', sl_b))) s(t)), 'same text');
+  UPDATE public.user_pins SET locked_until = now() - interval '1 minute' WHERE user_id = u_st;      -- fake the 15 minutes passing
+  b1 := pg_temp.p_good(pg_temp.p_login(e_st, '1357', sl_a));
+  PERFORM pg_temp.p_chk('after the window the right PIN logs in again and the counter and lock are cleared',
+    b1 AND (SELECT failed_count = 0 AND locked_until IS NULL FROM public.user_pins WHERE user_id = u_st), 'unlock');
+  FOR i IN 1..5 LOOP PERFORM pg_temp.p_login(e_st, '0258', sl_a); END LOOP;
+  UPDATE public.user_pins SET locked_until = now() - interval '1 minute' WHERE user_id = u_st;
+  PERFORM pg_temp.p_login(e_st, '0258', sl_a);
+  PERFORM pg_temp.p_chk('after the window a wrong guess starts the count again at 1, not 6, and does not lock',
+    (SELECT failed_count = 1 AND locked_until IS NULL FROM public.user_pins WHERE user_id = u_st), (SELECT failed_count::text FROM public.user_pins WHERE user_id = u_st));
+  UPDATE public.user_pins SET failed_count = 0, locked_until = NULL WHERE user_id = u_st;
+  FOR i IN 1..5 LOOP PERFORM pg_temp.p_login(e_mg, '4680', sl_b); END LOOP;          -- the RIGHT PIN with the wrong slug counts as a failure
+  v := pg_temp.p_login(e_mg, '4680', sl_a);
+  PERFORM pg_temp.p_chk('the right PIN with the wrong organization slug 5 times locks the account', v = generic AND (SELECT locked_until > now() FROM public.user_pins WHERE user_id = u_mg), 'wrong org counts');
+  UPDATE public.user_pins SET failed_count = 0, locked_until = NULL WHERE user_id = u_mg;
+
+  -- ===== set_my_pin =====
+  UPDATE public.user_pins SET failed_count = 0, locked_until = NULL WHERE user_id = u_adm;     -- the wrong guesses of the login tests above are not part of this check
+  r := pg_temp.act_run('admin', 'SELECT public.set_my_pin(''0000'', ''7391'')', 1);
+  PERFORM pg_temp.p_chk('set_my_pin with a wrong current PIN is refused with one generic message and counts toward the lock', pg_temp.act_code(r) = 'WRONG_PIN' AND r #>> '{error,message}' = 'Invalid PIN.' AND (SELECT failed_count = 1 FROM public.user_pins WHERE user_id = u_adm), r::text || ' / count ' || coalesce((SELECT failed_count::text FROM public.user_pins WHERE user_id = u_adm), 'none'));
+  r := pg_temp.act_run('admin', 'SELECT public.set_my_pin(NULL, ''7391'')', 1);
+  PERFORM pg_temp.p_chk('set_my_pin with no current PIN is refused once a PIN exists', pg_temp.act_code(r) = 'WRONG_PIN', r::text);
+  FOREACH tmp IN ARRAY ARRAY['1111', '0000', '1234', '4321', '2345'] LOOP
+    r := pg_temp.act_run('admin', format('SELECT public.set_my_pin(''2468'', %L)', tmp), 1);
+    PERFORM pg_temp.p_chk('set_my_pin refuses the trivial PIN ' || tmp, pg_temp.act_code(r) = 'TRIVIAL_PIN', r::text);
+  END LOOP;
+  FOREACH tmp IN ARRAY ARRAY['12345', '739', 'abcd', '73 1', ''] LOOP
+    r := pg_temp.act_run('admin', format('SELECT public.set_my_pin(''2468'', %L)', tmp), 1);
+    PERFORM pg_temp.p_chk('set_my_pin refuses the PIN "' || tmp || '" (not exactly 4 digits)', pg_temp.act_code(r) = 'INVALID_PIN', r::text);
+  END LOOP;
+  r := pg_temp.act_run('admin', 'SELECT public.set_my_pin(NULL, NULL)', 1);
+  PERFORM pg_temp.p_chk('set_my_pin refuses a NULL new PIN', pg_temp.act_code(r) = 'INVALID_PIN', r::text);
+  b1 := pg_temp.p_good(pg_temp.p_login(e_adm, '2468', sl_a));
+  PERFORM pg_temp.p_chk('none of those refusals changed the PIN', b1, 'unchanged');
+  r := pg_temp.act_run('admin', 'SELECT public.set_my_pin(''2468'', ''7391'')', 1);
+  n := (SELECT failed_count FROM public.user_pins WHERE user_id = u_adm);
+  b1 := pg_temp.p_good(pg_temp.p_login(e_adm, '7391', sl_a)); b2 := pg_temp.p_good(pg_temp.p_login(e_adm, '2468', sl_a));
+  PERFORM pg_temp.p_chk('set_my_pin with the right current PIN works; the new PIN logs in, the old one does not, the counter was cleared',
+    pg_temp.act_code(r) = 'ok' AND b1 AND NOT b2 AND n = 0, r::text);
+  IF has011 THEN
+    r := pg_temp.act_run('practitioner_no_profile', 'SELECT public.set_my_pin(NULL, ''7391'')', 1);
+    b1 := pg_temp.p_good(pg_temp.p_login(e_pn, '7391', sl_a));
+    PERFORM pg_temp.p_chk('the FIRST PIN (no hash yet) needs no current PIN', pg_temp.act_code(r) = 'ok' AND b1, r::text);
+  END IF;
+  FOR i IN 1..5 LOOP r := pg_temp.act_run('admin_viewer', 'SELECT public.set_my_pin(''0258'', ''7391'')', 1); END LOOP;
+  r := pg_temp.act_run('admin_viewer', 'SELECT public.set_my_pin(''3579'', ''7391'')', 1);
+  v := pg_temp.p_login(e_vw, '3579', sl_a);
+  PERFORM pg_temp.p_chk('5 wrong current PINs through set_my_pin lock the account; the right one is then refused too, and PIN login is locked',
+    pg_temp.act_code(r) = 'WRONG_PIN' AND v = generic, r::text);
+  UPDATE public.user_pins SET failed_count = 0, locked_until = NULL WHERE user_id = u_vw;
+  r := pg_temp.act_run('admin_viewer', 'SELECT public.set_my_pin(''3579'', ''8642'')', 1);
+  b1 := pg_temp.p_good(pg_temp.p_login(e_vw, '8642', sl_a));
+  PERFORM pg_temp.p_chk('a read-only admin_viewer can set their own PIN', pg_temp.act_code(r) = 'ok' AND b1, r::text);
+  r := pg_temp.act_run('customer_no_staff_row', 'SELECT public.set_my_pin(NULL, ''7391'')', 0);
+  PERFORM pg_temp.p_chk('a signed-in customer (no staff row) is refused', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.act_run('anon', 'SELECT public.set_my_pin(NULL, ''7391'')', 0);
+  PERFORM pg_temp.p_chk('anon cannot call set_my_pin', pg_temp.act_code(r) = 'raised:42501', r::text);
+  r := pg_temp.act_run('service', 'SELECT public.set_my_pin(NULL, ''7391'')', 0);
+  PERFORM pg_temp.p_chk('service_role cannot call set_my_pin', pg_temp.act_code(r) = 'raised:42501', r::text);
+
+  -- ===== admin_reset_pin =====
+  UPDATE public.user_pins SET failed_count = 5, locked_until = now() + interval '10 minutes' WHERE user_id = u_st;
+  r := pg_temp.act_run('admin', format('SELECT public.admin_reset_pin(%L)', u_st), 1);
+  tmp := r ->> 'temporary_pin';
+  PERFORM pg_temp.p_chk('an admin resets a colleague: ok, a random 4-digit non-trivial temporary PIN is returned once',
+    pg_temp.act_code(r) = 'ok' AND tmp ~ '^[0-9]{4}$' AND NOT public._pin_is_trivial(tmp), coalesce(pg_temp.act_code(r), 'NULL'));
+  SELECT failed_count INTO n FROM public.user_pins WHERE user_id = u_st; SELECT locked_until INTO lk FROM public.user_pins WHERE user_id = u_st;
+  b1 := pg_temp.p_good(pg_temp.p_login(e_st, tmp, sl_a)); b2 := pg_temp.p_good(pg_temp.p_login(e_st, '1357', sl_a));
+  PERFORM pg_temp.p_chk('the temporary PIN logs in, the old PIN does not, and the lock and counter were cleared', b1 AND NOT b2 AND n = 0 AND lk IS NULL, 'reset');
+  PERFORM pg_temp.p_chk('the PIN is in no action_log row (any column), not as a value, not as a key, and not in user_pins',
+    NOT EXISTS (SELECT 1 FROM public.action_log l WHERE l.action IN ('user.reset_pin', 'user.set_pin') AND (to_jsonb(l)::text ~ ('"' || tmp || '"') OR to_jsonb(l)::text ~ 'temporary_pin|current_pin|new_pin'))
+    AND NOT EXISTS (SELECT 1 FROM public.user_pins WHERE pin_hash = tmp), 'no leak');
+  PERFORM pg_temp.p_chk('the user.reset_pin row holds ids only: actor, target, org, no PIN',
+    EXISTS (SELECT 1 FROM public.action_log l WHERE l.action = 'user.reset_pin' AND l.ok AND l.actor_user_id = u_adm AND l.target_id = u_st AND l.org_id = oa AND l.inputs = jsonb_build_object('target_user_id', u_st)), 'audit row');
+  -- every set_my_pin row so far: inputs are exactly {user_id}
+  PERFORM pg_temp.p_chk('every user.set_pin row holds only the user id', NOT EXISTS (SELECT 1 FROM public.action_log l WHERE l.action = 'user.set_pin' AND l.inputs <> jsonb_build_object('user_id', l.actor_user_id)), 'set_pin rows');
+  r := pg_temp.act_run('admin', format('SELECT public.admin_reset_pin(%L)', u_a2), 1);
+  PERFORM pg_temp.p_chk('an admin may reset another admin of the same organization (audited)', pg_temp.act_code(r) = 'ok' AND (r ->> 'temporary_pin') ~ '^[0-9]{4}$', r::text);
+  r := pg_temp.act_run('admin', format('SELECT public.admin_reset_pin(%L)', u_adm), 1);
+  PERFORM pg_temp.p_chk('an admin can NOT reset themselves through this function', pg_temp.act_code(r) = 'INVALID_INPUT' AND NOT r ? 'temporary_pin', r::text);
+  r := pg_temp.act_run('admin_of_OTHER_org', format('SELECT public.admin_reset_pin(%L)', u_st), 1);
+  PERFORM pg_temp.p_chk('an admin of another organization cannot reset an org A user (not found)', pg_temp.act_code(r) = 'USER_NOT_FOUND' AND NOT r ? 'temporary_pin', r::text);
+  b1 := pg_temp.p_good(pg_temp.p_login(e_st, tmp, sl_a));
+  PERFORM pg_temp.p_chk('...and the org A user keeps the PIN they had', b1, 'unchanged');
+  r := pg_temp.act_run('admin', format('SELECT public.admin_reset_pin(%L)', gen_random_uuid()), 1);
+  PERFORM pg_temp.p_chk('an unknown user id is not found', pg_temp.act_code(r) = 'USER_NOT_FOUND', r::text);
+  FOREACH act IN ARRAY ARRAY['admin_viewer', 'manager_2_branches', 'staff'] LOOP
+    r := pg_temp.act_run(act, format('SELECT public.admin_reset_pin(%L)', u_a2), 1);
+    PERFORM pg_temp.p_chk(act || ' cannot reset a PIN', pg_temp.act_code(r) = 'FORBIDDEN' AND NOT r ? 'temporary_pin', r::text);
+  END LOOP;
+  IF has011 THEN
+    r := pg_temp.act_run('practitioner', format('SELECT public.admin_reset_pin(%L)', u_a2), 1);
+    PERFORM pg_temp.p_chk('practitioner cannot reset a PIN', pg_temp.act_code(r) = 'FORBIDDEN' AND NOT r ? 'temporary_pin', r::text);
+  END IF;
+  r := pg_temp.act_run('customer_no_staff_row', format('SELECT public.admin_reset_pin(%L)', u_a2), 0);
+  PERFORM pg_temp.p_chk('a customer cannot reset a PIN', pg_temp.act_code(r) = 'FORBIDDEN', r::text);
+  r := pg_temp.act_run('anon', format('SELECT public.admin_reset_pin(%L)', u_a2), 0);
+  PERFORM pg_temp.p_chk('anon cannot call admin_reset_pin', pg_temp.act_code(r) = 'raised:42501', r::text);
+  r := pg_temp.act_run('service', format('SELECT public.admin_reset_pin(%L)', u_a2), 0);
+  PERFORM pg_temp.p_chk('service_role cannot call admin_reset_pin', pg_temp.act_code(r) = 'raised:42501', r::text);
+
+  -- ===== list_discount_approvers asks user_pins =====
+  DELETE FROM public.user_pins WHERE user_id = u_a2;
+  v := pg_temp.m_val('manager_2_branches', format('SELECT count(*) FROM public.list_discount_approvers() WHERE id = %L', u_adm));
+  PERFORM pg_temp.p_chk('list_discount_approvers: an admin who has a PIN is listed for the manager', v = 'ok:1', v);
+  v := pg_temp.m_val('manager_2_branches', format('SELECT count(*) FROM public.list_discount_approvers() WHERE id = %L', u_a2));
+  PERFORM pg_temp.p_chk('...an admin with no PIN is not', v = 'ok:0', v);
+  UPDATE public.users SET pin = '6048' WHERE id = u_a2;
+  v := pg_temp.m_val('manager_2_branches', format('SELECT count(*) FROM public.list_discount_approvers() WHERE id = %L', u_a2));
+  PERFORM pg_temp.p_chk('...and is listed once they get one', v = 'ok:1', v);
+  UPDATE public.user_pins SET pin_hash = NULL WHERE user_id = u_a2;
+  v := pg_temp.m_val('manager_2_branches', format('SELECT count(*) FROM public.list_discount_approvers() WHERE id = %L', u_a2));
+  PERFORM pg_temp.p_chk('...a user_pins row with no hash does not count', v = 'ok:0', v);
+
+  -- ===== deleting a user deletes the hash =====
+  DELETE FROM public.users WHERE id = u_a2;
+  PERFORM pg_temp.p_chk('deleting a users row removes its user_pins row (cascade)', NOT EXISTS (SELECT 1 FROM public.user_pins WHERE user_id = u_a2), 'cascade');
+END $pin$;
+
 -- ───────────────────────────── 4. REPORT ─────────────────────────────
 SELECT status || '|' || kind || '|' || caller || '|' || subject || '|' || detail
 FROM t_res WHERE kind <> 'OWN' AND NOT (kind = 'COVERAGE') AND NOT (status = 'PASS' AND :'verbose' = 'off') ORDER BY status, kind, caller, subject;
