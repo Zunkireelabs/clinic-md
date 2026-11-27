@@ -3051,7 +3051,8 @@ BEGIN
   FOR rr IN SELECT p.proname, has_function_privilege('anon', p.oid, 'EXECUTE') AS anon_x FROM pg_proc p
              WHERE p.pronamespace = 'public'::regnamespace AND p.prosecdef AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
                AND p.prosrc ~* '(treatment_notes|consultations|doctor_notes|xray_analysis|transcript)'
-               AND p.proname NOT IN ('patient_clinical_index', 'act_patient_erase', 'act_undo', 'consultation_remote_topic_ok') LOOP
+               AND p.proname NOT IN ('patient_clinical_index', 'act_patient_erase', 'act_undo', 'consultation_remote_topic_ok',
+                                    'consultation_record_consent', 'consultation_sign', 'consultation_unsign') LOOP   -- 020: gated by _consult_gate (front desk = FORBIDDEN, see section 3j)
     PERFORM pg_temp.act_chk('WALL (RPC): ' || rr.proname || ' touches clinical tables and is not on the reviewed list', false, 'review it and add it to the list, or remove access');
   END LOOP;
   PERFORM pg_temp.act_chk('WALL (views): no public view reads the clinical tables', NOT EXISTS (SELECT 1 FROM information_schema.views WHERE table_schema = 'public' AND view_definition ~* '(treatment_notes|consultations)'), 'views');
