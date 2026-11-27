@@ -85,6 +85,9 @@ DECLARE
 BEGIN
   INSERT INTO organizations (id, name, code, slug) VALUES (oa, 'RLS Test A', 'rlsa' || sfx, 'rls-a-' || sfx), (ob, 'RLS Test B', 'rlsb' || sfx, 'rls-b-' || sfx);
   PERFORM pg_temp.sd('organizations', 'id', oa::text, oa); PERFORM pg_temp.sd('organizations', 'id', ob::text, ob);
+  -- migration-018 seeds agent_settings and playbooks for every new organization; the sections below were written for test orgs that start
+  -- with none and seed their own, so clear them here. Section 3g tests the 018 seed on organizations of its own.
+  DELETE FROM playbooks WHERE org_id IN (oa, ob); DELETE FROM agent_settings WHERE org_id IN (oa, ob);
   INSERT INTO branches (id, name, org_id) VALUES (a1, 'A1', oa), (a2, 'A2', oa), (b1, 'B1', ob);
   PERFORM pg_temp.sd('branches', 'id', a1::text, oa); PERFORM pg_temp.sd('branches', 'id', a2::text, oa); PERFORM pg_temp.sd('branches', 'id', b1::text, ob);
 
@@ -2647,6 +2650,135 @@ BEGIN
   r := pg_temp.act_run('staff', format('SELECT public.act_work_approve(%L)', it_d));
   PERFORM pg_temp.f_chk('when the earlier step was rejected, the later one cannot go ahead (ORDER_REQUIRED) and nothing is sent', pg_temp.act_code(r) = 'ORDER_REQUIRED' AND (SELECT status FROM agent_work_items WHERE id = it_d) = 'open', pg_temp.act_code(r));
 END $follow$;
+
+-- ───────────────────────────── 3g. AGENT ROWS FOR NEW ORGANIZATIONS (migration-018, CMD-97) ─────────────────────────────
+-- A new organization gets the 016 agent_settings rows and the five 017 playbooks from trg_agent_seed_new_org, with the same values as the
+-- 016 / 017 seeds; re-running adds nothing; a failing seed never fails the organization insert; another organization never sees the rows.
+-- Seeds its own organizations (rolled back with the test). The 018 rollback round trip is run outside this file. Skipped if 018 is absent.
+CREATE FUNCTION pg_temp.n_chk(p_label text, p_ok boolean, p_detail text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO t_res VALUES ('NEWORG', '-', p_label, CASE WHEN COALESCE(p_ok, false) THEN 'PASS' ELSE 'FAIL' END, p_detail);
+  IF NOT COALESCE(p_ok, false) THEN RAISE NOTICE 'FAILED CHECK: % -- %', p_label, left(p_detail, 300); END IF;
+END $$;
+
+DO $neworg$
+DECLARE
+  n1 uuid := gen_random_uuid(); n2 uuid := gen_random_uuid(); n3 uuid := gen_random_uuid(); ref uuid; r jsonb; k int;
+  n4 uuid := gen_random_uuid(); br4 uuid := gen_random_uuid(); u4 uuid := gen_random_uuid(); sfx4 text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+  sfx text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+  keys text[] := ARRAY['booking_confirmation', 'day_before_reminder', 'reply_to_confirm', 'not_confirmed_by_6pm', 'aftercare_check_in'];
+BEGIN
+  IF to_regprocedure('public._agent_seed_org(uuid)') IS NULL THEN
+    INSERT INTO t_res VALUES ('NEWORG', '-', 'migration-018 checks', 'INFO', 'skipped: the new-organization seed (018) is not present');
+    RETURN;
+  END IF;
+
+  -- the function and the trigger
+  PERFORM pg_temp.n_chk('the seed and trigger functions are SECURITY DEFINER with search_path set, and nobody but the owner may EXECUTE them',
+    (SELECT bool_and(p.prosecdef AND p.proconfig::text LIKE '%search_path=public%') FROM pg_proc p WHERE p.oid IN ('public._agent_seed_org(uuid)'::regprocedure, 'public.trg_agent_seed_new_org()'::regprocedure))
+    AND NOT EXISTS (SELECT 1 FROM unnest(ARRAY['anon', 'authenticated', 'service_role', 'public']) ro, unnest(ARRAY['public._agent_seed_org(uuid)', 'public.trg_agent_seed_new_org()']) f
+                    WHERE has_function_privilege(ro, f, 'EXECUTE')), 'grants');
+  PERFORM pg_temp.n_chk('trg_agent_seed_new_org is an enabled AFTER INSERT row trigger on organizations',
+    EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid = 'public.organizations'::regclass AND t.tgname = 'trg_agent_seed_new_org' AND t.tgenabled = 'O'
+              AND (t.tgtype & 1) = 1 AND (t.tgtype & 2) = 0 AND (t.tgtype & 4) = 4), 'trigger');
+
+  -- a new organization (AI switch off) and one with the AI switch on
+  INSERT INTO organizations (id, name, code, slug) VALUES (n1, 'RLS New 1', 'rlsn1' || sfx, 'rls-n1-' || sfx);
+  INSERT INTO organizations (id, name, code, slug, ai_consultation_enabled) VALUES (n2, 'RLS New 2', 'rlsn2' || sfx, 'rls-n2-' || sfx, true);
+  PERFORM pg_temp.n_chk('a new organization gets exactly 2 clinic-wide settings rows (scribe ENABLED even with the AI switch off, so only the switch gates it; follow_up DISABLED; ceiling 1) and nothing else',
+    (SELECT count(*) FROM agent_settings WHERE org_id = n1) = 2
+    AND EXISTS (SELECT 1 FROM agent_settings WHERE org_id = n1 AND branch_id IS NULL AND agent = 'scribe' AND enabled AND max_level = 1 AND updated_by IS NULL)
+    AND EXISTS (SELECT 1 FROM agent_settings WHERE org_id = n1 AND branch_id IS NULL AND agent = 'follow_up' AND NOT enabled AND max_level = 1 AND updated_by IS NULL),
+    (SELECT coalesce(jsonb_agg(to_jsonb(s)), '[]')::text FROM agent_settings s WHERE org_id = n1));
+  PERFORM pg_temp.n_chk('a new organization gets exactly the five follow_up playbooks, clinic-wide, DISABLED, level 1, no template, and no other playbook',
+    (SELECT count(*) FROM playbooks WHERE org_id = n1) = 5
+    AND (SELECT array_agg(key ORDER BY key) FROM playbooks WHERE org_id = n1) = (SELECT array_agg(x ORDER BY x) FROM unnest(keys) x)
+    AND NOT EXISTS (SELECT 1 FROM playbooks WHERE org_id = n1 AND (branch_id IS NOT NULL OR agent <> 'follow_up' OR enabled OR level <> 1 OR template_id IS NOT NULL
+                                                                OR created_by IS NOT NULL OR updated_by IS NOT NULL)),
+    (SELECT coalesce(jsonb_agg(jsonb_build_object('key', key, 'enabled', enabled, 'level', level, 'template', template_id)), '[]')::text FROM playbooks WHERE org_id = n1));
+  PERFORM pg_temp.n_chk('the scribe row is ENABLED whether the AI switch is on or off, as 016 seeds it since CMD-109 (scribe = the switch left the Scribe stuck off after AI was switched on)',
+    EXISTS (SELECT 1 FROM agent_settings WHERE org_id = n2 AND branch_id IS NULL AND agent = 'scribe' AND enabled AND max_level = 1)
+    AND EXISTS (SELECT 1 FROM agent_settings WHERE org_id = n2 AND branch_id IS NULL AND agent = 'follow_up' AND NOT enabled AND max_level = 1)
+    AND (SELECT count(*) FROM playbooks WHERE org_id = n2 AND NOT enabled AND level = 1) = 5, 'scribe');
+
+  -- the same settings as 016's own seed (since CMD-109): compare with a pre-existing organization whose two rows nobody has changed
+  SELECT o.id INTO ref FROM organizations o
+   WHERE o.id NOT IN (SELECT org FROM t_seed) AND o.id NOT IN (n1, n2)
+     AND (SELECT count(*) FROM agent_settings s WHERE s.org_id = o.id AND s.branch_id IS NULL AND s.agent IN ('scribe', 'follow_up') AND s.updated_by IS NULL
+            AND s.updated_at = (SELECT min(s0.updated_at) FROM agent_settings s0 WHERE s0.branch_id IS NULL AND s0.org_id NOT IN (SELECT org FROM t_seed))) = 2
+   ORDER BY o.id LIMIT 1;
+  PERFORM pg_temp.n_chk('the new organization''s settings rows equal 016''s seed value by value (agent, branch, enabled, ceiling), compared with an untouched 016-seeded organization',
+    ref IS NOT NULL
+    AND NOT EXISTS ((SELECT agent, branch_id, enabled, max_level FROM agent_settings WHERE org_id = n1)
+                    EXCEPT (SELECT agent, branch_id, enabled, max_level FROM agent_settings WHERE org_id = ref AND branch_id IS NULL AND agent IN ('scribe', 'follow_up')))
+    AND NOT EXISTS ((SELECT agent, branch_id, enabled, max_level FROM agent_settings WHERE org_id = ref AND branch_id IS NULL AND agent IN ('scribe', 'follow_up'))
+                    EXCEPT (SELECT agent, branch_id, enabled, max_level FROM agent_settings WHERE org_id = n1)),
+    'reference org ' || coalesce(ref::text, 'none (no untouched 016-seeded organization)'));
+  -- the same values as 017's own seed: compare with a pre-existing organization whose five playbooks nobody has changed
+  SELECT o.id INTO ref FROM organizations o
+   WHERE o.id NOT IN (SELECT org FROM t_seed) AND o.id NOT IN (n1, n2)
+     AND (SELECT count(*) FROM playbooks p WHERE p.org_id = o.id AND p.branch_id IS NULL AND p.agent = 'follow_up' AND p.key = ANY (keys)
+            AND p.created_by IS NULL AND p.updated_by IS NULL AND p.updated_at = p.created_at) = 5
+   ORDER BY o.id LIMIT 1;
+  PERFORM pg_temp.n_chk('the new organization''s playbooks equal 017''s seed value by value (key, name, event, level, enabled, settings, template, channel), compared with an untouched 017-seeded organization',
+    ref IS NOT NULL
+    AND NOT EXISTS ((SELECT key, name, event, level, enabled, settings, template_id, channel FROM playbooks WHERE org_id = n1)
+                    EXCEPT (SELECT key, name, event, level, enabled, settings, template_id, channel FROM playbooks WHERE org_id = ref AND branch_id IS NULL AND agent = 'follow_up' AND key = ANY (keys)))
+    AND NOT EXISTS ((SELECT key, name, event, level, enabled, settings, template_id, channel FROM playbooks WHERE org_id = ref AND branch_id IS NULL AND agent = 'follow_up' AND key = ANY (keys))
+                    EXCEPT (SELECT key, name, event, level, enabled, settings, template_id, channel FROM playbooks WHERE org_id = n1)),
+    'reference org ' || coalesce(ref::text, 'none (no untouched 017-seeded organization)'));
+
+  -- re-running adds nothing and never overwrites a clinic's choices
+  UPDATE playbooks SET enabled = true, level = 2 WHERE org_id = n1 AND key = 'booking_confirmation';
+  UPDATE agent_settings SET enabled = true, max_level = 2 WHERE org_id = n1 AND agent = 'follow_up' AND branch_id IS NULL;
+  k := public._agent_seed_org(n1);
+  PERFORM public._agent_seed_org(o.id) FROM organizations o
+   WHERE NOT EXISTS (SELECT 1 FROM playbooks p WHERE p.org_id = o.id AND p.branch_id IS NULL AND p.agent = 'follow_up');   -- the migration's backfill
+  PERFORM pg_temp.n_chk('seeding again (and the backfill) adds nothing and does not overwrite what the clinic changed',
+    k = 0 AND (SELECT count(*) FROM agent_settings WHERE org_id = n1) = 2 AND (SELECT count(*) FROM playbooks WHERE org_id = n1) = 5
+    AND (SELECT count(*) FROM playbooks WHERE org_id = n2) = 5
+    AND EXISTS (SELECT 1 FROM playbooks WHERE org_id = n1 AND key = 'booking_confirmation' AND enabled AND level = 2)
+    AND EXISTS (SELECT 1 FROM agent_settings WHERE org_id = n1 AND agent = 'follow_up' AND branch_id IS NULL AND enabled AND max_level = 2), 'inserted ' || k);
+
+  -- a failing seed never fails the organization insert, and leaves all seven rows or none
+  ALTER TABLE public.playbooks ADD CONSTRAINT zz_seed_test_fail CHECK (key <> 'aftercare_check_in') NOT VALID;
+  BEGIN
+    INSERT INTO organizations (id, name, code, slug) VALUES (n3, 'RLS New 3', 'rlsn3' || sfx, 'rls-n3-' || sfx);
+    r := jsonb_build_object('ok', true);
+  EXCEPTION WHEN OTHERS THEN r := jsonb_build_object('raised', SQLSTATE);
+  END;
+  ALTER TABLE public.playbooks DROP CONSTRAINT zz_seed_test_fail;
+  PERFORM pg_temp.n_chk('a seed that fails (forced) still creates the organization, and none of its seven rows are left half-written',
+    r ? 'ok' AND EXISTS (SELECT 1 FROM organizations WHERE id = n3)
+    AND NOT EXISTS (SELECT 1 FROM agent_settings WHERE org_id = n3) AND NOT EXISTS (SELECT 1 FROM playbooks WHERE org_id = n3), r::text);
+  k := public._agent_seed_org(n3);
+  PERFORM pg_temp.n_chk('such an organization is fixed by running the seed by hand (7 rows)', k = 7, 'inserted ' || k);
+
+  -- the Scribe of a new clinic (AI off at creation) can run once the owner switches AI on: the seeded scribe row must not keep it off.
+  -- (_agent_org_enabled: no row = the Scribe follows the AI switch; _ai_block_reason checks the switch first, AI_OFF, then the agent, AGENT_OFF.)
+  INSERT INTO organizations (id, name, code, slug) VALUES (n4, 'RLS New 4', 'rlsn4' || sfx4, 'rls-n4-' || sfx4);
+  INSERT INTO branches (id, name, org_id) VALUES (br4, 'N4', n4);
+  INSERT INTO auth.users (id, instance_id, aud, role, email, created_at, updated_at)
+    VALUES (u4, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-n4admin-' || sfx4 || '@test.invalid', now(), now());
+  INSERT INTO public.users (id, email, full_name, role, branch_id, org_id, is_active) VALUES (u4, 'rls-n4admin-' || sfx4 || '@test.invalid', 'RLS admin N4', 'admin', br4, n4, true);
+  INSERT INTO t_actor VALUES ('neworg_admin', u4, n4, 'authenticated');
+  PERFORM pg_temp.n_chk('a new clinic created with AI off: the Scribe is blocked by the AI switch (AI_OFF), not by its own row',
+    public._ai_block_reason(n4, br4, 'scribe') = 'AI_OFF', coalesce(public._ai_block_reason(n4, br4, 'scribe'), 'null'));
+  r := pg_temp.act_run('neworg_admin', 'SELECT public.act_ai_budget_set(1000)');
+  r := pg_temp.act_run('neworg_admin', 'SELECT public.act_ai_set_enabled(true)');
+  PERFORM pg_temp.n_chk('after its owner sets a budget and switches AI on, the new clinic''s Scribe may run (no AGENT_OFF from the seeded row)',
+    pg_temp.act_code(r) = 'ok' AND public._ai_block_reason(n4, br4, 'scribe') IS NULL AND public.ai_may_run(n4, br4, 'scribe'),
+    pg_temp.act_code(r) || ' / block reason ' || coalesce(public._ai_block_reason(n4, br4, 'scribe'), 'null'));
+
+  -- the new rows are not visible to another organization
+  FOR ref IN SELECT unnest(ARRAY[n1, n2]) LOOP
+    FOREACH sfx IN ARRAY ARRAY['admin', 'staff', 'admin_of_OTHER_org', 'anon'] LOOP
+      r := pg_temp.act_run(sfx, format('SELECT jsonb_build_object(''pb'', (SELECT count(*) FROM public.playbooks WHERE org_id = %L), ''st'', (SELECT count(*) FROM public.agent_settings WHERE org_id = %L))', ref, ref), 0);
+      PERFORM pg_temp.n_chk(sfx || ' (another organization or anon) sees none of a new organization''s playbooks or agent settings (anon: refused outright)',
+        r = '{"pb": 0, "st": 0}'::jsonb OR (sfx = 'anon' AND r = '{"raised": "42501"}'::jsonb), r::text);
+    END LOOP;
+  END LOOP;
+END $neworg$;
 
 -- COVERAGE: RLS tables that this test does not seed (static checks above still apply)
 INSERT INTO t_res
